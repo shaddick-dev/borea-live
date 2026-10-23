@@ -272,12 +272,9 @@ impl Windpad {
                 if toggle.clicked() {
                     actions.push(Action::ToggleTheme);
                 }
-                let wifi = if self.wifi.online() {
-                    format!("{}  Online", icon::WIFI)
-                } else {
-                    format!("{}  Wi-Fi", icon::WIFI_OFF)
-                };
-                if nav_button(ui, &p, &wifi, &icon::plain(&wifi)).clicked() {
+                let symbol = if self.wifi.connected() { icon::WIFI } else { icon::WIFI_OFF };
+                let wifi = format!("{symbol}  {}", self.wifi.connection_label());
+                if nav_button(ui, &p, &wifi, "Wi-Fi").clicked() {
                     actions.push(Action::Open(Dialog::Wifi));
                 }
                 let hardware = format!("{}  Hardware", icon::CHIP);

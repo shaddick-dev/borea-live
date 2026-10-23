@@ -184,8 +184,8 @@ impl LiveInstaller {
         self.step
     }
 
-    /// Whether this build can install. Until the planner and privileged worker
-    /// exist it cannot, and every screen that leads there says so first.
+    /// Whether this GUI can install. The Arch Minimal CLI planner and worker
+    /// exist, but storage/account review and worker integration are still pending.
     pub const CAN_INSTALL: bool = false;
 
     pub fn selection(&self) -> &Selection {
@@ -240,6 +240,11 @@ impl LiveInstaller {
         // Already online (a cable, or a network joined here): move on by itself.
         if self.wifi.online() {
             self.go(Step::Machine);
+            return;
+        }
+        // A joined network with an inconclusive internet probe needs neither
+        // another passphrase nor an unrelated network selected automatically.
+        if self.wifi.connected() {
             return;
         }
         // Offline: have the strongest network chosen and the cursor in its passphrase.
@@ -470,9 +475,7 @@ impl LiveInstaller {
         let s = &self.selection;
         let f = self.family();
         match step {
-            Step::Connect => {
-                Some(if self.wifi.online() { "Online".into() } else { "Not connected".into() })
-            }
+            Step::Connect => Some(self.wifi.connection_label()),
             Step::Machine => self.hardware().map(|hw| {
                 let level = hw.cpu.known().and_then(|c| c.x86_level).map(|l| l.to_string());
                 format!("{} · {}", level.unwrap_or_else(|| "CPU".into()), hw.firmware)
@@ -491,11 +494,8 @@ impl LiveInstaller {
     }
 
     fn status_lines(&self) -> Vec<String> {
-        let wifi = match (&self.wifi.unavailable, self.wifi.online()) {
-            (Some(_), _) => "Wi-Fi unavailable".to_owned(),
-            (None, true) => format!("{}  Online", icon::WIFI),
-            (None, false) => format!("{}  Offline", icon::WIFI_OFF),
-        };
+        let symbol = if self.wifi.connected() { icon::WIFI } else { icon::WIFI_OFF };
+        let wifi = format!("{symbol}  {}", self.wifi.connection_label());
         let mut lines = vec![wifi];
         if let Some(hw) = self.hardware() {
             if let Some(cpu) = hw.cpu.known() {
@@ -555,10 +555,12 @@ impl LiveInstaller {
         }
         if !self.wifi.online() {
             ui.add_space(10.0);
-            ui.label(caption(
-                "Wired networks connect on their own. Without a connection you can still look around, but nothing can be downloaded.",
-                &p,
-            ));
+            let hint = if self.wifi.connected() {
+                "Your network is connected. Internet access is not confirmed; a sign-in page or a blocked connectivity check may be the reason."
+            } else {
+                "Wired networks connect on their own. Without a connection you can still look around, but nothing can be downloaded."
+            };
+            ui.label(caption(hint, &p));
         }
     }
 

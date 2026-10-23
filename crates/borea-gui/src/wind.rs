@@ -3,6 +3,34 @@
 //! is reduced or the window is in the background.
 
 use eframe::egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, pos2};
+use std::sync::OnceLock;
+
+/// One seed per launch. No per-frame randomness: nearby frames stay smooth.
+fn launch_seed() -> u64 {
+    static SEED: OnceLock<u64> = OnceLock::new();
+    *SEED.get_or_init(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(1, |d| d.as_nanos() as u64)
+    })
+}
+
+fn noise(seed: u64, lane: usize) -> f64 {
+    let mut x = seed.wrapping_add((lane as u64).wrapping_mul(0x9e3779b97f4a7c15));
+    x = (x ^ (x >> 30)).wrapping_mul(0xbf58476d1ce4e5b9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94d049bb133111eb);
+    ((x ^ (x >> 31)) >> 11) as f64 / ((1_u64 << 53) as f64)
+}
+
+fn drift(time: f64, seed: u64, lane: usize) -> (f32, f32) {
+    let phase = noise(seed, lane * 3) * std::f64::consts::TAU;
+    let speed = 0.035 + noise(seed, lane * 3 + 1) * 0.045;
+    (
+        ((time * speed + phase).sin() * 0.025) as f32,
+        (((time * speed * 0.73 + phase).sin() + (time * speed * 1.37 + phase * 2.0).sin()) * 0.035)
+            as f32,
+    )
+}
 
 /// A cubic Bézier segment in the 1000 × 300 design space of the HTML concept.
 type Cubic = [(f32, f32); 4];
@@ -86,13 +114,23 @@ fn between(points: &[Pos2], lengths: &[f32], from: f32, to: f32) -> Vec<Pos2> {
 pub fn paint(painter: &Painter, rect: Rect, color: Color32, time: Option<f64>) {
     let faint = Stroke::new(0.8, color.gamma_multiply(if time.is_some() { 0.10 } else { 0.22 }));
     let gust = Stroke::new(1.0, color.gamma_multiply(0.55));
-    for (stream, (cycle, start)) in STREAMS.iter().zip(CYCLES) {
-        let (points, lengths) = polyline(stream, rect);
+    let seed = launch_seed();
+    for (lane, (stream, (cycle, start))) in STREAMS.iter().zip(CYCLES).enumerate() {
+        let (mut points, lengths) = polyline(stream, rect);
+        if let Some(time) = time {
+            let (dx, dy) = drift(time, seed, lane);
+            for point in &mut points {
+                *point += eframe::egui::vec2(dx * rect.width(), dy * rect.height());
+            }
+        }
         painter.add(Shape::line(points.clone(), faint));
         let Some(time) = time else { continue };
         let total = *lengths.last().unwrap_or(&0.0);
-        let dash = total * GUST;
-        let phase = (((time + start) / cycle) % 1.0) as f32;
+        let offset = noise(seed, lane + 19);
+        let cycle = cycle * (0.85 + noise(seed, lane + 29) * 0.45);
+        let dash = total * GUST * (0.75 + 0.25 * (time * 0.09 + offset * 6.0).sin() as f32);
+        let phase = ((time + start) / cycle + offset + 0.06 * (time * 0.11 + offset * 6.0).sin())
+            .rem_euclid(1.0) as f32;
         let head = phase * (total + dash) - dash;
         let (from, to) = (head.max(0.0), (head + dash).min(total));
         if to > from {
@@ -126,5 +164,20 @@ mod tests {
         let part = between(&points, &lengths, total * 0.25, total * 0.5);
         assert!(part.len() > 2);
         assert_eq!(between(&points, &lengths, 0.0, total).first(), points.first());
+    }
+
+    #[test]
+    fn airflow_is_varied_bounded_and_continuous() {
+        for lane in 0..4 {
+            let a = drift(10.0, 42, lane);
+            let b = drift(10.033, 42, lane);
+            assert!((a.0 - b.0).abs() < 0.001);
+            assert!((a.1 - b.1).abs() < 0.001);
+            assert_ne!(a, drift(10.0, 43, lane), "launches have different weather");
+            for time in 0..1000 {
+                let (x, y) = drift(time as f64, 42, lane);
+                assert!(x.abs() <= 0.025 && y.abs() <= 0.07);
+            }
+        }
     }
 }

@@ -3,7 +3,7 @@
 use borea_catalog::{Catalog, Distro, Source};
 use eframe::egui::{
     self, Align, Button, CornerRadius, Frame, Layout, Margin, Response, RichText, Role, Sense,
-    Stroke, Ui, WidgetInfo, text::LayoutJob,
+    Stroke, Ui, WidgetInfo,
 };
 
 use crate::icon;
@@ -108,33 +108,24 @@ pub fn extras(
             continue;
         }
         let mut on = ticked(&extra.id);
-        // The name and what it brings, as one label beside the box.
-        let format = |color, size: f32| egui::TextFormat {
-            font_id: egui::FontId::proportional(size),
-            color,
-            line_height: Some(size + 5.0),
-            ..Default::default()
-        };
-        let mut text = LayoutJob::default();
-        text.append(
-            &format!("{}  ", icon::extra(&extra.id)),
-            0.0,
-            format(p.accent, size::SMALL + 0.5),
-        );
-        text.append(&extra.name, 0.0, format(p.ink, size::SMALL + 0.5));
-        text.append(&format!("\n{}", offered.describe()), 0.0, format(p.sub, size::SMALL));
-        text.wrap.max_width = ui.available_width() - ui.spacing().icon_width - 8.0;
-        let response = ui.checkbox(&mut on, text);
+        let text = RichText::new(&extra.name).color(p.ink).size(size::SMALL + 0.5);
+        let response = ui.checkbox(&mut on, text).on_hover_text(offered.describe());
         // Every card has the same extras, so each says whose it is.
         let label = format!("{} for {}", extra.name, distro.name);
         response.widget_info(|| WidgetInfo::selected(Role::CheckBox, true, on, &label));
         if response.changed() {
             change = Some((extra.id.clone(), on));
         }
-        ui.add_space(2.0);
+        ui.indent(("extra-detail", &extra.id), |ui| {
+            ui.label(caption(offered.summary(), p));
+            if let Some(needs) = &offered.provision.needs {
+                ui.label(caption(format!("Requires {needs}"), p));
+            }
+        });
+        ui.add_space(10.0);
     }
     if !built_in.is_empty() {
-        let text = format!("{} Built into {}: {}", icon::CHECK, distro.name, built_in.join(", "));
+        let text = format!("Built into {}: {}", distro.name, built_in.join(", "));
         tag(ui, p.wash, Stroke::NONE, RichText::new(text).size(size::TINY).color(p.accent));
     }
     change

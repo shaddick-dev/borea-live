@@ -166,21 +166,35 @@ fn renders_each_step() {
         press(&mut h, "Next");
         press(&mut h, "MangoWC");
         h.render().unwrap().save(format!("{dir}/live-{name}-4-desktop.png")).unwrap();
+        h.get_by_role_and_label(Role::CheckBox, "Gaming for CachyOS").scroll_to_me();
+        h.run();
+        h.render().unwrap().save(format!("{dir}/live-{name}-4-extras.png")).unwrap();
         press(&mut h, "Review");
         h.render().unwrap().save(format!("{dir}/live-{name}-5-review.png")).unwrap();
     }
 }
 
 fn with_network(online: bool) -> Installer {
+    use borea_network::Connectivity;
+    with_connectivity(if online { Connectivity::Full } else { Connectivity::None })
+}
+
+fn with_connectivity(connectivity: borea_network::Connectivity) -> Installer {
     use borea_network::{Band, Connectivity, Network, Security, Status};
     let status = Status {
-        connectivity: if online { Connectivity::Full } else { Connectivity::None },
+        connectivity,
         radio_enabled: true,
         radio_unblocked: true,
-        primary: online.then(|| "Wired connection 1".into()),
+        primary: (connectivity != Connectivity::None).then(|| "Breeze Studio".into()),
     };
     let networks = vec![
-        Network::sample("Breeze Studio", 82, Security::Wpa3Personal, Band::Ghz5, false),
+        Network::sample(
+            "Breeze Studio",
+            82,
+            Security::Wpa3Personal,
+            Band::Ghz5,
+            connectivity != Connectivity::None,
+        ),
         Network::sample("Neighbours", 40, Security::WpaPersonal, Band::Ghz2_4, false),
     ];
     let mut harness = Harness::builder().with_size(egui::vec2(1280.0, 860.0)).build_ui_state(
@@ -208,12 +222,42 @@ fn online_at_boot_skips_straight_past_connect() {
 }
 
 #[test]
+fn joined_network_with_limited_internet_is_not_labelled_offline() {
+    let mut h = with_connectivity(borea_network::Connectivity::Limited);
+    assert_eq!(app(&h).step(), Step::Connect, "unconfirmed internet does not skip Connect");
+    assert!(app(&h).suggested_network().is_none(), "do not prompt for an unrelated network");
+    assert!(h.query_by_label("Passphrase").is_none(), "already joined; no new key required");
+    press(&mut h, "Next");
+    assert!(h.query_by_label("Connected · local network only").is_some());
+    assert!(h.query_by_label("Not connected").is_none());
+}
+
+#[test]
 fn offline_at_boot_has_the_strongest_network_ready_to_join() {
     let h = with_network(false);
     assert_eq!(app(&h).step(), Step::Connect);
     assert_eq!(app(&h).suggested_network(), Some("Breeze Studio"));
     assert!(h.get_by_label("Passphrase").is_focused(), "the cursor waits in the passphrase field");
-    assert!(h.query_by_label("Join Breeze Studio").is_some());
+    assert!(h.query_by_label("Join Breeze Studio").is_none(), "Join appears after typing");
+}
+
+#[test]
+fn join_appears_beside_the_passphrase_after_typing() {
+    let mut h = with_network(false);
+    assert!(h.query_by_label("Join Breeze Studio").is_none());
+    h.get_by_label("Passphrase").type_text("valid-wifi-passphrase");
+    h.run();
+    assert!(h.query_by_role_and_label(Role::Button, "Join Breeze Studio").is_some());
+    let field = h.get_by_label("Passphrase").rect();
+    let join = h.get_by_role_and_label(Role::Button, "Join Breeze Studio").rect();
+    assert!(join.left() >= field.right(), "Join is to the right of the field");
+    assert!((join.center().y - field.center().y).abs() < 8.0, "Join shares the input row");
+    if let Ok(dir) = std::env::var("WINDPAD_SHOTS") {
+        h.render().unwrap().save(format!("{dir}/live-wifi-join.png")).unwrap();
+    }
+    h.get_by_role_and_label(Role::Button, "Join Breeze Studio").click();
+    h.run();
+    assert!(h.query_by_label("Join Breeze Studio").is_none(), "submission clears the passphrase");
 }
 
 #[test]

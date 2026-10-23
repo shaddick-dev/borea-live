@@ -19,9 +19,27 @@ pub enum Command {
 }
 
 enum Update {
-    State { status: Status, networks: Vec<Network> },
+    Status(Status),
+    Networks(Vec<Network>),
     Message(String),
     Unavailable(String),
+}
+
+// A scan can fail while a cable or an already joined network is working. Never
+// let that failure prevent fresh connection status from reaching the interface.
+fn publish_refresh(
+    status: borea_network::Result<Status>,
+    networks: borea_network::Result<Vec<Network>>,
+    send: &impl Fn(Update),
+) {
+    match status {
+        Ok(status) => send(Update::Status(status)),
+        Err(error) => send(Update::Message(error.to_string())),
+    }
+    match networks {
+        Ok(networks) => send(Update::Networks(networks)),
+        Err(error) => send(Update::Message(error.to_string())),
+    }
 }
 
 /// Reach NetworkManager, waiting for it to start if the installer came up first.
@@ -72,9 +90,8 @@ impl WifiLink {
                     ctx.request_repaint();
                 };
                 let Some(wifi) = connect(&send) else { return };
-                let refresh = |wifi: &Wifi| match (wifi.status(), wifi.networks()) {
-                    (Ok(status), Ok(networks)) => send(Update::State { status, networks }),
-                    (Err(error), _) | (_, Err(error)) => send(Update::Message(error.to_string())),
+                let refresh = |wifi: &Wifi| {
+                    publish_refresh(wifi.status(), wifi.networks(), &send);
                 };
                 // Scan straight away rather than showing whatever NetworkManager saw last.
                 let _ = wifi.rescan();
@@ -99,6 +116,10 @@ impl WifiLink {
                         Ok(Some(message)) => {
                             send(Update::Message(message));
                             thread::sleep(SETTLE);
+                            refresh(&wifi);
+                            // Publish the joined network before asking for a
+                            // probe, which may take a while on a captive portal.
+                            let _ = wifi.check_connectivity();
                         }
                         Ok(None) => {}
                         Err(error) => send(Update::Message(error.to_string())),
@@ -145,10 +166,13 @@ impl WifiLink {
         let Some(updates) = &self.updates else { return };
         for update in updates.try_iter() {
             match update {
-                Update::State { status, networks } => {
+                Update::Status(status) => {
+                    if status.connectivity == borea_network::Connectivity::Full {
+                        self.message = None;
+                    }
                     self.status = Some(status);
-                    self.networks = networks;
                 }
+                Update::Networks(networks) => self.networks = networks,
                 Update::Message(message) => self.message = Some(message),
                 Update::Unavailable(reason) => self.unavailable = Some(reason),
             }
@@ -164,6 +188,37 @@ impl WifiLink {
     pub fn online(&self) -> bool {
         self.status.as_ref().is_some_and(|s| s.connectivity == borea_network::Connectivity::Full)
     }
+
+    pub fn connected(&self) -> bool {
+        self.online()
+            || self.status.as_ref().is_some_and(|s| s.primary.is_some())
+            || self.networks.iter().any(|n| n.active)
+    }
+
+    /// Association and internet reachability are different facts. A blocked
+    /// connectivity probe must not label a joined Wi-Fi network as disconnected.
+    pub fn connection_label(&self) -> String {
+        use borea_network::Connectivity;
+        if self.online() {
+            return "Online".into();
+        }
+        if self.status.as_ref().is_some_and(|s| s.connectivity == Connectivity::Portal) {
+            return "Connected · sign-in required".into();
+        }
+        if self.connected() {
+            return match self.status.as_ref().map(|s| s.connectivity) {
+                Some(Connectivity::Limited) => "Connected · local network only".into(),
+                _ => "Connected · internet unconfirmed".into(),
+            };
+        }
+        if self.unavailable.is_some() {
+            "Network status unavailable".into()
+        } else if self.status.is_none() {
+            "Checking connection…".into()
+        } else {
+            "Offline".into()
+        }
+    }
 }
 
 /// What the user is typing in the Wi-Fi panel. The passphrase is cleared whenever it
@@ -175,6 +230,8 @@ pub struct WifiForm {
     reveal: bool,
     hidden_ssid: String,
     hidden_security: usize,
+    hidden_passphrase: String,
+    hidden_reveal: bool,
     /// Put the cursor in the passphrase field on the next frame.
     focus: bool,
 }
@@ -195,6 +252,7 @@ impl WifiForm {
 
     pub fn forget_passphrase(&mut self) {
         self.passphrase.clear();
+        self.hidden_passphrase.clear();
     }
 
     fn take_passphrase(&mut self, security: Security) -> Option<Secret> {
@@ -224,7 +282,7 @@ pub fn panel(ui: &mut Ui, p: &Palette, link: &WifiLink, form: &mut WifiForm) -> 
             (true, false) => "Wi-Fi off",
             (true, true) => "Wi-Fi on",
         };
-        ui.label(caption(format!("Internet: {} · {radio}", status.connectivity), p));
+        ui.label(caption(format!("{} · {radio}", link.connection_label()), p));
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if quiet(ui, p, "Rescan").clicked() {
                 command = Some(Command::Rescan);
@@ -267,6 +325,7 @@ pub fn panel(ui: &mut Ui, p: &Palette, link: &WifiLink, form: &mut WifiForm) -> 
             if card.clicked() && !picked {
                 form.passphrase.clear();
                 form.picked = Some(network.ssid.clone());
+                form.focus = true;
             }
         }
     });
@@ -274,18 +333,23 @@ pub fn panel(ui: &mut Ui, p: &Palette, link: &WifiLink, form: &mut WifiForm) -> 
         link.networks.iter().find(|n| form.picked.as_deref() == Some(n.ssid.as_str()))
     {
         ui.add_space(6.0);
-        let mut submitted = false;
-        if network.security.needs_passphrase() {
+        if matches!(network.security, Security::Enterprise | Security::Wep) {
+            ui.label(caption("This network needs a security setup Borea does not yet support.", p));
+        } else {
             let focus = std::mem::take(&mut form.focus);
-            submitted = passphrase_field(ui, p, &mut form.passphrase, &mut form.reveal, focus);
-        }
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let join = primary(ui, p, &format!("Join {}", network.ssid), false).clicked();
-            if join || submitted {
+            if join_field(
+                ui,
+                p,
+                &mut form.passphrase,
+                &mut form.reveal,
+                focus,
+                network.security,
+                &format!("Join {}", network.ssid),
+            ) {
                 let passphrase = form.take_passphrase(network.security);
                 command = Some(Command::Join { network: network.clone(), passphrase });
             }
-        });
+        }
     }
     ui.add_space(6.0);
     egui::CollapsingHeader::new(caption("Hidden network", p)).show(ui, |ui| {
@@ -300,13 +364,22 @@ pub fn panel(ui: &mut Ui, p: &Palette, link: &WifiLink, form: &mut WifiForm) -> 
             })
             .labelled_by(security.id);
         let (kind, _) = HIDDEN_SECURITY[form.hidden_security];
-        if kind.needs_passphrase() {
-            passphrase_field(ui, p, &mut form.passphrase, &mut form.reveal, false);
-        }
-        if !form.hidden_ssid.trim().is_empty()
-            && primary(ui, p, "Join hidden network", false).clicked()
-        {
-            let passphrase = form.take_passphrase(kind);
+        let submitted = ui
+            .add_enabled_ui(!form.hidden_ssid.trim().is_empty(), |ui| {
+                join_field(
+                    ui,
+                    p,
+                    &mut form.hidden_passphrase,
+                    &mut form.hidden_reveal,
+                    false,
+                    kind,
+                    "Join hidden network",
+                )
+            })
+            .inner;
+        if submitted {
+            let text = std::mem::take(&mut form.hidden_passphrase);
+            let passphrase = kind.needs_passphrase().then(|| Secret::new(text));
             command = Some(Command::JoinHidden {
                 ssid: form.hidden_ssid.trim().to_owned(),
                 security: kind,
@@ -322,21 +395,125 @@ pub fn panel(ui: &mut Ui, p: &Palette, link: &WifiLink, form: &mut WifiForm) -> 
     command
 }
 
-/// The passphrase box. Returns true when Enter was pressed in it.
-fn passphrase_field(
+fn valid_passphrase(security: Security, text: &str) -> bool {
+    match security {
+        Security::WpaPersonal => {
+            (8..=63).contains(&text.len())
+                || text.len() == 64 && text.bytes().all(|c| c.is_ascii_hexdigit())
+        }
+        Security::Wpa3Personal => (1..=63).contains(&text.len()),
+        Security::Open | Security::EnhancedOpen => true,
+        Security::Wep | Security::Enterprise => false,
+    }
+}
+
+/// A bounded row keeps Join immediately beside the field, instead of centering
+/// it in all of the space left below the network list.
+#[allow(clippy::too_many_arguments)]
+fn join_field(
     ui: &mut Ui,
     p: &Palette,
     passphrase: &mut String,
     reveal: &mut bool,
     focus: bool,
+    security: Security,
+    join_label: &str,
 ) -> bool {
+    if !security.needs_passphrase() {
+        return ui.horizontal(|ui| primary(ui, p, join_label, false).clicked()).inner;
+    }
     let label = ui.label(RichText::new("Passphrase").size(size::TINY).color(p.sub));
-    let field = ui
-        .add(TextEdit::singleline(passphrase).password(!*reveal).desired_width(f32::INFINITY))
-        .labelled_by(label.id);
-    if focus {
-        field.request_focus();
+    let submitted = ui
+        .horizontal(|ui| {
+            let width = (ui.available_width() - 86.0 - ui.spacing().item_spacing.x).max(40.0);
+            let field = ui
+                .add_sized([width, 36.0], TextEdit::singleline(passphrase).password(!*reveal))
+                .labelled_by(label.id);
+            if focus {
+                field.request_focus();
+            }
+            let ready = valid_passphrase(security, passphrase);
+            let clicked = !passphrase.is_empty()
+                && ui
+                    .add_enabled_ui(ready, |ui| {
+                        let response = primary(ui, p, "Join", false).on_hover_text(join_label);
+                        response.widget_info(|| {
+                            egui::WidgetInfo::labeled(egui::Role::Button, ready, join_label)
+                        });
+                        // Accessibility uses the full network name; the visible button stays compact.
+                        response.clicked()
+                    })
+                    .inner;
+            clicked || ready && field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
+        })
+        .inner;
+    if !passphrase.is_empty() && !valid_passphrase(security, passphrase) {
+        let hint = if security == Security::Wpa3Personal {
+            "WPA3 needs a passphrase of 1–63 bytes."
+        } else {
+            "WPA2 needs 8–63 bytes, or a 64-digit hexadecimal key."
+        };
+        ui.label(caption(hint, p));
     }
     ui.checkbox(reveal, caption("Show passphrase", p));
-    field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !passphrase.is_empty()
+    submitted
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use borea_network::{Band, Connectivity, NetworkError};
+
+    fn status(connectivity: Connectivity) -> Status {
+        Status { connectivity, radio_enabled: true, radio_unblocked: true, primary: None }
+    }
+
+    #[test]
+    fn scan_failure_does_not_discard_a_working_connection() {
+        let (tx, rx) = mpsc::channel();
+        publish_refresh(Ok(status(Connectivity::Full)), Err(NetworkError::NoAdapter), &|update| {
+            tx.send(update).unwrap();
+        });
+        let mut link = WifiLink::offline("test");
+        link.unavailable = None;
+        link.updates = Some(rx);
+        link.poll();
+        assert!(link.online());
+        assert!(link.message.is_some(), "the scan error is still reported");
+    }
+
+    #[test]
+    fn joined_wifi_is_connected_even_when_the_internet_probe_is_limited() {
+        let link = WifiLink::simulated(
+            status(Connectivity::Limited),
+            vec![Network::sample("Home", 90, Security::WpaPersonal, Band::Ghz5, true)],
+        );
+        assert!(link.connected());
+        assert!(!link.online(), "association does not prove internet access");
+        assert_eq!(link.connection_label(), "Connected · local network only");
+    }
+
+    #[test]
+    fn cable_portal_and_pending_states_are_distinct() {
+        let mut state = status(Connectivity::Unknown);
+        state.primary = Some("Wired connection".into());
+        let mut link = WifiLink::simulated(state, vec![]);
+        assert_eq!(link.connection_label(), "Connected · internet unconfirmed");
+        link.status.as_mut().unwrap().connectivity = Connectivity::Portal;
+        assert_eq!(link.connection_label(), "Connected · sign-in required");
+        link.status = None;
+        assert_eq!(link.connection_label(), "Checking connection…");
+    }
+
+    #[test]
+    fn submission_requires_a_valid_personal_network_key() {
+        assert!(!valid_passphrase(Security::WpaPersonal, ""));
+        assert!(!valid_passphrase(Security::WpaPersonal, "short"));
+        assert!(valid_passphrase(Security::WpaPersonal, "long-enough"));
+        assert!(valid_passphrase(Security::WpaPersonal, &"a".repeat(64)));
+        assert!(!valid_passphrase(Security::WpaPersonal, &"g".repeat(64)));
+        assert!(valid_passphrase(Security::Wpa3Personal, "a"));
+        assert!(!valid_passphrase(Security::Enterprise, "long-enough"));
+        assert!(valid_passphrase(Security::Open, ""));
+    }
 }

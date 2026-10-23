@@ -273,6 +273,15 @@ impl Wifi {
         })
     }
 
+    /// Recheck internet reachability after a join instead of waiting up to a
+    /// minute for NetworkManager's periodic probe. NetworkManager owns the
+    /// configured probe and captive-portal detection; association alone is not
+    /// treated as proof of internet access.
+    pub fn check_connectivity(&self) -> Result<Connectivity> {
+        let state: u32 = self.manager()?.call("CheckConnectivity", &())?;
+        Ok(Connectivity::from_nm(state))
+    }
+
     /// Wi-Fi devices' object paths.
     fn adapters(&self) -> Result<Vec<String>> {
         let devices: Vec<OwnedObjectPath> = self.manager()?.call("GetDevices", &())?;
