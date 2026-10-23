@@ -2,7 +2,7 @@
 
 ## Layout and hierarchy
 
-Create a calm native Rust interface using warm ivory or deep charcoal, fine mist-colored borders, generous whitespace, and a muted blue-green accent. It is set entirely in JetBrains Mono Nerd Font, regular and bold, with Nerd Font icons doing the work of marks and pictures: distribution logos on the family and distribution choices, hardware icons on the machine facts, an icon per extra. Corners are tight, and there is no serif. Quiet airflow paths animate behind the hero.
+Create a calm native Rust interface using a Nord palette (snow-storm light or polar-night dark), fine frost-colored borders, generous whitespace, and a muted frost-blue accent. It is set entirely in JetBrains Mono Nerd Font, regular and bold, with Nerd Font icons doing the work of marks and pictures: distribution logos on the family and distribution choices, hardware icons on the machine facts, an icon per extra. Corners are tight, and there is no serif. Quiet airflow paths animate behind the hero.
 
 ```text
  BOREA                                  Hardware   Wi-Fi   Appearance

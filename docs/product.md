@@ -113,7 +113,7 @@ Failure shows the failed stage, a useful explanation, what has already changed, 
 
 ## Visual direction
 
-Use warm ivory, charcoal, mist, and a restrained blue-green accent with generous whitespace. Fine animated airflow lines move behind the hero while cards and form controls remain still. Short directional transitions guide navigation. Keep one clear next action, reveal advanced controls on demand, and retain hardware/Wi-Fi access throughout. see the [Windpad design](windpad.md) for motion, layout, and interaction details. Use plain labels for critical actions.
+Use a Nord palette: snow-storm whites, polar-night greys, and a restrained frost-blue accent with generous whitespace. Fine animated airflow lines move behind the hero while cards and form controls remain still. Short directional transitions guide navigation. Keep one clear next action, reveal advanced controls on demand, and retain hardware/Wi-Fi access throughout. see the [Windpad design](windpad.md) for motion, layout, and interaction details. Use plain labels for critical actions.
 
 Support light/dark themes, scalable text, keyboard navigation, visible focus, high contrast, and reduced motion. Validate screen-reader support on the selected GUI backend before claiming accessibility. Use icons alongside text, never as the sole indication of risk or progress.
 

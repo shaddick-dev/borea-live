@@ -879,3 +879,17 @@ Session 29 — first Arch Linux install (vertical slice)
     pinned older-kernel fixture), real hardware, editions beyond Minimal,
     GUI integration (Windpad/Borea Live still stop before installing),
     worker IPC/polkit (it is run directly as root for now).
+
+Session 30 — Wi-Fi firmware fix, Nord theme, handoff for GitHub push
+
+  - live/buildroot/external.mk: when linux-firmware is enabled, install all
+    intel/iwlwifi/iwlwifi-* firmware and ath12k/WCN7850; a post-install hook
+    keeps only the three newest versions per card and drops dangling
+    iwlwifi symlinks. Fixes Borea Live showing no Wi-Fi adapter on common
+    Intel laptop cards (AX200/AX201/AX211/BE200).
+  - Theme moved to Nord (borea-gui theme.rs, design/windpad.html, docs).
+  - Codex's borea-helper (crates/borea-flash) included as is; tests pass.
+  - ISO rebuilt (target/live/out/borea-live-0.1.0-20261023.iso) and
+    boot-checked under OVMF (target/vm/nord-check/screen.png).
+  - Not committed here; packaged as borea-handoff-2026-10-23-v2.zip for Codex
+    cloud to commit and push to GitHub (no remote configured locally yet).

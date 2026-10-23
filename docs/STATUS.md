@@ -1,7 +1,7 @@
 # Borea: current status (23 October 2026)
 
 A short handoff for whoever picks this up next. The full history is in
-`docs/handover.txt` (sessions 1–29). The plan for the product is in `README.md`
+`docs/handover.txt` (sessions 1–30). The plan for the product is in `README.md`
 and the rest of `docs/`.
 
 ## What Borea is
@@ -51,6 +51,30 @@ distribution's ISO.
 6. **Release work:** signed catalog and release hosting, CI, and a first boot
    on real hardware.
 
+## Changes since dfd6ed3 (uncommitted, to push)
+
+1. **Wi-Fi fix for Borea Live** (`live/buildroot/external.mk`): ships every
+   Intel iwlwifi firmware (AX200, AX201, AX211, BE200 and others that
+   Buildroot's per-generation options miss) plus Qualcomm WCN7850 (ath12k).
+   Only the three newest firmware versions of each card are kept to hold the
+   image size down. Without the firmware, NetworkManager had no Wi-Fi adapter
+   and the installer couldn't get past Connect.
+2. **Nord blue theme:** `crates/borea-gui/src/theme.rs`, `design/windpad.html`,
+   `docs/product.md` and `docs/windpad.md` move from ivory/charcoal and
+   blue-green to Nord snow storm / polar night with a frost-blue accent.
+3. **Borea TUI Helper** (Codex): `borea-helper` binary
+   (`crates/borea-flash/src/helper.rs`, `src/install.rs`, `README.md`) builds
+   the ISO when it's missing or stale, then flashes. The ISO freshness check
+   now includes the root `Cargo.toml`.
+
+Verified: `cargo test -p borea-flash -p borea-gui` passes. The ISO
+`borea-live-0.1.0-20261023.iso` was rebuilt with the firmware and theme and
+boot-checked under OVMF (Machine step renders in Nord dark). Wi-Fi on real
+Intel hardware hasn't been tested yet.
+
+Suggested commit: "Ship Intel and WCN7850 Wi-Fi firmware, Nord theme, Borea
+TUI Helper".
+
 ## Rules the owner set
 
 - Rust wherever possible.
@@ -68,7 +92,7 @@ distribution's ISO.
   Buildroot doesn't rebuild a package when its options change.
 - `target/` (about 70 GB) holds Buildroot's build cache. Keep it: it's what
   makes rebuilds incremental.
-- Uncommitted at handoff: `crates/borea-flash` changes adding `borea-helper`,
-  `src/install.rs` and `src/helper.rs`. They weren't made in Claude's session;
-  review them before committing.
+- Uncommitted at handoff, ready to commit and push (see "Changes since
+  dfd6ed3" below). The repository has no remote yet: add the GitHub one
+  before pushing.
 - Codex's coordination notes are in `docs/CODEX_CLAUDE_COORDINATION.md`.

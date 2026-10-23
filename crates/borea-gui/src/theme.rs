@@ -1,4 +1,4 @@
-//! Windpad's look: warm ivory or deep charcoal, mist lines, a muted blue-green accent,
+//! Windpad's look: Nord's snow storm or polar night, frost lines, a cool frost-blue accent,
 //! set in JetBrains Mono Nerd Font with its icons. The colour tokens match the HTML
 //! concept, so both read as one design.
 
@@ -20,24 +20,24 @@ pub struct Palette {
 }
 
 pub const LIGHT: Palette = Palette {
-    bg: Color32::from_rgb(0xf5, 0xf5, 0xef),
-    paper: Color32::from_rgb(0xfb, 0xfb, 0xf7),
-    ink: Color32::from_rgb(0x25, 0x36, 0x2e),
-    sub: Color32::from_rgb(0x6d, 0x78, 0x6f),
-    line: Color32::from_rgb(0xdc, 0xe0, 0xd5),
-    accent: Color32::from_rgb(0x42, 0x6e, 0x58),
-    wash: Color32::from_rgb(0xea, 0xf0, 0xe7),
+    bg: Color32::from_rgb(0xec, 0xef, 0xf4),
+    paper: Color32::from_rgb(0xf6, 0xf8, 0xfb),
+    ink: Color32::from_rgb(0x2e, 0x34, 0x40),
+    sub: Color32::from_rgb(0x4c, 0x56, 0x6a),
+    line: Color32::from_rgb(0xd8, 0xde, 0xe9),
+    accent: Color32::from_rgb(0x45, 0x68, 0x90),
+    wash: Color32::from_rgb(0xdf, 0xe6, 0xef),
     dark: false,
 };
 
 pub const DARK: Palette = Palette {
-    bg: Color32::from_rgb(0x19, 0x1f, 0x1c),
-    paper: Color32::from_rgb(0x22, 0x2a, 0x25),
-    ink: Color32::from_rgb(0xe6, 0xec, 0xdf),
-    sub: Color32::from_rgb(0xa3, 0xaf, 0xa5),
-    line: Color32::from_rgb(0x39, 0x44, 0x3b),
-    accent: Color32::from_rgb(0xa2, 0xc4, 0xa8),
-    wash: Color32::from_rgb(0x2d, 0x3b, 0x30),
+    bg: Color32::from_rgb(0x2e, 0x34, 0x40),
+    paper: Color32::from_rgb(0x3b, 0x42, 0x52),
+    ink: Color32::from_rgb(0xec, 0xef, 0xf4),
+    sub: Color32::from_rgb(0xb4, 0xbc, 0xcb),
+    line: Color32::from_rgb(0x4c, 0x56, 0x6a),
+    accent: Color32::from_rgb(0x88, 0xc0, 0xd0),
+    wash: Color32::from_rgb(0x3d, 0x4a, 0x5c),
     dark: true,
 };
 

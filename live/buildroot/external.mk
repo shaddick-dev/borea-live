@@ -9,3 +9,25 @@ POLKIT_CONF_OPTS := $(filter-out -Dsession_tracking=ConsoleKit,$(POLKIT_CONF_OPT
 	-Dsession_tracking=logind
 polkit-depends: systemd
 endif
+
+# Every Intel Wi-Fi card. Buildroot's per-generation options leave out some of the
+# most common laptop cards: the AX200 (cc), the AX201 in Alder and Raptor Lake
+# laptops (so-hr), and the AX211 and BE200 families of Meteor Lake and later (ma,
+# bz, sc). Without its firmware iwlwifi never creates the device, so NetworkManager
+# has no Wi-Fi adapter to offer and the installer cannot get past Connect.
+# Only the three newest firmware versions of each card are kept: iwlwifi takes the
+# newest its kernel speaks, and the older ones would nearly double the image.
+# Also Qualcomm's WCN7850 (ath12k, Wi-Fi 7), which has no Buildroot option.
+ifeq ($(BR2_PACKAGE_LINUX_FIRMWARE),y)
+LINUX_FIRMWARE_FILES += intel/iwlwifi/iwlwifi-*
+LINUX_FIRMWARE_DIRS += ath12k/WCN7850
+
+define BOREA_IWLWIFI_NEWEST_ONLY
+	cd $(TARGET_DIR)/lib/firmware/intel/iwlwifi && \
+	for card in $$(ls iwlwifi-*.ucode | sed -E 's/-c?[0-9]+\.ucode$$//' | sort -u); do \
+		ls | grep -E "^$$card-c?[0-9]+\.ucode$$" | sort -V | head -n -3 | xargs -r rm -f; \
+	done
+	find -L $(TARGET_DIR)/lib/firmware -maxdepth 1 -type l -name 'iwlwifi-*' -delete
+endef
+LINUX_FIRMWARE_POST_INSTALL_TARGET_HOOKS += BOREA_IWLWIFI_NEWEST_ONLY
+endif
