@@ -1,0 +1,171 @@
+# Windpad catalog: the families, distributions, and editions Borea offers.
+#
+# This is development research data, reviewed 2026-10-22 against the official
+# sources listed per distribution. It is NOT the signed production catalog:
+# the loader refuses to mark any entry "supported" while `signed = false`.
+# Edition availability changes upstream; production menus come from signed,
+# reviewed metadata and actual published combinations.
+#
+# `composable = true` marks an edition with no preinstalled desktop environment or
+# shell. Only those editions offer the compositor + shell path from shells.toml.
+#
+# Naming, the same on every card:
+#   - Distributions use their upstream product name ("openSUSE Tumbleweed").
+#   - Editions are named for the desktop you get, then upstream's own label after
+#     " · " when it adds something ("GNOME · Workstation", "KDE Plasma · Handheld").
+#   - The edition with no desktop is always "Minimal".
+#   - A ready-made desktop comes first (it is what a card starts on); Minimal,
+#     where you compose your own, comes last.
+#
+# Optional features (Gaming, Media codecs, Flatpak, Printing) are in extras.toml.
+
+schema = 1
+reviewed = "2026-10-22"
+signed = false
+
+# ── Arch family ──────────────────────────────────────────────────────────────
+
+[[distro]]
+id = "arch"
+name = "Arch Linux"
+family = "arch"
+channel = "rolling"
+status = "planned"
+summary = "Current repositories, your choice of environment."
+source = "https://archlinux.org/download/"
+editions = [
+  { id = "kde-plasma", name = "KDE Plasma" },
+  { id = "gnome", name = "GNOME" },
+  { id = "xfce", name = "Xfce" },
+  { id = "minimal", name = "Minimal", composable = true },
+]
+
+[[distro]]
+id = "cachyos"
+name = "CachyOS"
+family = "arch"
+channel = "rolling"
+status = "planned"
+summary = "Both official editions, or Minimal to compose your own. Optimized repositories for this CPU."
+source = "https://www.cachyos.org/download/"
+editions = [
+  # Upstream's "Desktop" edition; KDE Plasma is its default desktop.
+  { id = "desktop", name = "KDE Plasma" },
+  { id = "handheld", name = "KDE Plasma · Handheld", device = "handheld" },
+  # Upstream's installer calls this "No Desktop": the optimized base, no desktop or shell.
+  { id = "minimal", name = "Minimal", composable = true },
+]
+
+[[distro]]
+id = "omarchy"
+name = "Omarchy"
+family = "arch"
+channel = "stable"
+status = "planned"
+summary = "The upstream Omarchy experience, with its required layout and defaults."
+source = "https://omarchy.org/manual/getting-started/"
+editions = [{ id = "omarchy", name = "Hyprland · Omarchy" }]
+
+# ── Fedora family ────────────────────────────────────────────────────────────
+
+[[distro]]
+id = "fedora"
+name = "Fedora Linux"
+family = "fedora"
+channel = "stable"
+status = "planned"
+summary = "Latest general-availability release with current updates."
+source = "https://fedoraproject.org/"
+editions = [
+  { id = "workstation", name = "GNOME · Workstation" },
+  { id = "kde-plasma", name = "KDE Plasma" },
+  { id = "minimal", name = "Minimal", composable = true },
+]
+
+[[distro]]
+id = "bazzite"
+name = "Bazzite"
+family = "fedora"
+channel = "image-stream"
+status = "planned"
+summary = "Native image deployment with upstream updates and rollback."
+source = "https://docs.bazzite.gg/General/Installation_Guide/install-guide/"
+# The complete hardware/GPU/device matrix must come from reviewed upstream
+# metadata; these are the desktop × mode choices only.
+matrix_complete = false
+editions = [
+  { id = "desktop-kde", name = "KDE Plasma" },
+  { id = "desktop-gnome", name = "GNOME" },
+  { id = "gaming-mode-kde", name = "KDE Plasma · Gaming Mode" },
+  { id = "gaming-mode-gnome", name = "GNOME · Gaming Mode" },
+]
+
+[[distro]]
+id = "nobara"
+name = "Nobara"
+family = "fedora"
+channel = "stable"
+status = "planned"
+summary = "All five current editions. Unified images cover standard and NVIDIA setups."
+source = "https://nobaraproject.org/download.html"
+editions = [
+  # Upstream's "Official" edition: KDE Plasma with Nobara's own layout.
+  { id = "official", name = "KDE Plasma · Official" },
+  { id = "gnome", name = "GNOME" },
+  { id = "kde", name = "KDE Plasma" },
+  { id = "steam-htpc", name = "KDE Plasma · Steam HTPC" },
+  { id = "steam-handheld", name = "KDE Plasma · Steam Handheld", device = "handheld" },
+]
+
+# ── Debian family ────────────────────────────────────────────────────────────
+
+[[distro]]
+id = "debian"
+name = "Debian"
+family = "debian"
+channel = "stable"
+status = "planned"
+summary = "Latest stable release with security and stable updates."
+source = "https://www.debian.org/releases/"
+editions = [
+  { id = "gnome", name = "GNOME" },
+  { id = "kde-plasma", name = "KDE Plasma" },
+  { id = "xfce", name = "Xfce" },
+  { id = "minimal", name = "Minimal", composable = true },
+]
+
+[[distro]]
+id = "pikaos"
+name = "PikaOS"
+family = "debian"
+channel = "rolling"
+status = "planned"
+summary = "All five current desktops, each with its published Standard/NVIDIA image."
+source = "https://pika-os.com/"
+# Recorded from the handover research; confirm against upstream before certification.
+cpu_baseline = "x86-64-v3"
+variants = ["Standard", "NVIDIA"]
+editions = [
+  { id = "gnome", name = "GNOME" },
+  { id = "kde-plasma", name = "KDE Plasma" },
+  { id = "hyprland", name = "Hyprland" },
+  { id = "niri", name = "niri" },
+  { id = "cosmic", name = "COSMIC" },
+]
+
+# ── openSUSE ─────────────────────────────────────────────────────────────────
+
+[[distro]]
+id = "tumbleweed"
+name = "openSUSE Tumbleweed"
+family = "opensuse"
+channel = "snapshot"
+status = "planned"
+summary = "The latest coherent snapshot. Gaming is ticked by default; device firmware and microcode always come along."
+source = "https://doc.opensuse.org/documentation/tumbleweed/yast_installer/"
+editions = [
+  { id = "kde-plasma", name = "KDE Plasma" },
+  { id = "gnome", name = "GNOME" },
+  { id = "xfce", name = "Xfce" },
+  { id = "minimal", name = "Minimal", composable = true },
+]

@@ -1,0 +1,31 @@
+[Unit]
+Description=Borea Live installer
+# Start with the network rather than before it; the installer still waits for
+# NetworkManager on its own if it comes up late.
+After=systemd-user-sessions.service NetworkManager.service systemd-logind.service
+Wants=NetworkManager.service
+# The installer owns the first console.
+Conflicts=getty@tty1.service
+After=getty@tty1.service
+
+[Service]
+User=borea
+PAMName=borea-live
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+StandardInput=tty-fail
+StandardOutput=journal
+StandardError=journal
+UtmpIdentifier=tty1
+UtmpMode=user
+Environment=XDG_SESSION_TYPE=wayland
+# -d: no window decorations. -s: Ctrl+Alt+F2 still reaches a rescue console.
+ExecStart=/usr/bin/cage -d -s -- /usr/bin/borea-live
+# If it ever exits or crashes, it comes straight back.
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=graphical.target

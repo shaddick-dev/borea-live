@@ -1,0 +1,47 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/borea-core",
+    "crates/borea-catalog",
+    "crates/borea-host",
+    "crates/borea-hardware",
+    "crates/borea-distro",
+    "crates/borea-bootstrap",
+    "crates/borea-testkit",
+    "crates/borea-network",
+    "crates/borea-gui",
+    "crates/borea-flash",
+    "crates/borea-init",
+    "crates/borea-build",
+    "crates/borea-engine",
+    "crates/borea-worker",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[workspace.dependencies]
+borea-core = { path = "crates/borea-core" }
+borea-catalog = { path = "crates/borea-catalog" }
+borea-host = { path = "crates/borea-host" }
+borea-hardware = { path = "crates/borea-hardware" }
+borea-distro = { path = "crates/borea-distro" }
+borea-testkit = { path = "crates/borea-testkit" }
+borea-network = { path = "crates/borea-network" }
+borea-engine = { path = "crates/borea-engine" }
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.21"
+toml = "1.1.8"
+zbus = { version = "5.19.0", default-features = false, features = ["blocking-api", "async-io"] }
+rpassword = "7"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

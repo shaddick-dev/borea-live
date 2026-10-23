@@ -1,0 +1,16 @@
+[package]
+name = "borea-hardware"
+description = "Progressive, unprivileged, read-only hardware discovery from procfs and sysfs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+borea-core.workspace = true
+
+[dev-dependencies]
+borea-testkit.workspace = true
+
+[lints]
+workspace = true

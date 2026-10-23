@@ -1,0 +1,7 @@
+config BR2_PACKAGE_BOREA
+	bool "borea"
+	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	select BR2_PACKAGE_HOST_RUSTC
+	help
+	  Borea: the installer (borea-live), the readiness tool (borea),
+	  and the USB writer (borea-flash).

@@ -1,0 +1,73 @@
+# Extras: the checkboxes at the foot of each card's Your desktop panel.
+#
+# Each extra is one idea ("Gaming") that every distribution provides its own way.
+# `on.<distro>` says how:
+#   packages  – what ticking it installs, from the distribution's repositories
+#   needs     – a repository those packages need beyond the defaults, shown beside
+#               the checkbox and named again in review
+#   summary   – overrides the extra's summary where the distribution's own
+#               packages bring something different
+#   default   – ticked to begin with (otherwise every extra starts unticked)
+#   built_in  – every edition already has it: shown as built in, nothing to tick
+# A distribution missing from `on` does not offer that extra.
+#
+# Development research data, reviewed 2026-10-22. Package names come from each
+# distribution's package index and must be confirmed per release before an
+# adapter installs them.
+
+schema = 1
+reviewed = "2026-10-22"
+
+[[extra]]
+id = "gaming"
+name = "Gaming"
+summary = "Steam, Lutris, GameMode, MangoHud, gamescope"
+on.arch = { summary = "Steam, Lutris, Wine, GameMode, MangoHud, gamescope", needs = "the multilib repository", packages = ["steam", "lutris", "wine", "gamemode", "lib32-gamemode", "mangohud", "lib32-mangohud", "gamescope"] }
+# CachyOS's own meta packages: Proton-CachyOS, Wine-CachyOS, umu, Steam, Lutris,
+# Heroic, MangoHud, gamescope.
+on.cachyos = { summary = "Proton-CachyOS, Steam, Lutris, Heroic, MangoHud, gamescope", packages = ["cachyos-gaming-meta", "cachyos-gaming-applications"] }
+on.omarchy = { summary = "Steam, Lutris, Wine, GameMode, MangoHud, gamescope", needs = "the multilib repository", packages = ["steam", "lutris", "wine", "gamemode", "lib32-gamemode", "mangohud", "lib32-mangohud", "gamescope"] }
+on.fedora = { needs = "RPM Fusion nonfree, for Steam", packages = ["steam", "lutris", "gamemode", "mangohud", "gamescope"] }
+on.debian = { summary = "Steam, GameMode, MangoHud", needs = "contrib and non-free, with 32-bit packages", packages = ["steam-installer", "gamemode", "mangohud"] }
+# Tumbleweed's Gaming + Firmware default: ticked unless the user unticks it.
+on.tumbleweed = { default = true, needs = "the non-OSS repository, for Steam", packages = ["steam", "lutris", "gamemode", "mangohud", "gamescope"] }
+on.bazzite = { built_in = true }
+on.nobara = { built_in = true }
+on.pikaos = { built_in = true }
+
+[[extra]]
+id = "codecs"
+name = "Media codecs"
+summary = "Plays common audio and video formats: FFmpeg and the GStreamer plugin sets"
+on.arch = { packages = ["ffmpeg", "gst-libav", "gst-plugins-good", "gst-plugins-bad", "gst-plugins-ugly"] }
+on.cachyos = { packages = ["ffmpeg", "gst-libav", "gst-plugins-good", "gst-plugins-bad", "gst-plugins-ugly"] }
+on.omarchy = { packages = ["ffmpeg", "gst-libav", "gst-plugins-good", "gst-plugins-bad", "gst-plugins-ugly"] }
+on.fedora = { needs = "RPM Fusion free and nonfree", packages = ["ffmpeg", "gstreamer1-libav", "gstreamer1-plugins-ugly", "gstreamer1-plugins-bad-freeworld"] }
+on.debian = { packages = ["ffmpeg", "gstreamer1.0-libav", "gstreamer1.0-plugins-good", "gstreamer1.0-plugins-bad", "gstreamer1.0-plugins-ugly"] }
+on.tumbleweed = { needs = "the Packman repository", packages = ["ffmpeg", "gstreamer-plugins-libav", "gstreamer-plugins-ugly", "gstreamer-plugins-bad-codecs"] }
+on.bazzite = { built_in = true }
+on.nobara = { built_in = true }
+
+[[extra]]
+id = "flatpak"
+name = "Flatpak"
+summary = "Flatpak with Flathub, for apps beyond the distribution's own"
+on.arch = { packages = ["flatpak"] }
+on.cachyos = { packages = ["flatpak"] }
+on.omarchy = { packages = ["flatpak"] }
+on.fedora = { needs = "the Flathub remote", packages = ["flatpak"] }
+on.debian = { needs = "the Flathub remote", packages = ["flatpak"] }
+on.tumbleweed = { needs = "the Flathub remote", packages = ["flatpak"] }
+on.bazzite = { built_in = true }
+on.nobara = { built_in = true }
+
+[[extra]]
+id = "printing"
+name = "Printing"
+summary = "CUPS and a printer settings tool"
+on.arch = { packages = ["cups", "system-config-printer"] }
+on.cachyos = { packages = ["cups", "system-config-printer"] }
+on.omarchy = { packages = ["cups", "system-config-printer"] }
+on.fedora = { packages = ["cups", "system-config-printer"] }
+on.debian = { packages = ["cups", "system-config-printer"] }
+on.tumbleweed = { packages = ["cups", "system-config-printer"] }

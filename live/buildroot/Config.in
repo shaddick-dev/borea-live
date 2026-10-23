@@ -1,0 +1,2 @@
+source "$BR2_EXTERNAL_BOREA_PATH/package/borea/Config.in"
+source "$BR2_EXTERNAL_BOREA_PATH/package/limine/Config.in.host"

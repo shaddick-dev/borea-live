@@ -1,0 +1,544 @@
+//! Borea TUI Helper: prepare Borea Live, write a USB stick, then verify it.
+//!
+//! ```text
+//! borea-helper                 prepare the current ISO, then write a USB stick
+//! borea-flash [IMAGE]           write IMAGE, or the newest borea-live*.iso found
+//! borea-flash --make            in a Borea checkout: rebuild Borea Live if its sources
+//!                               changed since the last image, then write it
+//! borea-flash --build           as --make, but always rebuild
+//! borea-flash --list [IMAGE]    print the sticks it sees and exit
+//! borea-flash --install         install both commands and the app launcher
+//! borea-flash --install-launcher
+//!                               add a "Borea TUI Helper" launcher
+//! ```
+
+use std::io::{BufRead, BufReader, Write};
+use std::os::unix::process::CommandExt;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, ExitCode, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Sender};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+
+use borea_flash::app::{self, App, Checkout, Checksum, Request};
+use borea_flash::image::{self, Image};
+use borea_flash::make::{self, BuildRequest, BuildView};
+use borea_flash::target::{self, Target, Verdict};
+use borea_flash::terminal::{self as screen, Colours};
+use borea_flash::write::{self, Outcome, Progress};
+use borea_flash::{FlashError, device};
+use borea_host::HostKind;
+use ratatui::crossterm::event::{self, Event as Term, KeyEventKind};
+
+use borea_flash::install;
+
+/// `println!`, minus the panic when the reader goes away (`borea-flash --list | head`).
+macro_rules! say {
+    ($($arg:tt)*) => {{
+        let _ = writeln!(std::io::stdout(), $($arg)*);
+    }};
+}
+
+/// Results from worker threads.
+enum Event {
+    Checksum(Checksum),
+    Targets(Vec<Target>),
+    Progress(Progress),
+    Finished(Result<Outcome, String>),
+    Message(String),
+    BuildLine(String),
+    /// The build ended: the new image, or why it failed.
+    Built(Result<PathBuf, String>),
+}
+
+const USAGE: &str = "\
+usage: borea-helper             prepare Borea Live, then write and verify a USB stick
+       borea-helper IMAGE.iso   write an existing ISO without rebuilding it
+       borea-flash [IMAGE.iso]   write IMAGE, or the newest Borea Live image found;
+                                 in a Borea checkout, b on that screen rebuilds it first
+       borea-flash --make        in a Borea checkout: rebuild Borea Live if it changed, then write it
+       borea-flash --build       as --make, but always rebuild
+       borea-flash --list        show the USB sticks it could write, and exit
+       borea-flash --install     install both commands and the Borea TUI Helper launcher
+       borea-flash --install-launcher
+                                 install the commands and Borea TUI Helper launcher";
+
+/// What the screen shows: the build, then the stick.
+enum Stage {
+    Building(BuildView),
+    Writing(Box<App>),
+}
+
+pub(crate) fn main() -> ExitCode {
+    let helper = std::env::args_os()
+        .next()
+        .is_some_and(|p| Path::new(&p).file_stem().is_some_and(|s| s == "borea-helper"));
+    let args = arguments(std::env::args().skip(1).collect(), helper);
+    let list_only = args.iter().any(|a| a == "--list");
+    if args.iter().any(|a| a == "-h" || a == "--help") {
+        say!("Write the Borea Live ISO to a USB stick, then verify it byte for byte.\n\n{USAGE}");
+        return ExitCode::SUCCESS;
+    }
+    let flag = |name: &str| args.iter().any(|a| a == name);
+    if flag("--install") || flag("--install-launcher") {
+        return report(install_command().and_then(|helper| install_launcher(&helper)));
+    }
+    if flag("--make") || flag("--build") {
+        let Some(repo) = make::repo() else {
+            eprintln!("borea-flash: --make works inside a Borea checkout");
+            return ExitCode::FAILURE;
+        };
+        let host = borea_host::detect().kind;
+        let newest = make::newest_image(&repo);
+        let start = match newest {
+            Some(path) if !flag("--build") && !make::needs_build(&repo, Some(&path)) => {
+                match writing(&path, &host, Some(&repo)) {
+                    Ok(app) => Stage::Writing(Box::new(app)),
+                    Err(error) => {
+                        eprintln!("borea-flash: {error}");
+                        return ExitCode::FAILURE;
+                    }
+                }
+            }
+            _ => Stage::Building(BuildView::new(repo.join("target/live/build.log"))),
+        };
+        return report(run(start, Some(repo), host).map_err(|e| e.to_string()));
+    }
+
+    let repo = make::repo();
+    let path = args.iter().find(|a| !a.starts_with("--")).map(PathBuf::from).or_else(find_image);
+    let Some(path) = path else {
+        if let Some(repo) = repo.filter(|_| !list_only) {
+            // Nothing to write yet, but this checkout can make it.
+            let host = borea_host::detect().kind;
+            let start = Stage::Building(BuildView::new(repo.join("target/live/build.log")));
+            return report(run(start, Some(repo), host).map_err(|e| e.to_string()));
+        }
+        eprintln!(
+            "borea-flash: no Borea Live image found. Build one with `borea-flash --make` \
+             in a Borea checkout, or name the .iso to write.\n\n{USAGE}"
+        );
+        return ExitCode::FAILURE;
+    };
+    let image = match Image::inspect(&path) {
+        Ok(image) => image,
+        Err(error) => {
+            eprintln!("borea-flash: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let host = borea_host::detect().kind;
+    let targets = target::discover(Path::new("/"), &image.path, image.size, &host);
+
+    if list_only {
+        say!("{} · {}", image.name(), target::human(image.size));
+        for t in &targets {
+            say!("  {}  {}", t.describe(), t.verdict);
+        }
+        if targets.is_empty() {
+            say!("  no USB sticks found");
+        }
+        return ExitCode::SUCCESS;
+    }
+
+    let app = writing_with(image, targets, repo.as_deref());
+    report(run(Stage::Writing(Box::new(app)), repo, host).map_err(|e| e.to_string()))
+}
+
+/// The helper prepares the image by default; explicit files and read-only flags
+/// keep their own meaning and never unexpectedly start an ISO build.
+fn arguments(mut args: Vec<String>, helper: bool) -> Vec<String> {
+    if helper && args.is_empty() {
+        args.push("--make".into());
+    }
+    args
+}
+
+fn report(result: Result<(), String>) -> ExitCode {
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("borea-flash: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// The writing stage for an image, with its sticks found.
+fn writing(path: &Path, host: &HostKind, repo: Option<&Path>) -> Result<App, String> {
+    let image = Image::inspect(path).map_err(|e| e.to_string())?;
+    let targets = target::discover(Path::new("/"), &image.path, image.size, host);
+    Ok(writing_with(image, targets, repo))
+}
+
+/// `borea-live*.iso` in this checkout's build output, the current directory, or
+/// ~/Downloads, newest first.
+fn find_image() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let dirs = [
+        make::repo().map(|repo| repo.join("target/live/out")),
+        Some(PathBuf::from(".")),
+        home.map(|h| h.join("Downloads")),
+    ];
+    let mut found: Vec<(std::time::SystemTime, PathBuf)> = dirs
+        .into_iter()
+        .flatten()
+        .filter_map(|dir| std::fs::read_dir(dir).ok())
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            let name = path.file_name()?.to_string_lossy().to_lowercase();
+            let modified = path.metadata().ok()?.modified().ok()?;
+            (name.starts_with("borea-live") && name.ends_with(".iso")).then_some((modified, path))
+        })
+        .collect();
+    found.sort();
+    found.pop().map(|(_, path)| path)
+}
+
+/// A writing stage; its checksum check starts once the event loop runs. With a
+/// checkout, it also says whether the image is behind it and offers a rebuild.
+fn writing_with(image: Image, targets: Vec<Target>, repo: Option<&Path>) -> App {
+    let checksum = match image::published_checksum(&image.path) {
+        None => Checksum::Unpublished,
+        Some(_) => Checksum::Checking { done: 0 },
+    };
+    let checkout = match repo {
+        None => Checkout::None,
+        Some(repo) if make::needs_build(repo, Some(&image.path)) => Checkout::Changed,
+        Some(_) => Checkout::Current,
+    };
+    let mut app = App::new(image, checksum, targets);
+    app.checkout = checkout;
+    app
+}
+
+fn run(mut stage: Stage, repo: Option<PathBuf>, host: HostKind) -> std::io::Result<()> {
+    let (tx, rx) = mpsc::channel();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let mut build: Option<Arc<Mutex<Child>>> = None;
+    match (&stage, &repo) {
+        (Stage::Building(_), Some(repo)) => build = Some(spawn_build(repo, &tx)?),
+        (Stage::Writing(app), _) => start_checksum(app, &tx),
+        _ => {}
+    }
+
+    let colours = Colours::detect();
+    let result = ratatui::run(|terminal| {
+        loop {
+            terminal.draw(|frame| {
+                draw(frame, &mut stage);
+                screen::fit(frame.buffer_mut(), colours);
+            })?;
+            if let Stage::Writing(app) = &stage
+                && app.quit
+            {
+                return Ok(());
+            }
+
+            for event in rx.try_iter() {
+                match (&mut stage, event) {
+                    (Stage::Building(view), Event::BuildLine(line)) => view.line(&line),
+                    (Stage::Building(view), Event::Built(Err(why))) => {
+                        build = None;
+                        view.failed(why);
+                    }
+                    (Stage::Building(view), Event::Built(Ok(path))) => {
+                        build = None;
+                        match writing(&path, &host, repo.as_deref()) {
+                            Ok(app) => {
+                                start_checksum(&app, &tx);
+                                stage = Stage::Writing(Box::new(app));
+                            }
+                            Err(why) => view.failed(why),
+                        }
+                    }
+                    (Stage::Writing(app), event) => apply(app, event),
+                    _ => {}
+                }
+            }
+
+            if !event::poll(Duration::from_millis(100))? {
+                continue;
+            }
+            let Term::Key(key) = event::read()? else { continue };
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
+            match &mut stage {
+                Stage::Writing(app) => match (app.key(key), &repo) {
+                    (Some(Request::Rebuild), Some(repo)) => {
+                        build = Some(spawn_build(repo, &tx)?);
+                        stage = Stage::Building(BuildView::new(repo.join("target/live/build.log")));
+                    }
+                    (Some(request), _) => carry_out(request, app, &host, &cancel, &tx),
+                    (None, _) => {}
+                },
+                Stage::Building(view) => match view.key(key) {
+                    Some(BuildRequest::Stop) => {
+                        stop_build(build.take());
+                        view.failed("Stopped. Everything built so far is kept.".into());
+                    }
+                    Some(BuildRequest::Retry) => {
+                        if let Some(repo) = &repo {
+                            build = Some(spawn_build(repo, &tx)?);
+                        }
+                    }
+                    Some(BuildRequest::Quit) => return Ok(()),
+                    None => {}
+                },
+            }
+        }
+    });
+    // Never leave a build running behind a closed window.
+    stop_build(build);
+    result
+}
+
+fn draw(frame: &mut ratatui::Frame, stage: &mut Stage) {
+    match stage {
+        Stage::Writing(app) => app.render(frame),
+        Stage::Building(view) => {
+            let [header, body] = ratatui::layout::Layout::vertical([
+                ratatui::layout::Constraint::Length(4),
+                ratatui::layout::Constraint::Fill(1),
+            ])
+            .areas(frame.area());
+            app::render_header(frame, header);
+            view.render(frame, body);
+        }
+    }
+}
+
+fn start_checksum(app: &App, tx: &Sender<Event>) {
+    if let Some((expected, from)) = image::published_checksum(&app.image.path) {
+        check_image(app.image.path.clone(), expected, from, tx.clone());
+    }
+}
+
+/// Run `borea-build iso` from the checkout, streaming its output to the screen and
+/// to `target/live/build.log`.
+fn spawn_build(repo: &Path, tx: &Sender<Event>) -> std::io::Result<Arc<Mutex<Child>>> {
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let log_path = repo.join("target/live/build.log");
+    std::fs::create_dir_all(repo.join("target/live"))?;
+    // Append: a refused second build must not wipe the log of the one running.
+    let mut file = std::fs::OpenOptions::new().create(true).append(true).open(&log_path)?;
+    writeln!(file, "\n── borea-flash --make ──")?;
+    let log = Arc::new(Mutex::new(file));
+    let mut child = Command::new(cargo)
+        .args(["run", "--release", "--quiet", "--manifest-path"])
+        .arg(repo.join("Cargo.toml"))
+        .args(["-p", "borea-build", "--", "iso"])
+        .current_dir(repo)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        // Its own process group, so stopping it stops make and every compiler too.
+        .process_group(0)
+        .spawn()?;
+    let pipes: [Box<dyn std::io::Read + Send>; 2] = [
+        Box::new(child.stdout.take().expect("piped")),
+        Box::new(child.stderr.take().expect("piped")),
+    ];
+    for pipe in pipes {
+        let (tx, log) = (tx.clone(), Arc::clone(&log));
+        thread::spawn(move || {
+            for line in BufReader::new(pipe).lines().map_while(Result::ok) {
+                if let Ok(mut log) = log.lock() {
+                    let _ = writeln!(log, "{line}");
+                }
+                let _ = tx.send(Event::BuildLine(line));
+            }
+        });
+    }
+    let child = Arc::new(Mutex::new(child));
+    let (watched, tx, repo) = (Arc::clone(&child), tx.clone(), repo.to_path_buf());
+    thread::spawn(move || {
+        let status = loop {
+            if let Ok(mut child) = watched.lock()
+                && let Ok(Some(status)) = child.try_wait()
+            {
+                break status;
+            }
+            thread::sleep(Duration::from_millis(250));
+        };
+        let result = if status.success() {
+            make::newest_image(&repo)
+                .ok_or_else(|| "the build finished but left no image".to_owned())
+        } else {
+            Err(format!("the build failed ({status}); see the log for details"))
+        };
+        let _ = tx.send(Event::Built(result));
+    });
+    Ok(child)
+}
+
+fn stop_build(build: Option<Arc<Mutex<Child>>>) {
+    if let Some(child) = build
+        && let Ok(child) = child.lock()
+    {
+        let group = rustix::process::Pid::from_child(&child);
+        let _ = rustix::process::kill_process_group(group, rustix::process::Signal::INT);
+    }
+}
+
+/// Launch the installed program directly, so its TUI appears before any build.
+fn install_launcher(helper: &Path) -> Result<(), String> {
+    let entry = install::desktop_entry(helper);
+    let home = std::env::var_os("HOME").map(PathBuf::from).ok_or("HOME is not set")?;
+    let place = home.join(".local/share/applications/borea-live-maker.desktop");
+    if let Some(dir) = place.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&place, &entry).map_err(|e| format!("{}: {e}", place.display()))?;
+    say!("Added {}", place.display());
+    say!("Open \"Borea TUI Helper\" from your app launcher.");
+    Ok(())
+}
+
+/// Copy this program to ~/.local/bin (or $XDG_BIN_HOME), so `borea-flash` runs
+/// from any terminal. A copy, not a link: it keeps working after `cargo clean`.
+fn install_command() -> Result<PathBuf, String> {
+    let home = std::env::var_os("HOME").map(PathBuf::from).ok_or("HOME is not set")?;
+    let dir = std::env::var_os("XDG_BIN_HOME")
+        .map(PathBuf::from)
+        .filter(|d| d.is_absolute())
+        .unwrap_or_else(|| home.join(".local/bin"));
+    let this = std::env::current_exe().map_err(|e| e.to_string())?;
+    install::commands(&this, &dir).map_err(|e| e.to_string())?;
+    say!(
+        "Installed {} and {}",
+        dir.join("borea-helper").display(),
+        dir.join("borea-flash").display()
+    );
+    if let Some(repo) = make::repo() {
+        say!("It builds from the checkout at {}.", repo.display());
+    }
+    let on_path =
+        std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|p| p == dir));
+    if on_path {
+        say!("Run `borea-helper` to prepare the ISO and write a USB stick.");
+    } else {
+        say!(
+            "{} is not on your PATH. Add this line to your shell's startup file:\n  \
+             export PATH=\"{}:$PATH\"",
+            dir.display(),
+            dir.display()
+        );
+    }
+    Ok(dir.join("borea-helper"))
+}
+
+fn apply(app: &mut App, event: Event) {
+    match event {
+        Event::Checksum(state) => app.checksum = state,
+        Event::Targets(targets) => app.set_targets(targets),
+        Event::Progress(progress) => app.progress(progress),
+        Event::Finished(result) => app.finished(result),
+        Event::Message(message) => app.message = Some(message),
+        Event::BuildLine(_) | Event::Built(_) => {}
+    }
+}
+
+fn carry_out(
+    request: Request,
+    app: &App,
+    host: &HostKind,
+    cancel: &Arc<AtomicBool>,
+    tx: &Sender<Event>,
+) {
+    let (image, host, tx) = (app.image.clone(), host.clone(), tx.clone());
+    match request {
+        Request::Rescan => rescan(&image, &host, &tx),
+        Request::Stop => cancel.store(true, Ordering::Relaxed),
+        // The main loop switches to building; without a checkout there is nothing to do.
+        Request::Rebuild => {}
+        Request::Unmount(disk) => {
+            thread::spawn(move || {
+                if let Err(error) = device::unmount(&disk) {
+                    let _ = tx.send(Event::Message(error.to_string()));
+                }
+                rescan(&image, &host, &tx);
+            });
+        }
+        Request::Eject(name) => {
+            thread::spawn(move || {
+                let message = match device::eject(&name) {
+                    Ok(()) => format!("{name} is safe to remove."),
+                    Err(error) => error.to_string(),
+                };
+                let _ = tx.send(Event::Message(message));
+            });
+        }
+        Request::Flash(name) => {
+            cancel.store(false, Ordering::Relaxed);
+            let cancel = Arc::clone(cancel);
+            thread::spawn(move || {
+                let result = flash(&image, &name, &host, &cancel, &tx).map_err(|e| e.to_string());
+                let _ = tx.send(Event::Finished(result));
+            });
+        }
+    }
+}
+
+fn rescan(image: &Image, host: &HostKind, tx: &Sender<Event>) {
+    let _ =
+        tx.send(Event::Targets(target::discover(Path::new("/"), &image.path, image.size, host)));
+}
+
+/// Re-check the stick, open it exclusively, write, and verify.
+fn flash(
+    image: &Image,
+    name: &str,
+    host: &HostKind,
+    cancel: &AtomicBool,
+    tx: &Sender<Event>,
+) -> Result<Outcome, FlashError> {
+    let now = target::discover(Path::new("/"), &image.path, image.size, host);
+    match now.iter().find(|t| t.disk.name == name).map(|t| &t.verdict) {
+        Some(Verdict::Ready) => {}
+        Some(verdict) => return Err(FlashError::Changed(name.into(), verdict.to_string())),
+        None => return Err(FlashError::Changed(name.into(), "it was removed".into())),
+    }
+    let mut source = std::fs::File::open(&image.path).map_err(FlashError::Read)?;
+    let mut stick = device::open(name)?;
+    write::flash(&mut source, image.size, &mut stick, cancel, |progress| {
+        let _ = tx.send(Event::Progress(progress));
+    })
+}
+
+fn check_image(path: PathBuf, expected: String, from: PathBuf, tx: Sender<Event>) {
+    thread::spawn(move || {
+        let mut last = 0;
+        let actual = image::sha256(&path, |done| {
+            // Report every 64 MiB; the screen redraws ten times a second anyway.
+            if done - last >= 64 << 20 {
+                last = done;
+                let _ = tx.send(Event::Checksum(Checksum::Checking { done }));
+            }
+        });
+        let state = match actual {
+            Ok(actual) if actual == expected => Checksum::Matches(from),
+            Ok(_) => Checksum::Mismatch(from),
+            Err(error) => Checksum::Failed(error.to_string()),
+        };
+        let _ = tx.send(Event::Checksum(state));
+    });
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::arguments;
+
+    #[test]
+    fn helper_prepares_by_default_but_respects_explicit_actions() {
+        assert_eq!(arguments(vec![], true), ["--make"]);
+        for action in ["--list", "--help", "--install", "image.iso", "--build"] {
+            assert_eq!(arguments(vec![action.into()], true), [action]);
+        }
+        assert!(arguments(vec![], false).is_empty());
+    }
+}

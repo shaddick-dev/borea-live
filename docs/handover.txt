@@ -1,0 +1,881 @@
+BOREA - PROJECT HANDOVER AND WORK COMPLETED
+Recorded: 22 October 2026
+Tagline: Go wherever the wind takes you.
+
+Read this file first when continuing development. It records the requested
+product, everything created so far, implementation status, and remaining work.
+Detailed technical specifications are included in the docs directory.
+
+1. WHERE THINGS ARE
+
+Project root: /home/luke/Work/BOREA (a git repository, nothing committed yet).
+Sections 2-12 below are the original brief from session 1; sections 9-11 describe
+that first session only. Every later session is appended in order, so the end of
+this file is the current state.
+
+  README.md           what Borea is, how to build and run each part
+  Cargo.toml          the Rust workspace; every crate lives under crates/
+  crates/             apps: borea-gui (windpad, borea-live), borea-bootstrap (borea),
+                      borea-flash; image build: borea-build, borea-init;
+                      libraries: borea-core, borea-catalog, borea-host,
+                      borea-hardware, borea-network, borea-distro; tests: borea-testkit
+  live/               Borea Live: the Buildroot external tree and its README
+  docs/               the specification, desktops.md, windpad.md, and this file
+  design/windpad.html the interactive HTML concept
+  target/             build output (gitignored); target/live holds the ISO build,
+                      target/live/out the finished images
+
+2. WHAT BOREA IS INTENDED TO BE
+
+A distro-agnostic online Linux installer and powerful, beautifully minimal landing
+pad. The main application is a native Rust GUI. A smaller Rust TUI downloads,
+verifies, and launches the project as a prebuilt installer bundle. Limine is the
+preferred bootloader integration.
+
+The landing pad automatically scans local hardware, offers integrated Wi-Fi,
+helps the user choose a distribution and edition, resolves its latest release,
+and guides configuration, explicit disk review, installation, and completion.
+After installation, each distribution keeps its native maintenance/update model.
+
+The visual identity centers on wind: quiet animated airflow, generous whitespace,
+minimal controls, warm ivory/charcoal themes, and a restrained blue-green accent.
+
+3. USER-REQUESTED DISTRIBUTIONS AND MENUS
+
+ARCH FAMILY
+  - Arch Linux, using current rolling repositories and installation assets.
+  - CachyOS, both Desktop and Handheld editions.
+  - Omarchy, preserving its upstream experience and required configuration.
+
+FEDORA FAMILY
+  - Fedora Linux, latest stable general-availability release with current updates.
+  - Bazzite, all current official hardware, GPU, desktop, handheld/HTPC, and
+    Gaming Mode choices exposed through its upstream-compatible image selection.
+  - Nobara, all current official editions.
+
+DEBIAN FAMILY
+  - Debian, latest stable release/point-release assets with security/stable updates.
+  - PikaOS, all current official desktops and hardware/image variants.
+
+OPENSUSE
+  - Tumbleweed, latest coherent published snapshot.
+  - Gaming packages and appropriate firmware installed before first boot through
+    a default Gaming + Firmware preset.
+
+Each family card has a distribution dropdown. An edition dropdown and additional
+image/hardware controls appear where applicable. A derivative follows its own
+release channel; grouping under a family does not force the parent's version.
+
+Edition research from official sources was checked on 22 October 2026:
+  - CachyOS: Desktop and Handheld.
+  - Nobara: Official, GNOME, KDE, Steam-HTPC, Steam-Handheld. Its official download
+    page describes unified images for standard and NVIDIA setups.
+  - PikaOS: GNOME, KDE Plasma, Hyprland, Niri, COSMIC; each currently listed with
+    Standard and NVIDIA images.
+  - Bazzite: hardware-dependent image selection, including KDE/GNOME and Gaming
+    Mode choices. Its complete matrix must come from reviewed upstream metadata.
+
+Edition names and availability can change. Production menus must use reviewed,
+signed catalog data and actual published combinations. The current HTML concept
+uses static research examples, not a complete live upstream image catalog.
+
+4. LATEST-RELEASE POLICY
+
+  - Resolve latest when preparing an install, not through a permanently hardcoded
+    version in the interface.
+  - Arch uses current rolling repositories. Fedora and Debian default to latest
+    stable/GA, not Fedora Rawhide/beta or Debian testing/unstable.
+  - Derivatives follow their own official stable or rolling channels.
+  - Tumbleweed uses a current coherent published snapshot.
+  - Display exact resolved identity and metadata freshness.
+  - Pin artifacts, hashes/digests, repository identities, adapter/catalog versions,
+    image variant, and package policy into the reviewed installation plan.
+  - Do not chase moving latest references while executing an approved plan.
+  - If latest is unqualified, show integration pending. Never silently substitute
+    an older certified release or claim cached metadata proves current latest.
+
+No release resolver or signed production catalog has been implemented yet.
+
+5. AUTOMATIC HARDWARE AND WI-FI REQUIREMENTS
+
+Hardware discovery is local, progressive, asynchronous, and read-only. Scan CPU
+architecture/instruction sets, every GPU, RAM, storage topology and active mounts,
+network/Bluetooth adapters, firmware mode/Secure Boot, displays/input, and device
+type. Keep unknown distinct from unsupported. Track hybrid GPUs and hotplug.
+
+Recommend compatible images, drivers, firmware, and device presets with reasons.
+Never automatically select or approve a disk to erase.
+
+Integrated Wi-Fi belongs in both frontends. The TUI must connect before needing
+the GUI download. The proposed shared client uses NetworkManager D-Bus via zbus.
+Support network discovery, signal/security, WPA2/WPA3 personal, hidden networks,
+password handling, reconnect, disconnect, radio/rfkill diagnostics, and accurate
+connectivity/captive-portal errors. Enterprise flows require reviewed certificate
+handling or an explicit supported system-editor path.
+
+Keep credentials out of command arguments, logs, plans, and support exports.
+Transferring a live-session connection into the target requires an explicit choice
+and secure adapter support. A live host must already have usable network drivers,
+firmware, NetworkManager, and the system bus; later Borea Live can provide these.
+
+Hardware scanning and NetworkManager Wi-Fi are implemented (see sections 13-14).
+
+6. TUMBLEWEED GAMING + FIRMWARE REQUIREMENTS
+
+The reviewed, hardware-appropriate target package set is intended to include:
+  - Steam and native Proton prerequisites.
+  - Lutris and a supported Wine stack.
+  - MangoHud, GameMode, and Gamescope where compatible.
+  - Appropriate 64-bit and required 32-bit graphics/Vulkan libraries.
+  - CPU microcode and device/network/Bluetooth firmware.
+  - Controller rules and supported handheld integration.
+
+Resolve exact packages for the selected snapshot and disclose sources in review.
+Optional launchers such as Heroic require reviewed availability. Do not silently
+add third-party repositories or install every GPU branch on every machine.
+Steam-managed runtimes may download on first use.
+
+Firmware preinstallation means OS-loaded firmware packages and CPU microcode.
+It does not authorize automatic BIOS/device firmware flashing.
+
+No Tumbleweed adapter or gaming package installation has been implemented yet.
+
+7. PROPOSED RUST ARCHITECTURE
+
+  borea-bootstrap       Ratatui/Crossterm TUI, download/verify/launch.
+  borea-gui             egui/eframe native GUI and wind animation.
+  borea-core            Shared domain types, capabilities, typed errors.
+  borea-engine          Discovery, planning, state machine, coordination.
+  borea-worker          Narrow privileged execution service.
+  borea-ipc             Versioned authenticated local protocol/events.
+  borea-storage         Block graph, layouts, filesystems, mounts.
+  borea-fetch           Downloads, caches, metadata, authenticity.
+  borea-catalog         Latest releases, editions, compatibility.
+  borea-hardware        Progressive local scan and hotplug facts.
+  borea-network         Shared NetworkManager client/secret flow.
+  borea-distro          Adapter contracts and shared typed operations.
+  borea-distro-*        Arch, Fedora, Debian, CachyOS, Omarchy, Bazzite,
+                        Nobara, PikaOS, and Tumbleweed integrations.
+  borea-limine          Pinned bootloader integration/config rendering.
+  borea-testkit         Fixtures, fake execution, disposable VM harness.
+
+Proposed supporting libraries: Tokio, Reqwest/Rustls, Serde, thiserror, tracing,
+and a maintained Rust TUF-compatible metadata client after evaluation. Versions
+and runtime compatibility still need a build spike and pinned application lockfile.
+
+This is a proposed workspace layout only. Session 2 created the first six crates (see section 13); native package
+definitions and a CI pipeline do not exist yet.
+
+8. INSTALLATION AND BOOT DESIGN ALREADY DOCUMENTED
+
+  - Unprivileged GUI/downloader; separately authorized privileged worker.
+  - Typed plans and operations, explicit destructive review, target revalidation.
+  - Authenticated local IPC, protected verified worker handoff, install locking.
+  - Repository/release verification, bounded downloads, safe archive extraction.
+  - Secrets excluded from normal serialization, logs, and exported plans.
+  - Stage progress, safe cancellation boundaries, redacted diagnostics/journals.
+  - Native bootstrap/deployment, target account/network/services configuration.
+  - Limine boot artifacts and kernel/initramfs update lifecycle.
+  - Failure recovery semantics without promising rollback after disk erasure.
+
+The first proposed vertical slice is x86-64 UEFI with Secure Boot disabled, an
+Arch target (built from upstream tools, run from Borea Live and from a live session
+of another family; see section 13), one explicitly erasable disk, GPT, FAT32 ESP and ext4 root. The ESP
+baseline is 2 GiB subject to calculated artifact/upgrade/reserve requirements.
+
+The initial simple layout does not constrain the complete requested catalog.
+Adapters must preserve required encryption/layout/security and native update
+semantics, including Fedora SELinux, Omarchy's selected upstream requirements,
+Tumbleweed conventions, and Bazzite's image deployment/update/rollback behavior.
+
+Limine remains preferred. Exact version, configuration syntax, paths, and kernel
+protocol must be proven. First boot alone is insufficient: test a native kernel
+upgrade and reboot. Bazzite needs separate deployment-aware boot integration;
+no generic DNF install-root approximation or silent bootloader replacement.
+
+No actual disk operations, distro integration, Limine setup, boot checks, or
+kernel-update hooks have been implemented or validated in this session.
+
+9. EVERYTHING CREATED SO FAR (session 1)
+
+  README.md
+    Project overview, product scope, stack, support boundaries, document index.
+
+  docs/product.md
+    Product positioning and complete user journey: TUI, landing pad, hardware,
+    Wi-Fi, distributions/editions, storage, account settings, review, installation,
+    completion, recovery, visual direction, accessibility expectations.
+
+  docs/architecture.md
+    Proposed Rust workspace, domain objects, state machine, privilege boundaries,
+    IPC, supply-chain controls, target isolation, catalog/network/hardware modules.
+
+  docs/installation.md
+    Initial storage model, preflight, installation stages, target configuration,
+    Limine lifecycle, kernel updates, validation, cancellation/failure recovery.
+
+  docs/distributions.md
+    Complete requested catalog, latest-release policy, adapter responsibilities,
+    deployment constraints, certification, maintenance, and primary source links.
+
+  docs/delivery.md
+    TUI download/launch flow, release trust, metadata, cache/extraction, runtime
+    compatibility, Wi-Fi before GUI download, proposed publication process.
+
+  docs/hardware-network.md
+    Automatic scan, network behavior, credentials, driver/firmware selection,
+    Tumbleweed Gaming + Firmware preset, and acceptance cases.
+
+  docs/landing-pad.md
+    Layout, family/edition controls, hardware/Wi-Fi drawers, theme, wind animation,
+    motion timing, reduced motion, input/accessibility, and concept boundaries.
+
+  docs/roadmap.md
+    Milestones, exit criteria, verification strategy, backlog, unresolved decisions.
+
+  design/landing-pad.html
+    Standalone local interactive interface concept with inline CSS/JavaScript.
+    Four family cards and dependent distribution/edition menus; PikaOS image
+    variant control; sample hardware drawer; simulated Wi-Fi flow; selection
+    preview; light/dark toggle; wind animation and reduced-motion controls;
+    responsive layout and native dialog/select interactions.
+    No external asset download is required to open this concept.
+
+  PROJECT_HANDOVER.txt (now docs/handover.txt)
+    This complete project context, progress record, and continuation guide.
+
+The ZIP was created and then updated to include this handover file.
+
+10. WHAT IS FUNCTIONAL VERSUS PLANNED (session 1)
+
+Written and available:
+  - The documents listed above.
+  - HTML/CSS/JavaScript for the interactive design reference.
+  - A downloadable ZIP of the project files.
+
+Concept behavior only:
+  - Static researched menu choices.
+  - Sample hardware information.
+  - Simulated connection/disconnection; real network settings are untouched.
+  - Selection summary; release identity is explicitly unresolved.
+  - Decorative wind, theme, and motion controls.
+
+Implemented since (sections 13-14): read-only Rust foundations, real hardware
+scanning, NetworkManager Wi-Fi, compose-your-desktop catalog, `borea` CLI.
+
+Still planned:
+  - Ratatui TUI, Windpad GUI (egui), engine/planner, and privileged worker.
+  - Catalog freshness, latest-release resolution, and release verification.
+  - All distro adapters and package/image installation.
+  - Storage operations and native target configuration.
+  - Limine integration and upgrade/reboot testing.
+  - Secure release hosting, signing keys, build/release pipeline, and Borea Live.
+
+11. VERIFICATION PERFORMED AND LIMITATIONS (session 1)
+
+Local documentation links and Markdown code-fence pairing were checked.
+The ZIP's contents and integrity were checked when packaging.
+Official distro pages were consulted for edition/release-model research; their
+links are preserved in docs/distributions.md.
+
+Browser automation was attempted, but Chromium could not launch under the
+session's process/socket restrictions. A request for additional permissions was
+cancelled. Therefore no successful browser interaction test, rendered screenshot,
+responsive-layout test, or browser accessibility assessment is claimed.
+
+No Rust build/test, physical hardware scan, real Wi-Fi connection, installation,
+VM boot, kernel upgrade, or image rollback test has run. Milestone exit criteria
+in the roadmap remain unmet. UI code should be browser-checked before handoff
+as a validated prototype.
+
+12. IMPLEMENTATION SEQUENCE TO CONTINUE
+
+M0: Prove native GUI/live-host compatibility, hardware/Wi-Fi prerequisites,
+    Limine first boot, and post-kernel-upgrade boot. Investigate Bazzite deployment
+    constraints and Omarchy requirements early.
+M1: Create the Cargo workspace and working verified-download TUI bootstrapper.
+M2: Implement read-only discovery, live catalog/latest resolution, landing pad,
+    Wi-Fi, hardware recommendations, typed planning, and review.
+M3: Implement authenticated worker/storage execution and minimal Arch install
+    using disposable VM disks only.
+M4: Certify desktop profiles, accurate progress, recovery, and reboot handling.
+M5: Establish real release hosting/signing/CI and an Arch alpha/beta release.
+M6: Implement latest stable Fedora and Debian with native security/update paths.
+M7: Implement every requested derivative/edition and Tumbleweed Gaming + Firmware;
+    certify Bazzite native updates/rollback and all supported boot paths.
+M8: Broader capabilities such as Borea Live, full terminal installation, advanced
+    storage, more platforms, offline/repeatable installs, and extra distributions.
+
+Pull any feature required by a named adapter into that adapter's milestone rather
+than postponing it merely because it also appears in the optional advanced list.
+
+Important unresolved choices: exact egui renderer/accessibility support; pinned
+Limine version and grammar; update-hook package ownership; release host and signing
+key custody; measured resource requirements; full edition certification matrix.
+
+Licensing suggestion is Apache-2.0 OR MIT for Borea-authored code, pending the
+maintainer's decision. No project LICENSE has been adopted. Third-party components
+retain their own licenses and redistribution requirements.
+
+When continuing, preserve the user's complete catalog, latest-release requirement,
+integrated hardware/Wi-Fi experience, Rust-native direction, Limine preference,
+and calm wind aesthetic. Use this handover with the detailed specifications;
+do not confuse specification or simulated UI behavior with implemented features.
+
+
+13. SESSION 2 (22 October 2026, Claude Code): INDEPENDENCE AND FIRST CODE
+
+Files now live directly in /home/luke/Work/BOREA as section 1 intended. The
+original archive is kept there as borea-project-with-handover.zip.
+
+Vision clarified by the user, recorded in docs/vision.md. It takes precedence over
+earlier text:
+  - Borea is an independent installer, not tied to any distribution's ISO.
+  - "Windpad" is the name of the landing pad. docs/landing-pad.md became
+    docs/windpad.md, and design/landing-pad.html became design/windpad.html.
+  - Three independent layers: installation environment (Borea Live or any
+    compatible live session, judged by capabilities, never by distro identity);
+    Windpad (same interface for every target); distribution adapters (fetch
+    upstream packages/images, bring the target's own tools, install natively).
+  - Upstream images may be used as download sources but are never booted.
+  - Host and target are independent from the start. Arch on Arch is only an early
+    test pairing. Borea Live moved from M8 to its own track starting in M0, and
+    M0 gained a host-independence spike.
+
+Code written (Cargo workspace, Rust 2024, deps: serde, toml, thiserror):
+  borea-core       Fact<T> (Known/Unknown), Family, ReleaseChannel, SupportStatus,
+                   X86Level, FirmwareMode, DeviceClass.
+  borea-catalog    data/catalog.toml: all 9 requested distributions and editions,
+                   validated (unique ids, non-empty families/editions, unsigned
+                   catalog can never mark an entry supported).
+  borea-host       Environment kind (Borea Live marker /etc/borea-live, live-media
+                   cmdline markers, overlay/squashfs root, installed system) and
+                   capabilities (efivars, namespaces, loop, kernel filesystems
+                   incl. loadable modules, system bus, NetworkManager, polkit,
+                   graphical session). os-release is informational only.
+  borea-hardware   Read-only procfs/sysfs scan: CPU and x86-64 level, memory,
+                   UEFI/BIOS, Secure Boot, device class (incl. known handhelds),
+                   GPUs with host driver, disks, network adapters.
+  borea-distro     Adapter contract: acquisition strategy per target
+                   (package bootstrap / layered / image deployment / upstream image
+                   as source), required host capabilities, open M0 questions, and
+                   assess() producing blockers, unknowns, and recommendations.
+  borea-bootstrap  `borea doctor` and `borea catalog`. Read-only.
+  borea-testkit    FakeRoot fixture trees shared by probe tests.
+
+Code style: pure parsers (borea_hardware::parse) are separated from I/O; host
+capabilities are a declarative probe table; assess() is a pure chain of
+findings producing a typed Verdict. Release build is LTO + stripped (~700 KB);
+`borea doctor` runs in about 4 ms.
+
+Verification: cargo fmt, cargo clippy --all-targets (clean), and cargo test (26
+tests, fixture-based) pass. `borea doctor` was run on the maintainer's
+Omarchy laptop and correctly reported an installed system, i7-12700H x86-64-v3,
+hybrid Intel/NVIDIA graphics, and Wi-Fi. No disk, network, or system state is
+changed by any code in the workspace.
+
+Acquisition strategies in borea-distro are research candidates, not verified
+facts. The PikaOS x86-64-v3 baseline and the handheld DMI product names should
+be confirmed upstream and against real hardware fixtures.
+
+Next: M0 spikes (Limine boot + kernel upgrade in QEMU/OVMF; Arch target built
+from the upstream bootstrap archive on a Fedora or Debian live host; egui
+Windpad window; Borea Live prototype), then M1 verified download in borea-bootstrap.
+
+
+14. SESSION 3 (22 October 2026): COMPOSE YOUR DESKTOP, HARDWARE, WI-FI
+
+Compose your desktop (docs/desktops.md):
+  - Editions without a preinstalled desktop are marked `composable` in
+    catalog.toml: Arch, Fedora, Debian, and Tumbleweed Minimal. Tumbleweed gained
+    a Minimal edition for this. Derivatives with their own desktop never offer it,
+    and the loader enforces that.
+  - crates/borea-catalog/data/shells.toml: 3 compositors (Hyprland, niri, MangoWC)
+    and 9 shells researched online on 22 Oct 2026, with per-distribution sources
+    verified against archlinux.org, AUR RPC, Fedora mdapi/Bodhi, Debian madison,
+    and Repology: illogical-impulse, Caelestia, Noctalia, Dux Shell (formerly
+    DankMaterialShell), Serpantinum, Ambxst, iNiR, ashell, Waybar essentials.
+  - Sources: official / third-party repo / AUR / first-login setup. AUR and
+    upstream installers run as the user after first boot, never as root.
+  - Path: edition -> compositor -> shell, suggestion first (first official).
+  - `borea shells [distro [compositor]]`, and a compose dialog in
+    design/windpad.html. design/compose.py regenerates the page's data from
+    shells.toml. The page logic was checked with 16 jsdom assertions; no real
+    browser was available, so it has not been visually inspected.
+
+Hardware (borea-hardware): adds displays (DRM), partitions, disk usage (host
+root through LUKS/LVM holders, installation media, mounted, swap), USB transport,
+Bluetooth, battery, touchscreen/touchpad/gamepad by capability bits (virtual
+uinput devices ignored), microcode vendor, and hybrid graphics. Pure parsers live
+in parse.rs.
+
+Wi-Fi (borea-network, zbus 5 blocking): status with captive-portal-aware
+connectivity, rfkill state, rescan, merged network list, and join for open,
+OWE, WPA2, and WPA3 including hidden networks. WEP and Enterprise are refused.
+Passphrases are read without echo, never passed as arguments, redacted in Debug,
+and overwritten on drop. `borea wifi` was run read-only on the maintainer's
+laptop; `join` has not been exercised against a real network.
+
+Verification: cargo clippy clean, 39 Rust tests pass, release binary ~2.7 MB
+(zbus added ~2 MB), `borea doctor` about 4-5 ms.
+
+JustAGuy Linux butter projects (added after session 3 review): butterrepo
+(apt.justaguy.dev, signed) makes MangoWC available on Debian Minimal as a disclosed
+third-party repository; Mangobutter (Debian 13 Mango setup) is a first-login shell
+marked `made_for = ["debian"]`, so it leads Debian's suggestions. Suggestion order
+is now made_for, then official, then first offer.
+
+Continuing without a shell: Minimal cards offer "Compose a desktop" / "No desktop",
+step 2 ends with "No shell · just <compositor>", and the compose dialog has
+"Skip · no desktop". Modelled as DesktopChoice {None, Compositor, Shell}, checked
+by Desktops::resolve. 40 Rust tests.
+
+Preview under the card: the global summary bar is gone. Once a card's path is
+complete (desktop edition chosen, No desktop, or Use this desktop confirmed), a
+"Your selection" preview with Continue appears inside that card only. 36 jsdom
+checks on design/windpad.html; still not viewed in a real browser.
+
+CachyOS No Desktop: new composable edition with a default-on gaming preset
+(Edition.gaming = cachyos-gaming-meta, cachyos-gaming-applications). Every Arch
+shell/compositor source also applies on CachyOS, and CachyOS's own tuned settings
+(cachyos-{hypr,niri,mango}-noctalia, cachyos-mangowc-dms) are made_for cachyos so
+they lead. Verified against mirror.cachyos.org and CachyOS-PKGBUILDS. 40 Rust
+tests; 43 jsdom checks.
+
+Next: Ratatui TUI with Wi-Fi before download (M1), the egui Windpad window, then
+the planner and privileged worker.
+
+
+15. WINDPAD NATIVE GUI (22 October 2026)
+
+crates/borea-gui builds `windpad` (egui/eframe 0.37, glow, Wayland/X11): the
+Borea Live installer window, based on design/windpad.html.
+  - model.rs: pure selection state (paths, previews, titles, rows) over the
+    catalog; 7 unit tests.
+  - app.rs: page (header, hero with wind, live hardware strip, family cards with
+    dropdowns, compose block, preview under the selected card, footer) plus
+    dialogs (Compose with compositor tiles and shell list including No shell and
+    Skip, Continue summary, Hardware drawer, Wi-Fi drawer). Renders from &self
+    into Actions; Windpad::apply is the only mutation point.
+  - wifi.rs: NetworkManager on a worker thread; wind.rs: streamline animation
+    (repaints only while moving); theme.rs: concept palette and system fonts.
+  - tests/windpad.rs: 6 kittest tests driving the real window via accessibility
+    names, including a regression test for a bug found while building it.
+    Clipping a scrolled-out card's hit area produced an inverted rectangle that
+    swallowed footer clicks; choice_card now gives hidden cards no hit area.
+  - Screenshots rendered with wgpu were reviewed in light and dark. The release
+    binary was launched on the maintainer's Hyprland session and ran cleanly.
+
+Not yet: running inside Borea Live (kiosk compositor, autostart), the planner
+behind Continue, keyboard-only pass review, screen-reader check with Orca.
+
+
+16. BOREA LIVE INSTALLER (22 October 2026)
+
+Direction from the maintainer: the live ISO should not look exactly like Windpad.
+Keep the workflow and core concepts; use guided steps with a navigation rail,
+Windpad's palette, wind animation, and card-style selections.
+
+crates/borea-gui now builds two binaries over shared parts:
+  - `borea-live` (src/live.rs, src/live_main.rs): full-screen guided installer.
+    Steps Connect, Machine, System, Desktop, Review, with a step rail (✓/●/○,
+    per-step summaries, jump back to reached steps), status/theme/wind in the
+    rail, wind across each step's header, Back/Next bar with the selection title,
+    Enter/Escape navigation, and a "Begin installation" notice explaining that
+    this build stops at review.
+  - `windpad` (src/app.rs): the landing pad, unchanged in behaviour.
+  - Shared: model.rs (selection), theme.rs, widgets.rs (choice cards, badges,
+    notice), wind.rs, and wifi.rs, which now also holds the Wi-Fi panel used by
+    both.
+  - tests/live.rs: 5 kittest walks (full path, rail and reset, desktop editions
+    and bare, keyboard, screenshots). Screenshots of every step were reviewed in
+    light and dark.
+
+Next for Borea Live: build the image (minimal base, cage or similar kiosk
+compositor, autostart `borea-live`, NetworkManager, Noto fonts, /etc/borea-live
+marker), then the Storage and Account steps backed by the planner.
+
+
+17. BOREA-FLASH: WRITE BOREA LIVE TO A USB STICK (22 October 2026)
+
+crates/borea-flash builds `borea-flash`, a ratatui TUI (ratatui 0.30):
+  - image.rs: accepts only hybrid ISO 9660 images (PVD "CD001", MBR 0x55AA),
+    reads the volume label, finds a published SHA-256 (<iso>.sha256, SHA256SUMS)
+    and checks it on a worker thread; a mismatch blocks writing.
+  - target.rs: candidates are removable/USB disks only. Verdicts: Ready, Mounted
+    (press u to unmount via UDisks2), or Refused (runs this system, holds the
+    image, followed through LUKS/LVM sysfs slaves; too small; swap; installer
+    medium in a live session).
+  - write.rs: 4 MiB chunks, fsync, posix_fadvise DONTNEED (rustix, no unsafe),
+    then byte-for-byte read-back verification; cancellation between chunks.
+  - device.rs: root opens /dev/<name> with O_EXCL; otherwise UDisks2
+    Block.OpenDevice("rw", O_EXCL) through polkit. Unmount and eject (PowerOff)
+    also go through UDisks2.
+  - app.rs: screens Choose, Confirm (type the device name), Working (gauge,
+    speed, time left, stop asks first), Finished (verified/stopped/failed, eject).
+    Keys in, Requests out; the main loop runs them on threads and re-checks the
+    stick right before opening it.
+  - 16 tests: image parsing and checksums, verdicts, sysfs disk-of-file through
+    dm, the writer against image files (success, corrupted byte caught,
+    cancel), and every TUI screen through ratatui TestBackend.
+  - Checked on the maintainer's laptop with --list only: the internal NVMe is not
+    offered; the USB holding a mounted Omarchy installer shows as needing unmount.
+    No real device has been written by this session.
+
+
+18. ZERO-TOUCH BOREA LIVE (22 October 2026)
+
+Requirement from the maintainer: no manual work on the ISO. Hardware scans, Wi-Fi
+prompting, and loading the GUI all happen automatically.
+
+ISO (live/, see live/README.md):
+  - live/build.sh assembles a fresh archiso profile from releng (remove.list,
+    packages.add/remove, airootfs overlay, profiledef.sh), installs the release
+    builds of borea-live, borea, and borea-flash, writes /etc/borea-live, adds a
+    quiet boot, and runs mkarchiso under sudo. --assemble-only needs no root and
+    was run and checked here; shellcheck is clean.
+  - borea-live.service runs `cage -d -s -- borea-live` on tty1 as the passwordless
+    user `borea` (users.table), restarting on exit; default target is graphical.
+  - NetworkManager replaces iwd/systemd-networkd (resolved kept); connectivity
+    checks enabled. polkit rule 49-borea-live.rules allows only user borea, local
+    and active, for NetworkManager and UDisks2 actions.
+  - The ISO itself has NOT been built or booted yet (mkarchiso needs root).
+
+Installer automation (borea-gui):
+  - wifi.rs: the worker waits up to 90 s for NetworkManager at boot, rescans on
+    start, and refreshes every 4 s without being asked.
+  - live.rs: while still on the first step, online means it advances to Machine
+    by itself; offline means the strongest network is chosen with focus in its
+    passphrase field, and Enter there joins. Two new kittest tests cover both.
+
+
+19. BOREA LIVE IS STANDALONE (22 October 2026)
+
+Direction from the maintainer: Borea Live must not be an archiso/Arch derivative.
+It is a standalone ISO. The archiso profile (live/profile) was removed.
+
+live/ is now a Buildroot external tree (see live/README.md):
+  - Buildroot 2026.08.1, SHA-256 pinned; everything is compiled from upstream
+    sources: glibc toolchain, latest kernel + linux.fragment, systemd, Mesa
+    (with LLVM), cage, NetworkManager, UDisks2, polkit, firmware, DejaVu.
+  - package/borea builds borea-live, borea, and borea-flash from a vendored
+    tarball of this workspace (offline cargo build).
+  - package/limine builds Limine 12.9.4 (hash pinned) for BIOS and UEFI.
+  - board/borea/initramfs/init: Borea's own early boot. It finds the medium by a
+    per-build ID, mounts squashfs read-only plus a tmpfs overlay, keeps the
+    medium at /media/borea-live, and switch_roots to systemd; rescue shell on
+    failure.
+  - post-image.sh: builds the early-boot cpio (busybox + its libraries), lays
+    out the ISO, makes a hybrid BIOS/UEFI image with xorriso, and runs
+    limine bios-install.
+  - build.sh: no root; borrows bc/wget from Nix when missing; fails if
+    Buildroot drops any defconfig option. --configure-only passed here with
+    every option accepted.
+  - The theme now also finds DejaVu at /usr/share/fonts/dejavu.
+  - First full build started in this session; see target/live/build.log.
+
+
+20. SECURE BOOT, OPT-IN (22 October 2026)
+
+Requirement from the maintainer: offer Secure Boot safely; never the default.
+
+Installed system (borea-distro::secure_boot, borea-gui live Review step):
+  - HardwareSnapshot gained setup_mode (efivar SetupMode).
+  - readiness(): unavailable on BIOS, 32-bit UEFI, unknown firmware, or image
+    deployments (Bazzite); otherwise available with automatic enrollment (Setup
+    Mode) or enrollment from firmware setup.
+  - STEPS shown before approval: own PK/KEK/db, sign Limine + enroll config
+    hash (BLAKE2b on every kernel/initramfs, renewed on kernel updates), keep
+    Microsoft keys for option ROMs, back up current keys to the ESP, never flip
+    the firmware switch, verify the first enforced boot.
+  - conflict(): warns when firmware Secure Boot is on but the new system is left
+    unsigned. The old blanket "Secure Boot enabled" blocker in assess() was
+    removed in favour of this.
+  - Selection.secure_boot (default false) appears in review rows; switching to
+    an unavailable target resets it. Covered by tests (3 distro, 1 live).
+  - Execution waits for the privileged worker.
+
+Borea Live media (live/):
+  - live/secure-boot-keys.sh makes db.key/db.crt/db.cer, never overwriting.
+  - live/build.sh --secure-boot DIR: checks the key matches the certificate
+    up front, borrows sbsign (nix sbsigntool) and b2sum when missing; output is
+    named *-signed.iso.
+  - post-image.sh (signed only): BLAKE2b hashes on kernel and initramfs paths in
+    limine.conf, limine enroll-config, sbsign BOOTX64.EFI, rebuilds the UEFI CD
+    FAT image with the signed copy, ships the certificate on the medium.
+  - initramfs (signed only): verifies rootfs.squashfs SHA-256 before mounting;
+    no rescue shell, powers off with an explanation instead.
+  - Not yet built or booted under Secure Boot.
+
+21. ONE COMMAND TO WRITE THE BUILD (22 October 2026)
+
+  - live/flash.sh: builds borea-flash if needed and opens it on the newest
+    target/live/out/borea-live-*.iso (or a given image).
+    `live/build.sh && live/flash.sh` builds and writes in one go.
+  - borea-flash with no argument now also searches the checkout's
+    target/live/out (found from its own binary's location) before the
+    current directory and ~/Downloads, and says how to build an image when
+    none exists.
+  - Typing the device name stays mandatory before any write.
+  - Caution: live/build.sh was edited while the first build ran; bash reads
+    scripts incrementally, so that run's final copy step must be checked by
+    hand when it ends.
+
+
+22. RUST EVERYWHERE IT CAN BE (22 October 2026)
+
+Direction from the maintainer: the whole project in Rust unless another language
+is explicitly needed.
+
+Replaced:
+  - live/build.sh, live/secure-boot-keys.sh, post-build.sh, post-image.sh and
+    design/compose.py → crates/borea-build (`borea-build iso | keys |
+    concept-data`; also Buildroot's post-build/post-image hooks via symlinks in
+    target/live/hooks, dispatching on argv[0]). It writes the gzip newc
+    initramfs itself (goblin reads ELF dependencies), hashes with sha2/blake2,
+    and runs only external tools that are tools (make, xorriso, limine, sbsign,
+    mtools, openssl, curl, tar, cargo vendor).
+  - initramfs/init (shell) → crates/borea-init: rustix mounts, file-backed EROFS
+    (no loop device, so no unsafe and no bindgen), signed image check, rescue
+    via busybox only in unsigned builds; signed initramfs contains no shell.
+  - live/flash.sh removed: borea-flash finds the newest build itself.
+  - The root image changed from squashfs to EROFS (LZMA); kernel 7.1.13 has
+    EROFS_FS_BACKED_BY_FILE.
+Kept, because their tools require them: Buildroot Config.in/.mk/defconfig,
+kernel fragment, systemd units, users.table, NetworkManager conf,
+limine.conf, the polkit rule (JavaScript), and the HTML concept page.
+Tests: borea-build 10, borea-init 3. --configure-only passes with the hooks
+linked. The previous background build was stopped; its compiled packages are
+reused by the restarted build.
+
+
+23. ONE-CLICK BUILD AND WRITE (22 October 2026)
+
+  - borea-flash --make: in a checkout, rebuilds Borea Live when any file under
+    crates/, live/, or Cargo.lock is newer than the newest image (or none
+    exists), then goes straight to writing. --build always rebuilds.
+  - make.rs: the build screen (current Buildroot package, packages done,
+    elapsed, last output lines; Esc asks before stopping; r retries). The build
+    runs as `cargo run --release -p borea-build -- iso` in its own process group,
+    output tee'd to target/live/build.log; stopping signals the whole group.
+  - --install-launcher writes ~/.local/share/applications/borea-live-maker.desktop
+    and "Borea Live Maker.desktop" in the checkout (gitignored: absolute paths),
+    Terminal=true, Exec runs `cargo run --release -p borea-flash -- --make`.
+    desktop-file-validate passes.
+  - borea-build iso takes an exclusive flock on target/live/.build.lock, and
+    refuses while any make with O=<output> runs (catches unlocked older runs).
+  - Typing the device name before writing remains mandatory.
+  - The first full build was killed for low memory while compiling host LLVM
+    (Buildroot defaulted to one job per thread: 21 jobs in 15 GiB). borea-build
+    iso now passes BR2_JLEVEL=min(CPUs, MemTotal / 2 GiB), at least 1 (7 on the
+    dev laptop); --jobs N overrides it. Verified with printvars: PARALLEL_JOBS=7.
+
+Session 24 — one naming convention, and Gaming as a checkbox
+  - Catalog naming (enforced by edition_names_follow_one_convention): upstream
+    product names for distributions ("openSUSE Tumbleweed"); editions named for
+    the desktop first, upstream's label after " · " ("GNOME · Workstation",
+    "KDE Plasma · Handheld", "KDE Plasma · Steam HTPC", "Hyprland · Omarchy");
+    the desktop-free edition is always "Minimal" (CachyOS's id is now `minimal`,
+    upstream "No Desktop"). Edition ids are otherwise unchanged.
+  - Gaming moved from Edition.gaming / Distro.gaming_firmware_default to
+    Distro.gaming {packages, summary, needs, default, built_in}, validated.
+    Packages per distro are in catalog.toml; Tumbleweed default = true (keeps its
+    Gaming + Firmware default); Bazzite, Nobara, PikaOS are built_in.
+  - Windpad: every card now has a Your desktop panel (compose path on Minimal,
+    "<edition>, as <distro> ships it" otherwise) ending in the Gaming checkbox
+    (widgets::gaming, accessible as "Gaming for <distro>"). FamilyChoice.gaming
+    is Option<bool> (None = distro default); kept across editions, reset with the
+    distribution. Rows show Gaming: summary / Not included / Built into X.
+    borea-live's Desktop step ends with the same checkbox for every edition.
+  - design/windpad.html: edition names updated, and (below) the Extras checkboxes.
+  - Superseded the same session: Gaming is now one of several Extras. Distro.gaming
+    is gone; crates/borea-catalog/data/extras.toml defines extras once (gaming,
+    codecs, flatpak, printing) with per-distro Provision {packages, summary,
+    needs, default, built_in}; Catalog::parse takes it as a third input and
+    validates it. Selection: FamilyChoice.extras (touched ids), extra(), set_extra(),
+    ticked(); rows show "Extras" and "Built in". widgets::extras draws the
+    checklist (a11y "<Extra> for <Distro>"); Windpad's Your desktop panel and
+    borea-live's Desktop step both end with it. The Tumbleweed default finding in
+    borea-distro was dropped (the ticked checkbox shows it).
+  - design/windpad.html now matches: the gaming tags are gone; every card has a
+    Your desktop panel ending in the Extras checkboxes, rendered from extras.toml
+    via `borea-build concept-data` (desktops.extras). Checked in jsdom: ticking,
+    defaults, "Built into", the bare note, and the preview rows.
+  - First full builds: pack_source wrote an empty .cargo/config.toml (`cargo
+    vendor --quiet` prints nothing), so the offline cargo build found no crates;
+    borea-build now writes the vendored-sources config itself (tested). Then the
+    EROFS step failed: tmpfiles could not resolve user `borea`, which only existed
+    as a runtime sysusers entry. The user is now in board/borea/users.table
+    (BR2_ROOTFS_USERS_TABLES); the sysusers and tmpfiles files are gone.
+
+Session 25 — Borea Live boots to the installer; Nerd Font look
+  - Boot test (QEMU, direct kernel boot with a serial console): borea-init,
+    systemd, NetworkManager, logind all fine; cage failed with "XDG_RUNTIME_DIR
+    is not set" because Buildroot's `login` PAM stack has no pam_systemd. Added
+    /etc/pam.d/borea-live (with pam_systemd) and PAMName=borea-live. After the
+    rebuild borea-live came up by itself, saw the wired network, and moved past
+    Connect on its own. Still to do: the same check booting the ISO itself under
+    SeaBIOS and OVMF (only the direct-kernel boot was screenshotted after the fix).
+  - Windpad and borea-live are set in JetBrains Mono Nerd Font (Regular + Bold,
+    v3.5.1, OFL), embedded with include_bytes! from crates/borea-gui/fonts (see
+    its README for the archive hash). theme::display() replaces the serif;
+    icons live in src/icon.rs (distro logos via nf-linux-*, hardware and marks via
+    nf-md-*), checked against the font by a test. primary/quiet/nav buttons and
+    segmented options announce icon::plain(text), so tests and screen readers
+    use the words ("Next", "Hardware", "Wi-Fi"). Radius 12 → 6.
+  - Shells were easy to miss (they live on Minimal; most people pick a desktop
+    edition). Every desktop edition's Your desktop panel now has a compose offer
+    (widgets::compose_offer → Action::Compose → Selection::compose_on), using
+    compose_target (same distro's Minimal, else the family's first distro with
+    one) and compose_teaser ("Hyprland, niri, MangoWC · 6 shells, such as …").
+    borea-live's Desktop step offers the same and stays on Desktop afterwards.
+  - Windpad's family cards flow 4 / 2 / 1 across (MIN_CARD 380, MAX_WIDTH 1600);
+    each row's bodies take the tallest body's height (remembered per row in egui
+    temp data), so the feet and footers line up. Compose step cards are now
+    announced "Choose shell for <distro>, currently …" (unique per card).
+
+Session 26 — tidy layout; borea-flash as a terminal command
+
+  - Root holds only README.md, Cargo.toml/.lock, rustfmt.toml, .gitignore and
+    the crates/, live/, docs/, design/ directories. PROJECT_HANDOVER.txt moved
+    to docs/handover.txt (section 1 now maps the layout). Removed the
+    session-1 borea-project-with-handover.zip (superseded by the docs) and the
+    generated "Borea Live Maker.desktop" in the checkout; --install-launcher
+    now writes only ~/.local/share/applications/borea-live-maker.desktop.
+  - README.md gained a "Repository layout" section.
+  - borea-flash --install copies the binary to $XDG_BIN_HOME or ~/.local/bin
+    (through a temporary name, so a running copy is replaced safely) and says
+    how to add the directory to PATH when it is missing. make::repo() falls
+    back to the checkout it was compiled in, so the installed copy's --make
+    works from any directory.
+  - src/terminal.rs fits every drawn frame to the terminal: 24-bit colour when
+    COLORTERM says so, the xterm 256-colour palette otherwise, and on the
+    Linux console (TERM=linux) 16 colours plus plain marks (┌ for ╭, + for ✓,
+    > for ›, ~ for ∼ …). Checked in tmux as TERM=linux and xterm-256color.
+  - Tests: 112 workspace tests pass; clippy clean.
+  - Rebuilding from the TUI: with a checkout, plain borea-flash shows in the
+    Image panel whether the checkout changed since the image (Checkout::
+    Current/Changed), and b on the choose screen switches to the build screen
+    (Request::Rebuild), then back to writing the new image. With no image at
+    all it starts building. Fixed a bug that broke every in-TUI build:
+    --manifest-path was passed after `--`, so borea-build refused it.
+
+Session 27 — bug sweep
+
+  - Virtual machines were "Unknown (unrecognized chassis type 1)": QEMU names
+    itself only in DMI sys_vendor, which was never read. device_class now
+    matches product_name + sys_vendor; SMBIOS types 1/2 (Other/Unknown) say
+    "the firmware does not say what kind of device this is"; 11 is Handheld,
+    24 and 34 Desktop. Cards show "Unknown device" with the reason beneath.
+  - UEFI without Secure Boot support (no SecureBoot variable while efivarfs
+    lists others) is now "off", not "unknown".
+  - GPUs: QEMU/VirtIO/QXL/VMware/VirtualBox/Hyper-V adapters are named
+    ("QEMU virtual graphics"); unknown vendors show "PCI vvvv:dddd" instead of
+    "vendor 1234 1111". One Gpu::label() used by doctor, Windpad and Borea Live.
+  - "no disk is free … every disk is in use" when the only disk is the
+    installer medium now says no disk was found to install to.
+  - borea shells: extras were printed unlabelled under the distro name, above
+    the compositors; now an "Extras" block after the desktop choices.
+  - README told `cargo run -- doctor`, which fails in a virtual workspace;
+    now `cargo run --bin borea -- doctor` (and catalog, shells, wifi).
+  - borea-flash --list printed "press u to unmount"; key hints are TUI-only.
+  - borea-build iso refuses to run as root (root-owned target/live would
+    break the next normal build, e.g. after `sudo borea-flash --make`).
+  - Buildroot: BR2_TARGET_ROOTFS_EROFS_LZMA collides with the generic
+    BR2_TARGET_ROOTFS_<FS>_LZMA switch, so every build also wrote an unused
+    rootfs.erofs.lzma at lzma -9. Now custom compression "lzma,6": same image,
+    minutes faster.
+  - Verified: the ISO boots from the CD image itself under SeaBIOS and OVMF
+    into borea-live, online, on the Machine step.
+  - Three Borea Live faults found by driving the ISO in QEMU over a serial
+    console (kernel console=ttyS0, direct boot of the built kernel):
+      * No keyboard at all: xkeyboard-config was missing, so cage could not
+        build a keymap ("Unable to create XKB context"). Wi-Fi passphrases
+        could never have been typed. BR2_PACKAGE_XKEYBOARD_CONFIG=y.
+      * efivarfs was never mounted (Buildroot builds systemd with -Defi=false),
+        so Secure Boot was "unknown" on every UEFI machine.
+        rootfs-overlay adds sys-firmware-efi-efivars.mount.
+      * polkit was built with session_tracking=ConsoleKit (Buildroot's
+        hard-coded default), so no session was ever local or active: the
+        borea polkit rule never applied (NetworkManager system connections
+        and UDisks2 would have asked for a password) and Ctrl+Alt+F2 was
+        refused by logind. external.mk switches polkit to logind and orders it
+        after systemd; the rule also allows org.freedesktop.login1.chvt.
+        An existing output tree needs `make polkit-dirclean` once.
+    The post-build hook now refuses an image missing keymaps, cage,
+    borea-live, its PAM file, the efivars mount, or with a polkitd not linked
+    against libsystemd. Verified on the ISO under SeaBIOS and OVMF: pkcheck
+    says yes for chvt, NetworkManager and UDisks2; Secure Boot "off";
+    Ctrl+Alt+F2 shows the login, Ctrl+Alt+F1 returns to the installer.
+  - borea-flash: --make no longer counts Markdown as a source (editing docs
+    marked the image stale); printing no longer panics on a closed pipe
+    (`borea-flash --list | head`).
+  - Tests: 116 workspace tests pass; clippy clean. Final ISO rebuilt and
+    booted from the image under SeaBIOS and OVMF.
+
+Session 28 — acting on an outside review
+
+  - Desktop-first: Arch's editions now start with KDE Plasma; Minimal comes
+    last on every distribution (catalog.toml convention), so every card opens
+    on a ready-made desktop and composing is the "Or compose your own…" offer.
+    Test: cards_start_on_a_ready_made_desktop.
+  - Prototype status before installation: Borea Live shows a "Preview build ·
+    cannot install yet" tag in the rail on every step, a notice at the top of
+    Review, and Begin installation is disabled with "Not in this preview
+    build" beside it (LiveInstaller::CAN_INSTALL = false). The old modal that
+    appeared only after pressing it is gone.
+  - Git baseline: commit 8a27c5c holds the whole project (target/ ignored).
+  - ISO rebuilt with these changes and boot-checked under OVMF.
+  - Next milestone, as recommended: one complete Arch Linux install into a
+    disposable QEMU disk (planner → privileged worker → GPT/ESP/ext4 →
+    bootstrap from the signed Arch archive → pacman base → user/locale →
+    Limine), then a kernel update and a reboot that still boots.
+
+Session 29 — first Arch Linux install (vertical slice)
+
+  - New crates:
+      borea-engine: InstallRequest → InstallPlan (serde JSON, SHA-256 digest,
+        schema 1); disk.rs stable names (/dev/disk/by-id, else by-path);
+        fetch.rs (ureq + bundled roots, SHA-256 while copying, OpenPGP via
+        the pure-Rust pgp crate); arch.rs adapter: resolves the newest dated
+        bootstrap from geo.mirror.pkgbuild.com, checks its published SHA-256
+        and its signature against keys/arch-release-key.asc (fingerprint
+        3E80CA1A8B89F69CBA57D98A76A5EF9054449A5C, fetched by WKD and matched
+        to archlinux.org/download). Refuses: untested editions (only
+        "minimal" is plannable), BIOS/32-bit UEFI, Secure Boot on, busy or
+        <8 GiB disks, extras needing extra repositories (gaming/multilib),
+        and malformed hostname/user/timezone/locale/keymap.
+      borea-worker (root): PLAN --approve DIGEST [--bootstrap FILE]; re-execs
+        in `unshare --mount --propagation private`; 11 steps: re-check disk,
+        sfdisk GPT (2 GiB ESP + root type 4F68…), mkfs.fat/ext4, mount,
+        copy+hash+unpack bootstrap (ruzstd + tar) on the target disk,
+        mirrorlist/resolv.conf, pacman-key, pacstrap -K, fstab by UUID,
+        locale/keymap/hostname/hosts/sudoers, user via chpasswd on stdin,
+        root locked, services, mkinitcpio -P, Limine (EFI/limine and
+        EFI/BOOT copies, limine.conf with microcode first, pacman hook to
+        refresh Limine), efibootmgr entry (falls back to EFI/BOOT), validate,
+        clean up. Log at /run/borea/install.log; the password is never logged.
+      `borea plan` in borea-bootstrap: checks first, then downloads/verifies,
+        writes the plan, prints the review, digest and the worker command.
+  - Borea Live gained mkfs.fat/fsck.fat, unshare and borea-worker; the
+    post-build guard checks them. (After changing dosfstools/util-linux
+    options: make dosfstools-dirclean util-linux-dirclean once.)
+  - VM findings: OVMF direct kernel boot does not see QEMU's emulated CD, so
+    the ISO is attached as a read-only virtio disk; /tmp is a 7.7 GB tmpfs,
+    so VM disks live in target/vm. A serious worker bug found by the first
+    run: a busy unmount (gpg-agent left by pacman-key) let
+    remove_dir_all(.borea) delete the new system through the tools' /mnt
+    bind. Fixed: gpg-agents stopped, unmounts retried, removal refuses while
+    anything under .borea is mounted (unreadable mount table = refuse) and
+    never crosses file systems; regression test from the real mount table.
+  - Codex (another assistant, authorized by Luke) owns tests/vm/ (harness:
+    arch_install.py) and docs/CODEX_CLAUDE_COORDINATION.md.
+  - Status: PASS in a disposable VM (tests/vm/arch_install.py, run
+    target/vm/arch-7lc2tv_e): install 11/11 in about 1 min. Then the
+    installed disk boots through its own UEFI entry and Limine, the user
+    logs in, a kernel package transaction runs (`pacman -Syu linux`;
+    mkinitcpio rebuilds), and it reboots and logs in again.
+    Not yet proven: an upgrade between two distinct kernel versions (needs a
+    pinned older-kernel fixture), real hardware, editions beyond Minimal,
+    GUI integration (Windpad/Borea Live still stop before installing),
+    worker IPC/polkit (it is run directly as root for now).

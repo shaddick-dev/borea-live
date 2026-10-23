@@ -1,0 +1,8 @@
+config BR2_PACKAGE_HOST_LIMINE
+	bool "host limine"
+	depends on BR2_HOSTARCH = "x86_64"
+	help
+	  The Limine bootloader: BIOS and UEFI binaries for a hybrid
+	  ISO, and the host tool that installs its BIOS stage.
+
+	  https://limine-bootloader.org

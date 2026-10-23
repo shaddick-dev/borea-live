@@ -1,0 +1,32 @@
+[package]
+name = "borea-flash"
+default-run = "borea-helper"
+description = "Write the Borea Live ISO to a USB stick, safely, from a terminal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "borea-flash"
+path = "src/main.rs"
+
+[[bin]]
+name = "borea-helper"
+path = "src/helper.rs"
+
+[dependencies]
+borea-hardware.workspace = true
+borea-host.workspace = true
+libc = "0.2"
+ratatui = "0.30.2"
+rustix = { version = "1.1.5", features = ["fs", "process"] }
+sha2 = "0.11.1"
+thiserror.workspace = true
+zbus.workspace = true
+
+[dev-dependencies]
+borea-testkit.workspace = true
+
+[lints]
+workspace = true

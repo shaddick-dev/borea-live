@@ -1,0 +1,18 @@
+[package]
+name = "borea-init"
+description = "Borea Live's early boot: find this build's medium, mount its system, start systemd"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "borea-init"
+path = "src/main.rs"
+
+[dependencies]
+rustix = { version = "1.1.5", features = ["fs", "mount", "process", "system"] }
+sha2 = "0.11.1"
+
+[lints]
+workspace = true

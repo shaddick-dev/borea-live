@@ -1,0 +1,9 @@
+# The installer's session on tty1. pam_systemd registers it with logind as a
+# seat0 session, which gives cage its XDG_RUNTIME_DIR and the right to open the
+# GPU and input devices. (Buildroot's own `login` stack has no pam_systemd.)
+account   required  pam_unix.so
+session   required  pam_loginuid.so
+session   required  pam_limits.so
+session   required  pam_env.so
+session   required  pam_unix.so
+session   required  pam_systemd.so

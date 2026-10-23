@@ -1,0 +1,251 @@
+//! Walk the Borea Live installer through its steps, as a person would.
+
+mod common;
+
+use borea_core::Family;
+use borea_gui::LiveInstaller;
+use borea_gui::live::Step;
+use common::machine;
+use eframe::egui::{self, accesskit::Role};
+use egui_kittest::Harness;
+use egui_kittest::kittest::Queryable;
+
+type Installer = Harness<'static, Option<LiveInstaller>>;
+
+fn harness(dark: bool) -> Installer {
+    let mut harness = Harness::builder().with_size(egui::vec2(1280.0, 860.0)).build_ui_state(
+        move |ui, app: &mut Option<LiveInstaller>| {
+            let ctx = ui.ctx().clone();
+            let app =
+                app.get_or_insert_with(|| LiveInstaller::with_hardware(&ctx, machine(), dark));
+            for action in app.frame(ui) {
+                app.apply(&ctx, action);
+            }
+        },
+        None,
+    );
+    harness.run();
+    harness
+}
+
+fn press(h: &mut Installer, label: &str) {
+    h.get_by_role_and_label(Role::Button, label).scroll_to_me();
+    h.run();
+    h.get_by_role_and_label(Role::Button, label).click();
+    h.run();
+}
+
+fn app(h: &Installer) -> &LiveInstaller {
+    h.state().as_ref().unwrap()
+}
+
+fn title(h: &Installer) -> String {
+    let app = app(h);
+    app.selection().title(app.catalog(), app.selection().selected)
+}
+
+#[test]
+fn guided_path_through_every_step() {
+    let mut h = harness(true);
+    assert_eq!(app(&h).step(), Step::Connect);
+    assert!(h.query_by_label_contains("Wi-Fi is unavailable here").is_some());
+    press(&mut h, "Next");
+    assert_eq!(app(&h).step(), Step::Machine);
+    assert!(h.query_by_label("Available to choose later").is_some());
+    assert!(h.query_by_label("Installation medium").is_some(), "the live USB is never a target");
+    press(&mut h, "Next");
+
+    assert_eq!(app(&h).step(), Step::System);
+    press(&mut h, "Fedora family");
+    press(&mut h, "Minimal");
+    assert_eq!(title(&h), "Fedora Linux · Minimal · Hyprland + Noctalia");
+    press(&mut h, "Next");
+
+    assert_eq!(app(&h).step(), Step::Desktop);
+    press(&mut h, "niri");
+    press(&mut h, "No shell");
+    press(&mut h, "Review");
+    assert_eq!(app(&h).step(), Step::Review);
+    assert_eq!(title(&h), "Fedora Linux · Minimal · niri");
+    assert!(
+        app(&h).selection().path_complete(app(&h).catalog(), Family::Fedora),
+        "leaving Desktop confirms it"
+    );
+
+    // Prototype status shows before the button, and the button cannot be pressed.
+    assert!(h.query_by_label_contains("This is a preview build: it cannot install yet").is_some());
+    assert!(h.query_by_label("Not in this preview build").is_some());
+    press(&mut h, "Begin installation");
+    assert_eq!(app(&h).step(), Step::Review, "a disabled button does nothing");
+}
+
+#[test]
+fn rail_returns_to_earlier_steps_and_change_resets_progress() {
+    let mut h = harness(false);
+    press(&mut h, "Next");
+    press(&mut h, "Next");
+    press(&mut h, "Next");
+    press(&mut h, "Review");
+    assert_eq!(app(&h).step(), Step::Review);
+
+    press(&mut h, "Step 3: System");
+    assert_eq!(app(&h).step(), Step::System);
+    press(&mut h, "Debian family");
+    // Review is no longer reachable from the rail until Desktop is passed again.
+    press(&mut h, "Step 5: Review");
+    assert_eq!(app(&h).step(), Step::System);
+}
+
+#[test]
+fn desktop_editions_skip_the_choice_and_bare_is_complete() {
+    let mut h = harness(false);
+    press(&mut h, "Next");
+    press(&mut h, "Next");
+    press(&mut h, "Fedora family");
+    press(&mut h, "Next");
+    assert!(h.query_by_label_contains("comes with its own desktop").is_some());
+
+    press(&mut h, "Step 3: System");
+    press(&mut h, "Arch family");
+    press(&mut h, "CachyOS");
+    press(&mut h, "Minimal");
+    press(&mut h, "Next");
+    press(&mut h, "No desktop");
+    let selection =
+        |h: &Installer| app(h).selection().extra(app(h).catalog(), Family::Arch, "gaming");
+    assert!(!selection(&h), "Gaming starts unticked");
+    h.get_by_role_and_label(Role::CheckBox, "Gaming for CachyOS").scroll_to_me();
+    h.run();
+    h.get_by_role_and_label(Role::CheckBox, "Gaming for CachyOS").click();
+    h.run();
+    assert!(selection(&h));
+    press(&mut h, "Review");
+    assert_eq!(title(&h), "CachyOS · Minimal · no desktop");
+}
+
+#[test]
+fn desktop_step_offers_composing_on_desktop_editions() {
+    let mut h = harness(false);
+    press(&mut h, "Next");
+    press(&mut h, "Next");
+    press(&mut h, "Fedora family");
+    press(&mut h, "Next");
+    assert_eq!(app(&h).step(), Step::Desktop);
+    press(&mut h, "Or compose your own desktop on Fedora Linux Minimal");
+    assert_eq!(app(&h).step(), Step::Desktop, "stays to pick the compositor and shell");
+    assert_eq!(title(&h), "Fedora Linux · Minimal · Hyprland + Noctalia");
+    press(&mut h, "niri");
+    press(&mut h, "Review");
+    assert_eq!(title(&h), "Fedora Linux · Minimal · niri + Noctalia");
+}
+
+#[test]
+fn keyboard_moves_between_steps() {
+    let mut h = harness(false);
+    h.key_press(egui::Key::Enter);
+    h.run();
+    assert_eq!(app(&h).step(), Step::Machine);
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert_eq!(app(&h).step(), Step::Connect);
+}
+
+/// Set WINDPAD_SHOTS to a directory to save screenshots for review.
+#[test]
+fn renders_each_step() {
+    let Ok(dir) = std::env::var("WINDPAD_SHOTS") else { return };
+    for (dark, name) in [(true, "dark"), (false, "light")] {
+        let mut h = harness(dark);
+        h.render().unwrap().save(format!("{dir}/live-{name}-1-connect.png")).unwrap();
+        press(&mut h, "Next");
+        h.render().unwrap().save(format!("{dir}/live-{name}-2-machine.png")).unwrap();
+        press(&mut h, "Next");
+        press(&mut h, "CachyOS");
+        press(&mut h, "Minimal");
+        h.render().unwrap().save(format!("{dir}/live-{name}-3-system.png")).unwrap();
+        press(&mut h, "Next");
+        press(&mut h, "MangoWC");
+        h.render().unwrap().save(format!("{dir}/live-{name}-4-desktop.png")).unwrap();
+        press(&mut h, "Review");
+        h.render().unwrap().save(format!("{dir}/live-{name}-5-review.png")).unwrap();
+    }
+}
+
+fn with_network(online: bool) -> Installer {
+    use borea_network::{Band, Connectivity, Network, Security, Status};
+    let status = Status {
+        connectivity: if online { Connectivity::Full } else { Connectivity::None },
+        radio_enabled: true,
+        radio_unblocked: true,
+        primary: online.then(|| "Wired connection 1".into()),
+    };
+    let networks = vec![
+        Network::sample("Breeze Studio", 82, Security::Wpa3Personal, Band::Ghz5, false),
+        Network::sample("Neighbours", 40, Security::WpaPersonal, Band::Ghz2_4, false),
+    ];
+    let mut harness = Harness::builder().with_size(egui::vec2(1280.0, 860.0)).build_ui_state(
+        move |ui, app: &mut Option<LiveInstaller>| {
+            let ctx = ui.ctx().clone();
+            let app = app.get_or_insert_with(|| {
+                let link = borea_gui::wifi::WifiLink::simulated(status.clone(), networks.clone());
+                LiveInstaller::with_link(&ctx, machine(), link, true)
+            });
+            for action in app.frame(ui) {
+                app.apply(&ctx, action);
+            }
+        },
+        None,
+    );
+    harness.run();
+    harness
+}
+
+#[test]
+fn online_at_boot_skips_straight_past_connect() {
+    let h = with_network(true);
+    assert_eq!(app(&h).step(), Step::Machine, "nobody should press Next to say they have a cable");
+    assert!(h.query_by_label("Online").is_some(), "the rail records how it connected");
+}
+
+#[test]
+fn offline_at_boot_has_the_strongest_network_ready_to_join() {
+    let h = with_network(false);
+    assert_eq!(app(&h).step(), Step::Connect);
+    assert_eq!(app(&h).suggested_network(), Some("Breeze Studio"));
+    assert!(h.get_by_label("Passphrase").is_focused(), "the cursor waits in the passphrase field");
+    assert!(h.query_by_label("Join Breeze Studio").is_some());
+}
+
+#[test]
+fn secure_boot_is_off_unless_chosen_and_safe_to_choose() {
+    let mut h = harness(false);
+    press(&mut h, "Next");
+    press(&mut h, "Next");
+    press(&mut h, "Next");
+    press(&mut h, "Review");
+    assert!(!app(&h).selection().secure_boot, "off by default");
+    assert!(
+        h.query_by_label_contains("Keep Microsoft's keys").is_none(),
+        "steps appear only when chosen"
+    );
+
+    h.get_by_role_and_label(Role::RadioButton, "Turn Secure Boot on").scroll_to_me();
+    h.run();
+    h.get_by_role_and_label(Role::RadioButton, "Turn Secure Boot on").click();
+    h.run();
+    assert!(app(&h).selection().secure_boot);
+    assert!(
+        h.query_by_label_contains("Keep Microsoft's keys").is_some(),
+        "every step is shown before approval"
+    );
+    assert!(
+        h.query_by_label_contains("enroll from firmware setup").is_some(),
+        "no Setup Mode: manual enrollment explained"
+    );
+
+    // Bazzite's image-based boot path isn't certified with Secure Boot: the choice drops back to off.
+    press(&mut h, "Step 3: System");
+    press(&mut h, "Fedora family");
+    press(&mut h, "Bazzite");
+    assert!(!app(&h).selection().secure_boot);
+}

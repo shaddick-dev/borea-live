@@ -1,0 +1,27 @@
+[package]
+name = "borea-build"
+description = "Builds Borea Live: drives Buildroot, assembles the early boot and the hybrid ISO, signs for Secure Boot"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "borea-build"
+path = "src/main.rs"
+
+[dependencies]
+blake2 = "0.11.0"
+borea-catalog.workspace = true
+borea-core.workspace = true
+flate2 = "1.1.10"
+goblin = "0.10.7"
+rustix = { version = "1.1.5", features = ["fs", "process"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+
+[dev-dependencies]
+toml.workspace = true
+
+[lints]
+workspace = true

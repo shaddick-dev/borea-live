@@ -1,0 +1,30 @@
+[package]
+name = "borea-gui"
+description = "Windpad: Borea's native installer interface, the same for every target"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "windpad"
+path = "src/main.rs"
+
+[[bin]]
+name = "borea-live"
+path = "src/live_main.rs"
+
+[dependencies]
+borea-core.workspace = true
+borea-catalog.workspace = true
+borea-distro.workspace = true
+borea-hardware.workspace = true
+borea-host.workspace = true
+borea-network.workspace = true
+eframe = { version = "0.37.0", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11"] }
+
+[dev-dependencies]
+egui_kittest = { version = "0.37.0", features = ["wgpu", "snapshot"] }
+
+[lints]
+workspace = true

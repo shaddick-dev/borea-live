@@ -1,0 +1,252 @@
+# Compose your desktop: compositors and shells for editions that ship without one.
+#
+# Only editions marked `composable = true` in catalog.toml (no preinstalled desktop
+# environment or shell) offer this path. Every other edition keeps its upstream
+# desktop untouched, which avoids two shells fighting over one session.
+#
+# Research reviewed 2026-10-22 against each project's README and the distributions'
+# package indexes (archlinux.org, AUR RPC, Fedora mdapi/Bodhi, Debian madison,
+# Repology, and CachyOS's mirror). CachyOS builds on Arch's repositories, so every
+# Arch source applies there too. Shells are listed in order of GitHub stars observed that day. Windpad
+# suggests, in order: a shell made for this distribution (`made_for`), else the
+# first official package, else the first offer.
+#
+# Sources, from most to least integrated:
+#   official     – the distribution's own repositories; installed with the target
+#   third-party  – a named external repository, disclosed in review before approval
+#   aur          – Arch User Repository; built as the user at first login, never as root
+#   first-login  – the project's own installer, run as the user at first login,
+#                  pinned to a reviewed revision and shown in review
+# A distribution missing from `on` cannot offer that compositor or shell.
+
+schema = 1
+reviewed = "2026-10-22"
+
+# ── Compositors ──────────────────────────────────────────────────────────────
+
+[[compositor]]
+id = "hyprland"
+name = "Hyprland"
+style = "Dynamic tiling, fluid animations"
+license = "BSD-3-Clause"
+source = "https://github.com/hyprwm/Hyprland"
+on.arch = { via = "official", packages = ["hyprland"] }
+on.cachyos = { via = "official", packages = ["hyprland"] }
+# Fedora retired its own package after F42; the maintained build lives in COPR.
+on.fedora = { via = "third-party", packages = ["hyprland"], repository = "COPR solopasha/hyprland" }
+on.debian = { via = "official", packages = ["hyprland"], suite = "trixie-backports" }
+on.tumbleweed = { via = "official", packages = ["hyprland"] }
+
+[[compositor]]
+id = "niri"
+name = "niri"
+style = "Scrollable columns, calm and spatial"
+license = "GPL-3.0"
+source = "https://github.com/niri-wm/niri"
+on.arch = { via = "official", packages = ["niri"] }
+on.cachyos = { via = "official", packages = ["niri"] }
+on.fedora = { via = "official", packages = ["niri"] }
+on.tumbleweed = { via = "official", packages = ["niri"] }
+# Not packaged for Debian stable.
+
+[[compositor]]
+id = "mango"
+name = "MangoWC"
+style = "dwm's tags with smooth animation"
+license = "GPL-3.0"
+source = "https://github.com/mangowm/mango"
+on.arch = { via = "official", packages = ["mangowm"] }
+on.cachyos = { via = "official", packages = ["mangowm"] }
+on.fedora = { via = "third-party", packages = ["mangowm"], repository = "Terra" }
+# JustAGuy Linux's signed butterrepo carries the 0.14 series, the last for trixie,
+# with wlroots 0.19 and scenefx installed beside Debian's own libraries.
+on.debian = { via = "third-party", packages = ["mangowc"], repository = "butterrepo (apt.justaguy.dev)" }
+# Not packaged for Tumbleweed.
+
+# ── Shells ───────────────────────────────────────────────────────────────────
+
+# ── CachyOS's own desktop settings (cachyos repository, 2026-10-22) ──────────
+# Tuned configurations CachyOS ships for its installer's desktop choices. They
+# lead CachyOS Minimal's suggestions.
+
+[[shell]]
+id = "cachyos-noctalia-hyprland"
+name = "Noctalia · CachyOS"
+by = "CachyOS"
+framework = "Native C++"
+license = "MIT"
+summary = "CachyOS's tuned Noctalia for Hyprland: greeter, theming, and keybinds."
+source = "https://github.com/CachyOS/cachyos-hypr-noctalia"
+compositors = ["hyprland"]
+made_for = ["cachyos"]
+on.cachyos = { via = "official", packages = ["cachyos-hypr-noctalia"] }
+
+[[shell]]
+id = "cachyos-noctalia-niri"
+name = "Noctalia · CachyOS"
+by = "CachyOS"
+framework = "Native C++"
+license = "MIT"
+summary = "CachyOS's tuned Noctalia for niri: greeter, theming, and keybinds."
+source = "https://github.com/CachyOS/cachyos-niri-noctalia"
+compositors = ["niri"]
+made_for = ["cachyos"]
+on.cachyos = { via = "official", packages = ["cachyos-niri-noctalia"] }
+
+[[shell]]
+id = "cachyos-noctalia-mango"
+name = "Noctalia · CachyOS"
+by = "CachyOS"
+framework = "Native C++"
+license = "MIT"
+summary = "CachyOS's tuned Noctalia for MangoWC: greeter, theming, and keybinds."
+source = "https://github.com/CachyOS/cachyos-mango-noctalia"
+compositors = ["mango"]
+made_for = ["cachyos"]
+on.cachyos = { via = "official", packages = ["cachyos-mango-noctalia"] }
+
+[[shell]]
+id = "cachyos-dms-mango"
+name = "Dux Shell · CachyOS"
+by = "CachyOS"
+framework = "Quickshell + Go"
+license = "GPL-3.0"
+summary = "CachyOS's MangoWC setup with Dux Shell (DMS) and the cat-dms theme."
+source = "https://github.com/CachyOS/cachyos-mangowc-dms"
+compositors = ["mango"]
+made_for = ["cachyos"]
+on.cachyos = { via = "official", packages = ["cachyos-mangowc-dms"] }
+
+[[shell]]
+id = "illogical-impulse"
+name = "illogical-impulse"
+by = "end-4"
+framework = "Quickshell"
+license = "GPL-3.0"
+summary = "Usability-first Material shell with sidebars, overview, and AI tools."
+source = "https://github.com/end-4/dots-hyprland"
+compositors = ["hyprland"]
+on.arch = { via = "first-login", installer = "https://github.com/end-4/dots-hyprland" }
+on.cachyos = { via = "first-login", installer = "https://github.com/end-4/dots-hyprland" }
+
+[[shell]]
+id = "caelestia"
+name = "Caelestia"
+by = "caelestia-dots"
+framework = "Quickshell"
+license = "GPL-3.0"
+summary = "A fluid, morphing shell with a Material-inspired aesthetic."
+source = "https://github.com/caelestia-dots/shell"
+compositors = ["hyprland"]
+on.arch = { via = "aur", packages = ["caelestia-shell"] }
+on.cachyos = { via = "aur", packages = ["caelestia-shell"] }
+
+[[shell]]
+id = "noctalia"
+name = "Noctalia"
+by = "noctalia-dev"
+framework = "Native C++"
+license = "MIT"
+summary = "Sleek and quiet: bar, launcher, control center, and lock screen."
+source = "https://github.com/noctalia-dev/noctalia"
+compositors = ["hyprland", "niri", "mango"]
+on.arch = { via = "official", packages = ["noctalia"] }
+on.cachyos = { via = "official", packages = ["noctalia"] }
+on.fedora = { via = "official", packages = ["noctalia"] }
+on.debian = { via = "third-party", packages = ["noctalia"], repository = "pkg.noctalia.dev" }
+on.tumbleweed = { via = "official", packages = ["noctalia"] }
+
+[[shell]]
+id = "dux"
+name = "Dux Shell"
+by = "duxlabs (formerly DankMaterialShell)"
+framework = "Quickshell + Go"
+license = "MIT"
+summary = "Complete Material shell: system monitor, Spotlight search, plugins."
+source = "https://github.com/duxlabs-dev/dux-shell"
+compositors = ["hyprland", "niri", "mango"]
+on.arch = { via = "official", packages = ["dms-shell"] }
+on.cachyos = { via = "official", packages = ["dms-shell"] }
+on.fedora = { via = "first-login", installer = "https://install.duxlabs.dev" }
+on.debian = { via = "first-login", installer = "https://install.duxlabs.dev" }
+on.tumbleweed = { via = "first-login", installer = "https://install.duxlabs.dev" }
+
+[[shell]]
+id = "serpantinum"
+name = "Serpantinum"
+by = "ilyamiro"
+framework = "Quickshell"
+license = "AGPL-3.0"
+summary = "A striking shell that adapts its configuration to the compositor."
+source = "https://github.com/ilyamiro/serpantinum"
+compositors = ["hyprland", "niri", "mango"]
+on.arch = { via = "first-login", installer = "https://install.serpantinum.dev" }
+on.cachyos = { via = "first-login", installer = "https://install.serpantinum.dev" }
+on.fedora = { via = "first-login", installer = "https://install.serpantinum.dev" }
+
+[[shell]]
+id = "ambxst"
+name = "Ambxst"
+by = "Axenide"
+framework = "Quickshell"
+license = "AGPL-3.0"
+summary = "An extremely customizable shell that stays out of your own config."
+source = "https://github.com/Axenide/Ambxst"
+compositors = ["hyprland", "niri"]
+on.arch = { via = "first-login", installer = "https://get.axeni.de/ambxst" }
+on.cachyos = { via = "first-login", installer = "https://get.axeni.de/ambxst" }
+on.fedora = { via = "first-login", installer = "https://get.axeni.de/ambxst" }
+
+[[shell]]
+id = "inir"
+name = "iNiR"
+by = "snowarch"
+framework = "Quickshell"
+license = "GPL-3.0"
+summary = "A complete niri shell with nine global styles and a scrolling overview."
+source = "https://github.com/snowarch/iNiR"
+compositors = ["niri"]
+on.arch = { via = "first-login", installer = "https://github.com/snowarch/iNiR" }
+on.cachyos = { via = "first-login", installer = "https://github.com/snowarch/iNiR" }
+on.fedora = { via = "first-login", installer = "https://github.com/snowarch/iNiR" }
+
+[[shell]]
+id = "ashell"
+name = "ashell"
+by = "MalpenZibo"
+framework = "Rust (iced)"
+license = "GPL-3.0"
+summary = "A ready-to-go status bar: workspaces, tray, quick settings."
+source = "https://github.com/MalpenZibo/ashell"
+compositors = ["hyprland", "niri", "mango"]
+on.arch = { via = "aur", packages = ["ashell"] }
+on.cachyos = { via = "aur", packages = ["ashell"] }
+on.tumbleweed = { via = "official", packages = ["ashell"] }
+
+[[shell]]
+id = "mangobutter"
+name = "Mangobutter"
+by = "JustAGuy Linux"
+framework = "Quickshell"
+license = "GPL-2.0"
+summary = "A complete Mango desktop for Debian: Quickshell bar, rofi, dunst, wallpaper theming."
+source = "https://justaguy.dev/drew/mangobutter"
+compositors = ["mango"]
+# Built for Debian 13 only; its installer refuses other distributions.
+made_for = ["debian"]
+on.debian = { via = "first-login", installer = "https://justaguy.dev/drew/mangobutter" }
+
+[[shell]]
+id = "waybar"
+name = "Waybar essentials"
+by = "Borea preset"
+framework = "Waybar · mako · fuzzel"
+license = "MIT"
+summary = "The classic light trio: a bar, notifications, and a launcher."
+source = "https://github.com/Alexays/Waybar"
+compositors = ["hyprland", "niri", "mango"]
+on.arch = { via = "official", packages = ["waybar", "mako", "fuzzel"] }
+on.cachyos = { via = "official", packages = ["waybar", "mako", "fuzzel"] }
+on.fedora = { via = "official", packages = ["waybar", "mako", "fuzzel"] }
+on.debian = { via = "official", packages = ["waybar", "mako-notifier", "fuzzel"] }
+on.tumbleweed = { via = "official", packages = ["waybar", "mako", "fuzzel"] }
