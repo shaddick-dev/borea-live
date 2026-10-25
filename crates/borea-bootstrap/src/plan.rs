@@ -11,9 +11,10 @@ use crate::Result;
 use crate::ui::{Out, section};
 
 pub const USAGE: &str = "\
-borea plan [--distro arch] --disk NAME --user NAME [--edition minimal] [--hostname NAME]
-           [--timezone Area/City] [--locale en_US.UTF-8] [--keymap us]
-           [--extra ID]... [--kernel-arg ARG]... [-o PLAN.json]";
+borea plan --distro DISTRO --channel CHANNEL --edition EDITION
+           --disk NAME --user NAME --hostname NAME --timezone Area/City
+           --locale LOCALE --keymap KEYMAP (--extras none | --extra ID ...)
+           [--kernel-arg ARG]... [-o PLAN.json]";
 
 pub fn run(out: &mut Out, args: &[&str]) -> Result {
     validate_args(args)?;
@@ -25,18 +26,26 @@ pub fn run(out: &mut Out, args: &[&str]) -> Result {
     };
     let required = |flag: &str| value(flag).ok_or_else(|| format!("{flag} is required\n\n{USAGE}"));
     let request = InstallRequest {
-        distro: value("--distro").unwrap_or_else(|| "arch".into()),
-        edition: value("--edition").unwrap_or_else(|| "minimal".into()),
+        distro: required("--distro")?,
+        edition: required("--edition")?,
         disk: required("--disk")?,
-        hostname: value("--hostname").unwrap_or_else(|| "archlinux".into()),
+        hostname: required("--hostname")?,
         username: required("--user")?,
-        timezone: value("--timezone").unwrap_or_else(|| "UTC".into()),
-        locale: value("--locale").unwrap_or_else(|| "en_US.UTF-8".into()),
-        keymap: value("--keymap").unwrap_or_else(|| "us".into()),
+        timezone: required("--timezone")?,
+        locale: required("--locale")?,
+        keymap: required("--keymap")?,
         extras: all("--extra"),
         kernel_args: all("--kernel-arg"),
     };
     let target = borea_engine::online::Target::parse(&request.distro)?;
+    let channel = required("--channel")?;
+    if channel != target.profile().channel {
+        return Err(format!(
+            "channel `{channel}` is not offered for {}; choose explicitly from `borea targets`",
+            request.distro
+        )
+        .into());
+    }
     if target != borea_engine::online::Target::Arch {
         return Err(format!(
             "{} / {}: execution adapter is not implemented yet; no plan was written and no disk was changed",
@@ -81,6 +90,8 @@ fn validate_args(args: &[&str]) -> std::result::Result<(), String> {
         let (flag, value) = (pair[0], pair[1]);
         if ![
             "--distro",
+            "--channel",
+            "--extras",
             "--disk",
             "--user",
             "--edition",
@@ -106,6 +117,26 @@ fn validate_args(args: &[&str]) -> std::result::Result<(), String> {
     if let Some(flag) = pairs.remainder().first() {
         return Err(format!("{flag} needs a value\n{USAGE}"));
     }
+    for flag in [
+        "--distro",
+        "--channel",
+        "--edition",
+        "--disk",
+        "--user",
+        "--hostname",
+        "--timezone",
+        "--locale",
+        "--keymap",
+    ] {
+        if !singles.contains(flag) {
+            return Err(format!("{flag} must be chosen explicitly\n{USAGE}"));
+        }
+    }
+    let extras = args.windows(2).find(|w| w[0] == "--extras").map(|w| w[1]);
+    let has_extra = args.contains(&"--extra");
+    if !matches!((extras, has_extra), (Some("none"), false) | (None, true)) {
+        return Err("choose --extras none or one or more --extra ID options".into());
+    }
     Ok(())
 }
 
@@ -122,12 +153,58 @@ fn cache_dir() -> PathBuf {
 mod tests {
     use super::*;
 
+    fn chosen<'a>(distro: &'a str, channel: &'a str) -> Vec<&'a str> {
+        vec![
+            "--distro",
+            distro,
+            "--channel",
+            channel,
+            "--edition",
+            "minimal",
+            "--disk",
+            "vda",
+            "--user",
+            "luke",
+            "--hostname",
+            "borea",
+            "--timezone",
+            "Europe/London",
+            "--locale",
+            "en_GB.UTF-8",
+            "--keymap",
+            "uk",
+            "--extras",
+            "none",
+        ]
+    }
+
+    #[test]
+    fn every_install_setting_must_be_picked() {
+        let complete = chosen("arch", "rolling");
+        for pair in 0..complete.len() / 2 {
+            let mut incomplete = complete.clone();
+            incomplete.drain(pair * 2..pair * 2 + 2);
+            assert!(
+                validate_args(&incomplete).is_err(),
+                "missing {} was accepted",
+                complete[pair * 2]
+            );
+        }
+        let mut conflict = complete.clone();
+        conflict.extend(["--extra", "printing"]);
+        assert!(validate_args(&conflict).is_err());
+        let mut picked = complete;
+        picked.truncate(picked.len() - 2);
+        picked.extend(["--extra", "printing", "--extra", "codecs"]);
+        validate_args(&picked).unwrap();
+    }
+
     #[test]
     fn never_silently_ignores_a_target_or_misspelled_option() {
         assert!(validate_args(&["--dist", "fedora"]).is_err());
         assert!(validate_args(&["--distro"]).is_err());
         assert!(validate_args(&["--distro", "arch", "--distro", "fedora"]).is_err());
-        validate_args(&["--distro", "arch", "--extra", "printing", "--extra", "codecs"]).unwrap();
+        validate_args(&chosen("arch", "rolling")).unwrap();
     }
 
     #[test]
@@ -135,7 +212,10 @@ mod tests {
         for distro in ["fedora", "debian", "opensuse"] {
             let error = run(
                 &mut std::io::stdout().lock(),
-                &["--distro", distro, "--disk", "vda", "--user", "luke"],
+                &chosen(
+                    distro,
+                    borea_engine::online::Target::parse(distro).unwrap().profile().channel,
+                ),
             )
             .unwrap_err()
             .to_string();

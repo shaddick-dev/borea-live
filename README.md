@@ -143,7 +143,8 @@ cargo run -p borea-flash -- IMAGE.iso               # write Borea Live to a USB 
 On Borea Live, as root, with UEFI and Secure Boot off:
 
 ```sh
-borea plan --disk vda --user NAME [--hostname H --timezone Area/City --locale L --keymap K] -o plan.json
+borea plan --distro arch --channel rolling --edition minimal --extras none \
+  --disk vda --user NAME --hostname HOST --timezone Area/City --locale LOCALE --keymap KEYMAP -o plan.json
 borea-worker plan.json --approve DIGEST --bootstrap ~/.cache/borea/archlinux-bootstrap-….tar.zst
 ```
 

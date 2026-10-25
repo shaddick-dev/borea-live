@@ -6,7 +6,10 @@ shared account and disk setup comparable in workflow to Calamares.
 
 ## Channels
 
-| Target | Selected channel | Native packages | Account administration |
+These are offered channels, not preselected choices. The user must pick the
+distribution and its channel explicitly.
+
+| Target | Offered channel | Native packages | Account administration |
 | --- | --- | --- | --- |
 | Arch | Rolling | pacman / pacstrap | wheel |
 | Fedora | Rawhide, development | DNF / signed RPMs | wheel |
@@ -18,6 +21,24 @@ the requested continuously changing channel model but carry development-channel
 risk. Older catalog descriptions listing latest stable have not yet been
 migrated; `borea targets` is the new four-target contract, not a claim that the
 GUI already implements that contract.
+
+## No implicit installation selections
+
+Owner's clarification: nothing is default; every installation choice is picked.
+The new installation flow must start with distribution, channel, edition,
+desktop/compositor/shell, optional extras, disk/layout, account, locale/timezone,
+keyboard and boot choices unset. Choosing "none" is an explicit decision.
+Changing a parent choice must invalidate dependent choices instead of selecting
+the first available replacement. Hardware detection supplies facts and hints,
+not silently accepted answers. Navigation cannot complete a choice on the user's
+behalf. Internal operational values such as log paths are not installation choices.
+
+The CLI now requires explicit distro/channel/edition, disk, username, hostname,
+timezone, locale, keyboard and extras decisions before it scans hardware or
+downloads anything. It accepts either `--extras none` or specific `--extra ID`
+options. The existing preview GUI still has automatic family/edition/desktop
+selection and catalog defaults; migrating it to unset selections, and exposing
+explicit layout/boot choices, remains required before installation integration.
 
 ## What this change implements
 

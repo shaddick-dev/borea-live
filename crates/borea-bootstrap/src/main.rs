@@ -33,7 +33,7 @@ Commands:
   wifi join SSID              Join a network; the passphrase is asked for, never passed as an argument
   wifi hidden SSID [wpa2|wpa3|open]
                               Join a hidden network
-  plan [--distro arch] --disk NAME --user NAME [options]
+  plan --distro DISTRO --channel CHANNEL --edition EDITION [required settings]
                               Plan an Arch Linux install: resolve, verify, and review it; nothing is written
   help                        Show this message
 

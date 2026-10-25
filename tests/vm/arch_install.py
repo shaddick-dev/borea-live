@@ -151,7 +151,8 @@ def run(args):
             login(c, 'root')
             require(c, 'nm-online -q -t 120', 150)
             require(c, '(for i in $(seq 30); do resolvectl query geo.mirror.pkgbuild.com && exit 0; sleep 2; done; exit 1)', 90)
-            require(c, 'borea plan --disk vda --user tester --hostname borea-test '
+            require(c, 'borea plan --distro arch --channel rolling --edition minimal --extras none '
+                    '--disk vda --user tester --hostname borea-test '
                     '--timezone Europe/London --locale en_GB.UTF-8 --keymap uk '
                     '--kernel-arg console=ttyS0,115200 -o /root/plan.json '
                     '2>&1 | tee /root/plan.out', 900)
