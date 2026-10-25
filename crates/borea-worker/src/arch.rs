@@ -263,6 +263,8 @@ impl<'a> Install<'a> {
 
     fn configure(&mut self, p: &Partitions) -> Result<(), String> {
         let s = &self.plan.system;
+        let account =
+            borea_engine::account::setup(borea_engine::online::Target::Arch, &s.username)?;
         self.log.step(STEPS, &format!("Setting up {} for {}", s.hostname, s.username));
         let t = &self.target;
         let root_uuid = self.uuid(&p.root)?;
@@ -288,21 +290,15 @@ impl<'a> Install<'a> {
             &format!("127.0.0.1\tlocalhost\n::1\t\tlocalhost\n127.0.1.1\t{}\n", s.hostname),
         )?;
         let sudoers = t.join("etc/sudoers.d/10-borea-wheel");
-        write(
-            &sudoers,
-            "# Written by Borea: members of wheel administer this system.\n%wheel ALL=(ALL:ALL) ALL\n",
-        )?;
+        write(&sudoers, &account.sudoers)?;
         fs::set_permissions(&sudoers, fs::Permissions::from_mode(0o440))
             .map_err(|e| e.to_string())?;
 
         self.inside(&["locale-gen"], None)?;
-        self.inside(
-            &["useradd", "--create-home", "--groups", "wheel", "--shell", "/bin/bash", &s.username],
-            None,
-        )?;
+        self.inside(&account.create_user.iter().map(String::as_str).collect::<Vec<_>>(), None)?;
         let secret = format!("{}:{}\n", s.username, self.password);
         self.inside(&["chpasswd"], Some(secret.as_bytes()))?;
-        self.inside(&["passwd", "--lock", "root"], None)?;
+        self.inside(&account.lock_root.iter().map(String::as_str).collect::<Vec<_>>(), None)?;
         for service in &self.plan.services {
             self.inside(&["systemctl", "enable", service], None)?;
         }

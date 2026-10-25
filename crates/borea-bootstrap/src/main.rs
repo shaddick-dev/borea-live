@@ -25,6 +25,7 @@ Usage: borea [COMMAND]
 Commands:
   doctor                      Inspect this environment and machine, and every target's readiness (default)
   catalog                     List the Windpad families, distributions, and editions
+  targets                     Show the four rolling online target contracts and execution availability
   shells [DISTRO [COMPOSITOR]]
                               Compose a desktop: compositors and shells for editions without one
   wifi                        Connection status and networks in range
@@ -32,7 +33,7 @@ Commands:
   wifi join SSID              Join a network; the passphrase is asked for, never passed as an argument
   wifi hidden SSID [wpa2|wpa3|open]
                               Join a hidden network
-  plan --disk NAME --user NAME [options]
+  plan [--distro arch] --disk NAME --user NAME [options]
                               Plan an Arch Linux install: resolve, verify, and review it; nothing is written
   help                        Show this message
 
@@ -63,6 +64,7 @@ fn run(args: &[&str], out: &mut Out) -> Result {
     match args {
         [] | ["doctor"] => doctor::run(out),
         ["catalog"] => doctor::catalog(out),
+        ["targets"] => Ok(writeln!(out, "{}", borea_engine::online::profiles_json())?),
         ["shells", rest @ ..] if rest.len() <= 2 => shells::run(out, rest.first(), rest.get(1)),
         ["wifi"] => wifi::status(out, false),
         ["wifi", "scan"] => wifi::status(out, true),

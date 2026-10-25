@@ -5,13 +5,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use borea_catalog::Catalog;
-use borea_core::{DistroId, Fact, FirmwareMode};
-use borea_hardware::{DiskUsage, HardwareSnapshot, Microcode};
+use borea_core::DistroId;
+use borea_hardware::{HardwareSnapshot, Microcode};
 
 use crate::fetch;
-use crate::plan::{
-    Artifact, Boot, InstallPlan, InstallRequest, Layout, SCHEMA, System, TargetDisk,
-};
+use crate::plan::{Artifact, Boot, InstallPlan, InstallRequest, Layout, SCHEMA, System};
 
 /// Arch Linux's release signing key (Pierre Schmitz), fetched by WKD and checked
 /// against the fingerprint archlinux.org/download lists.
@@ -109,38 +107,7 @@ pub fn plan(
         ));
     }
 
-    match &hw.firmware {
-        Fact::Known(FirmwareMode::Uefi { bits: Some(64) | None }) => {}
-        Fact::Known(FirmwareMode::Uefi { .. }) => {
-            return Err("32-bit UEFI is not supported yet".into());
-        }
-        Fact::Known(FirmwareMode::Bios) => {
-            return Err("this machine started in legacy BIOS mode; installing needs UEFI".into());
-        }
-        Fact::Unknown { reason } => return Err(format!("firmware mode unknown: {reason}")),
-    }
-    if hw.secure_boot == Fact::Known(true) {
-        return Err("Secure Boot is on; turn it off in firmware setup to install for now".into());
-    }
-
-    let disk = hw
-        .disks
-        .iter()
-        .find(|d| d.name == request.disk)
-        .ok_or_else(|| format!("no disk `{}` here", request.disk))?;
-    if disk.usage != DiskUsage::Free {
-        return Err(format!("{} can't be erased: {}", disk.name, disk.usage));
-    }
-    if disk.size_bytes < MIN_DISK {
-        return Err(format!(
-            "{} holds {} GB; Arch Linux Minimal needs at least {} GB",
-            disk.name,
-            disk.size_bytes / 1_000_000_000,
-            MIN_DISK / 1_000_000_000
-        ));
-    }
-    let stable_path = crate::disk::stable_path(root, &disk.name)
-        .ok_or_else(|| format!("{} has no stable name under /dev/disk", disk.name))?;
+    let disk = crate::common::preflight(request, hw, root, MIN_DISK)?;
 
     let microcode = hw.cpu.known().and_then(|c| c.microcode());
     let mut packages: Vec<String> =
@@ -169,31 +136,11 @@ pub fn plan(
     }
     packages.dedup();
 
-    for (field, value) in [
-        ("hostname", &request.hostname),
-        ("username", &request.username),
-        ("timezone", &request.timezone),
-        ("locale", &request.locale),
-        ("keymap", &request.keymap),
-    ] {
-        check_setting(field, value)?;
-    }
-    if !root.join("usr/share/zoneinfo").join(&request.timezone).is_file()
-        && root.join("usr/share/zoneinfo").is_dir()
-    {
-        return Err(format!("unknown time zone `{}`", request.timezone));
-    }
-
     Ok(InstallPlan {
         schema: SCHEMA,
         distro: distro.id.to_string(),
         edition: edition.id.clone(),
-        disk: TargetDisk {
-            name: disk.name.clone(),
-            stable_path,
-            size_bytes: disk.size_bytes,
-            model: disk.model.clone(),
-        },
+        disk,
         layout: Layout { esp_mib: ESP_MIB, root_fs: "ext4".into() },
         bootstrap,
         mirror: MIRROR.into(),
@@ -214,40 +161,11 @@ pub fn plan(
     })
 }
 
-/// Settings end up in files and command arguments: allow only what each can hold.
-fn check_setting(field: &str, value: &str) -> Result<(), String> {
-    let ok = match field {
-        "hostname" => {
-            (1..=63).contains(&value.len())
-                && value.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
-                && !value.starts_with('-')
-        }
-        "username" => {
-            (1..=32).contains(&value.len())
-                && value.starts_with(|c: char| c.is_ascii_lowercase() || c == '_')
-                && value
-                    .chars()
-                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "_-".contains(c))
-                && value != "root"
-        }
-        "timezone" => {
-            !value.is_empty()
-                && !value.contains("..")
-                && !value.starts_with('/')
-                && value.chars().all(|c| c.is_ascii_alphanumeric() || "/_-+".contains(c))
-        }
-        _ => {
-            !value.is_empty()
-                && value.chars().all(|c| c.is_ascii_alphanumeric() || "._-@".contains(c))
-        }
-    };
-    if ok { Ok(()) } else { Err(format!("`{value}` is not a valid {field}")) }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use borea_core::Architecture;
+    use borea_core::{Architecture, Fact, FirmwareMode};
+    use borea_hardware::DiskUsage;
     use borea_hardware::{Cpu, Disk, DiskTransport, Scanner};
     use borea_testkit::FakeRoot;
 
@@ -346,6 +264,10 @@ mod tests {
         };
         assert!(refuse(&|r, _| r.edition = "kde-plasma".into()).contains("not installable yet"));
         assert!(refuse(&|_, h| h.firmware = Fact::Known(FirmwareMode::Bios)).contains("UEFI"));
+        assert!(
+            refuse(&|_, h| h.secure_boot = Fact::unknown("unreadable")).contains("Secure Boot")
+        );
+        assert!(refuse(&|_, h| h.cpu = Fact::unknown("unreadable")).contains("x86-64"));
         assert!(refuse(&|_, h| h.disks[0].usage = DiskUsage::HostRoot).contains("can't be erased"));
         assert!(refuse(&|_, h| h.disks[0].size_bytes = 4 << 30).contains("at least"));
         assert!(refuse(&|r, _| r.disk = "vdb".into()).contains("no disk"));

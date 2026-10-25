@@ -8,7 +8,19 @@ Windpad, a beautifully minimal landing pad, scans your hardware, connects you to
 
 ## Project status
 
-This repository contains the specification, roadmap, and the first Rust workspace. The workspace currently provides read-only host detection, hardware discovery, the Windpad catalog, the adapter contract, and `borea doctor`. It does not yet contain a working installer, downloader, release service, or verified distribution integration. Technical choices below are proposed defaults; compatibility claims require the acceptance tests described in the roadmap.
+The priority is one independent Borea Live ISO installing four online targets:
+Arch rolling, Fedora Rawhide, Debian Sid, and openSUSE Tumbleweed. Rawhide and
+Sid are development channels. Borea's orchestration, planning and account logic
+are Rust; native distribution package managers and Linux filesystem tools remain
+external components, not rewritten implementations.
+
+The Arch Minimal CLI installer exists. The GUI is still a preview, and Fedora,
+Debian and openSUSE execution adapters are not implemented. Shared Rust disk and
+account preflight, account command generation, target profiles and an ordered
+installation workflow are now being extracted from the Arch path. Inspect the
+profiles with `cargo run --bin borea -- targets`. See
+[the independent online installer work](docs/ONLINE-INSTALLER.md) for exact scope,
+reference findings and the implementation/verification sequence.
 
 Read [the vision](docs/vision.md) first, then [the handover](docs/handover.txt) for all work completed so far, the complete requirements, current limitations, and the implementation steps that remain.
 

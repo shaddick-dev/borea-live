@@ -3,9 +3,12 @@
 //! and produces an [`InstallPlan`] for the user to approve and the worker to
 //! carry out.
 
+pub mod account;
 pub mod arch;
+pub mod common;
 pub mod disk;
 pub mod fetch;
+pub mod online;
 pub mod plan;
 
 pub use plan::{InstallPlan, InstallRequest};
