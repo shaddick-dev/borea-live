@@ -53,8 +53,9 @@ pub struct Distro {
     pub channel: ReleaseChannel,
     pub status: SupportStatus,
     pub summary: String,
-    /// Official upstream page the entry was reviewed against.
-    pub source: String,
+    /// Official upstream page the entry was reviewed against; absent until verified.
+    #[serde(default)]
+    pub source: Option<String>,
     pub editions: Vec<Edition>,
     /// Image variants offered for every edition, e.g. Standard / NVIDIA.
     #[serde(default)]
@@ -100,6 +101,8 @@ pub enum CatalogError {
     Parse(#[from] toml::de::Error),
     #[error("catalog schema {found} is not supported (expected {SCHEMA_VERSION})")]
     Schema { found: u32 },
+    #[error("`{0}` needs a verified upstream source before it can be supported")]
+    MissingSource(DistroId),
     #[error("distribution id `{0}` appears more than once")]
     DuplicateDistro(DistroId),
     #[error("`{distro}` lists edition `{edition}` more than once")]
@@ -165,6 +168,12 @@ impl Catalog {
                     distro: distro.id.clone(),
                     edition: edition.id.clone(),
                 });
+            }
+            if distro.status == SupportStatus::Supported
+                && (distro.source.as_deref().is_none_or(|s| s.trim().is_empty())
+                    || distro.channel == ReleaseChannel::Unverified)
+            {
+                return Err(CatalogError::MissingSource(distro.id.clone()));
             }
             if !self.signed && distro.status == SupportStatus::Supported {
                 return Err(CatalogError::UnsignedSupport(distro.id.clone()));
@@ -279,7 +288,7 @@ mod tests {
         let expect = [
             (Family::Arch, &["arch", "cachyos", "omarchy"][..]),
             (Family::Fedora, &["fedora", "bazzite", "nobara"]),
-            (Family::Debian, &["debian", "pikaos"]),
+            (Family::Debian, &["debian", "butterbian", "pikaos"]),
             (Family::Opensuse, &["tumbleweed"]),
         ];
         for (family, ids) in expect {
@@ -293,7 +302,7 @@ mod tests {
     #[test]
     fn edition_names_follow_one_convention() {
         let catalog = Catalog::bundled().unwrap();
-        let desktops = ["KDE Plasma", "GNOME", "Xfce", "Hyprland", "niri", "COSMIC"];
+        let desktops = ["KDE Plasma", "GNOME", "Xfce", "Hyprland", "niri", "COSMIC", "mangobutter"];
         for distro in &catalog.distros {
             for edition in &distro.editions {
                 let name = edition.name.as_str();
@@ -312,7 +321,11 @@ mod tests {
         let catalog = Catalog::bundled().unwrap();
         for distro in &catalog.distros {
             let ids: Vec<_> = catalog.extras.on(&distro.id).map(|o| o.extra.id.as_str()).collect();
-            assert_eq!(ids.first(), Some(&"gaming"), "{}: Gaming everywhere, first", distro.id);
+            if distro.source.is_none() {
+                assert!(ids.is_empty(), "unverified upstreams must not inherit package recipes");
+            } else {
+                assert_eq!(ids.first(), Some(&"gaming"), "{}: Gaming first", distro.id);
+            }
         }
         let ticked: Vec<_> = catalog
             .extras
@@ -320,7 +333,7 @@ mod tests {
             .iter()
             .flat_map(|e| e.on.iter().filter(|(_, p)| p.default).map(|(d, _)| (&*e.id, d.as_str())))
             .collect();
-        assert_eq!(ticked, [("gaming", "tumbleweed")], "only Tumbleweed ticks anything");
+        assert!(ticked.is_empty(), "optional extras require explicit choices");
         let cachyos = catalog.extras.on(&id("cachyos")).next().unwrap();
         assert_eq!(
             cachyos.provision.packages,
@@ -365,6 +378,11 @@ mod tests {
                 "KDE Plasma · Steam Handheld"
             ]
         );
+        assert_eq!(editions("butterbian"), ["Xfce", "mangobutter"]);
+        let butterbian = catalog.get("butterbian").unwrap();
+        assert!(butterbian.source.is_none());
+        assert_eq!(butterbian.channel, ReleaseChannel::Unverified);
+        assert!(!butterbian.matrix_complete);
         assert_eq!(editions("pikaos"), ["GNOME", "KDE Plasma", "Hyprland", "niri", "COSMIC"]);
         assert_eq!(catalog.get("pikaos").unwrap().variants, ["Standard", "NVIDIA"]);
         assert!(!catalog.get("bazzite").unwrap().matrix_complete);
@@ -496,6 +514,16 @@ mod tests {
     fn unsigned_catalog_cannot_certify() {
         let text = BUNDLED.replacen(r#"status = "planned""#, r#"status = "supported""#, 1);
         assert!(matches!(parse(&text), Err(CatalogError::UnsignedSupport(_))));
+    }
+
+    #[test]
+    fn unverified_upstream_cannot_be_certified() {
+        let mut catalog = Catalog::bundled().unwrap();
+        catalog.signed = true;
+        let butterbian =
+            catalog.distros.iter_mut().find(|d| d.id.as_str() == "butterbian").unwrap();
+        butterbian.status = SupportStatus::Supported;
+        assert!(matches!(catalog.validate(), Err(CatalogError::MissingSource(_))));
     }
 
     #[test]

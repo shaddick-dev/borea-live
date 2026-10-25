@@ -42,12 +42,12 @@ Block unsupported installation combinations before asking the user to configure 
 
 ### 3. Choose a distribution
 
-Show four family cards, each with a distribution dropdown and an edition dropdown where applicable:
+In Borea Live, show four family cards with nothing preselected. Choosing one opens a separate distribution page; explicitly choose a distribution, edition and any image variant before continuing:
 
 - **Arch:** Arch Linux; CachyOS → KDE Plasma (upstream "Desktop") / KDE Plasma · Handheld / Minimal; Omarchy.
 - **Fedora:** Fedora Linux; Bazzite → all official hardware/desktop/Gaming Mode choices; Nobara → KDE Plasma · Official / GNOME / KDE Plasma / KDE Plasma · Steam HTPC / KDE Plasma · Steam Handheld (upstream Official, GNOME, KDE, Steam-HTPC, Steam-Handheld).
-- **Debian:** Debian; PikaOS → GNOME / KDE Plasma / Hyprland / Niri / COSMIC, each with the currently published Standard or NVIDIA variant.
-- **openSUSE:** Tumbleweed with Gaming + Firmware enabled by default.
+- **Debian:** Debian; The Butterbian Project → Xfce / mangobutter (upstream and editions unverified); PikaOS → GNOME / KDE Plasma / Hyprland / Niri / COSMIC, each with the currently published Standard or NVIDIA variant.
+- **openSUSE:** Tumbleweed with opt-in Gaming, Media codecs, Flatpak and Printing packages.
 
 Edition lists come from reviewed, signed catalog data and track upstream changes. Show exact release identity, architecture, release model, support status, and a plain-language description. Only validated combinations can install in the stable channel. Pending entries remain visible with an explanation and no install action.
 
@@ -61,7 +61,7 @@ Offer Minimal, GNOME, KDE Plasma, and Xfce for base adapters where supported. De
 
 Explain hardware-based image/driver suggestions and allow eligible overrides. Unknown hardware stays unknown; hybrid laptops retain both GPUs in the plan. No storage target is automatically selected.
 
-Tumbleweed's default Gaming + Firmware profile installs its resolved gaming stack, graphics libraries, controller support, device firmware, and CPU microcode before completion. Show exact packages and sources in review. Device firmware flashing is a separate task.
+Tumbleweed's optional Gaming extra installs its resolved gaming stack, graphics libraries and controller support when selected. Resolve device firmware and CPU microcode separately from optional gaming packages. Show exact packages and sources in review. Device firmware flashing is a separate task.
 
 Each profile is a distribution-specific package mapping. A desktop choice also configures the corresponding display manager and required services; it is more than installing one package name.
 

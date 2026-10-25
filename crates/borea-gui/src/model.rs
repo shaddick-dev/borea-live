@@ -481,12 +481,12 @@ mod tests {
     }
 
     #[test]
-    fn tumbleweed_ticks_gaming_and_bazzite_has_extras_built_in() {
+    fn tumbleweed_extras_are_opt_in_and_bazzite_has_extras_built_in() {
         let catalog = catalog();
         let mut s = Selection::default();
-        assert!(s.extra(&catalog, Family::Opensuse, "gaming"));
-        s.set_extra(Family::Opensuse, "gaming", false);
         assert!(!s.extra(&catalog, Family::Opensuse, "gaming"));
+        s.set_extra(Family::Opensuse, "gaming", true);
+        assert!(s.extra(&catalog, Family::Opensuse, "gaming"));
 
         s.set_distro(Family::Fedora, 1);
         let rows = s.rows(&catalog, Family::Fedora);

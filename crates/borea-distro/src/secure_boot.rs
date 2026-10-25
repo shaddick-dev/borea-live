@@ -51,6 +51,9 @@ pub fn readiness(spec: &AdapterSpec, hw: &HardwareSnapshot) -> Readiness {
         }
         Fact::Unknown { .. } => return unavailable("the firmware mode could not be read"),
     }
+    if spec.acquisition == Acquisition::PendingVerification {
+        return unavailable("the upstream boot path has not been verified");
+    }
     if let Acquisition::ImageDeployment { .. } = spec.acquisition {
         return unavailable(
             "this edition's image-based boot path is not certified with Secure Boot yet",
@@ -128,6 +131,11 @@ mod tests {
         let arch = adapter("arch").unwrap();
         assert!(matches!(
             readiness(arch, &machine(FirmwareMode::Bios, false, false)),
+            Readiness::Unavailable(_)
+        ));
+        let butterbian = adapter("butterbian").unwrap();
+        assert!(matches!(
+            readiness(butterbian, &machine(UEFI, false, true)),
             Readiness::Unavailable(_)
         ));
         let bazzite = adapter("bazzite").unwrap();

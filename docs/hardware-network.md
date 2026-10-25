@@ -45,7 +45,7 @@ Validate package presence, boot-artifact inclusion, and target configuration. Ru
 
 ## Tumbleweed Gaming + Firmware
 
-Enable this preset by default. Install before first boot:
+Gaming is opt-in; do not preselect it. Resolve necessary device firmware separately and show all packages in review. When chosen, install before first boot:
 
 - Steam and native Proton prerequisites; Steam-managed runtimes can download on first use.
 - Lutris and a supported Wine stack.

@@ -111,7 +111,7 @@ fn every_card_has_extras_in_your_desktop() {
     let mut h = harness(false);
     let gaming = |h: &Windowed, f| app(h).selection().extra(app(h).catalog(), f, "gaming");
     assert!(!gaming(&h, Family::Arch), "unticked until chosen");
-    assert!(gaming(&h, Family::Opensuse), "Tumbleweed ticks it by default");
+    assert!(!gaming(&h, Family::Opensuse), "Tumbleweed extras are also opt-in");
     for distro in ["Arch Linux", "Fedora Linux", "Debian", "openSUSE Tumbleweed"] {
         for extra in ["Gaming", "Media codecs", "Flatpak", "Printing"] {
             let label = format!("{extra} for {distro}");

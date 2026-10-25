@@ -29,8 +29,8 @@ on.cachyos = { summary = "Proton-CachyOS, Steam, Lutris, Heroic, MangoHud, games
 on.omarchy = { summary = "Steam, Lutris, Wine, GameMode, MangoHud, gamescope", needs = "the multilib repository", packages = ["steam", "lutris", "wine", "gamemode", "lib32-gamemode", "mangohud", "lib32-mangohud", "gamescope"] }
 on.fedora = { needs = "RPM Fusion nonfree, for Steam", packages = ["steam", "lutris", "gamemode", "mangohud", "gamescope"] }
 on.debian = { summary = "Steam, GameMode, MangoHud", needs = "contrib and non-free, with 32-bit packages", packages = ["steam-installer", "gamemode", "mangohud"] }
-# Tumbleweed's Gaming + Firmware default: ticked unless the user unticks it.
-on.tumbleweed = { default = true, needs = "the non-OSS repository, for Steam", packages = ["steam", "lutris", "gamemode", "mangohud", "gamescope"] }
+# Tumbleweed extras are opt-in, like every other distribution.
+on.tumbleweed = { needs = "the non-OSS repository, for Steam", packages = ["steam", "lutris", "gamemode", "mangohud", "gamescope"] }
 on.bazzite = { built_in = true }
 on.nobara = { built_in = true }
 on.pikaos = { built_in = true }

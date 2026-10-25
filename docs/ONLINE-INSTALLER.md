@@ -4,6 +4,41 @@ Owner's direction, 25 October 2026: one distro-agnostic BOREA Live ISO; Rust
 installation logic; online installation of Arch, Fedora, Debian and openSUSE;
 shared account and disk setup comparable in workflow to Calamares.
 
+## Upstream distribution selection
+
+The live wizard now separates **Family** from **Distribution**. Selecting a family
+opens the next page; distribution, edition and any image variant require explicit
+choices. There is no "None" distribution. Changing family clears its dependent
+choices; changing distribution or edition invalidates later review. Minimal
+editions also require an explicit desktop mode, compositor and shell decision.
+"No desktop" and "No shell" remain valid explicit desktop choices.
+
+| Family | Distribution choices |
+| --- | --- |
+| Arch | Arch Linux, CachyOS, Omarchy |
+| Fedora | Fedora Linux, Bazzite, Nobara |
+| Debian | Debian, The Butterbian Project, PikaOS |
+| openSUSE | openSUSE Tumbleweed |
+
+Butterbian's requested Xfce and mangobutter editions are visible for preview.
+Its official URL, release model and edition artifacts have **not** been verified:
+there is no fabricated download URL, inherited Debian package recipe, or claimed
+working adapter. The catalog represents an absent source explicitly and refuses
+to certify it. Its acquisition specification is `PendingVerification`.
+
+Tumbleweed has Gaming, Media codecs, Flatpak and Printing extras on the next page.
+All optional extras start unticked. Their package names and repository needs are
+kept in `crates/borea-catalog/data/extras.toml`; executable installation still
+requires release-specific resolution and verification.
+
+BOREA is the aggregator, customizer and installer, not a new distribution. Download
+upstream's published packages, root filesystem or native OS image, verify it, and
+apply only selected changes. Keep the derivative's repositories, identity, kernel,
+boot requirements and update mechanism. Bazzite needs its native image deployment
+and rollback model. An Arch base with an arbitrary set of packages must not be
+presented as a verified CachyOS or Omarchy installation. Adapter specifications
+are research contracts until tested against upstream's actual artifacts.
+
 ## Channels
 
 These are offered channels, not preselected choices. The user must pick the
@@ -16,11 +51,13 @@ distribution and its channel explicitly.
 | Debian | Sid, unstable | APT / signed InRelease and package hashes | sudo |
 | openSUSE | Tumbleweed | Zypper / signed RPMs and metadata | wheel |
 
-Fedora stable and Debian stable are not rolling releases. Rawhide and Sid meet
-the requested continuously changing channel model but carry development-channel
-risk. Older catalog descriptions listing latest stable have not yet been
-migrated; `borea targets` is the new four-target contract, not a claim that the
-GUI already implements that contract.
+Fedora stable and Debian stable are not rolling releases. Rawhide and Sid are
+development channels, offered by the earlier four-target CLI foundation.
+The derivative catalog preserves each project's upstream channel instead of
+forcing it onto Rawhide or Sid. `borea targets` still describes only those four
+base profiles; GUI derivative choices are not yet mapped to executable plans.
+A future release selector must resolve an explicitly chosen, supported upstream
+channel before acquisition. Do not label stable derivative releases as rolling.
 
 ## No implicit installation selections
 
@@ -36,9 +73,12 @@ behalf. Internal operational values such as log paths are not installation choic
 The CLI now requires explicit distro/channel/edition, disk, username, hostname,
 timezone, locale, keyboard and extras decisions before it scans hardware or
 downloads anything. It accepts either `--extras none` or specific `--extra ID`
-options. The existing preview GUI still has automatic family/edition/desktop
-selection and catalog defaults; migrating it to unset selections, and exposing
-explicit layout/boot choices, remains required before installation integration.
+options. The live preview now gates family/distribution/edition/variant and composed
+desktop choices explicitly; its indexed card model still contains internal
+placeholders, which must not be consumed directly as an installation plan.
+The separate legacy Windpad card UI still has automatic selections. Storage,
+account, layout and explicit boot choices remain required before live GUI
+installation integration. The current GUI is still a non-installing preview.
 
 ## What this change implements
 
@@ -125,3 +165,17 @@ Results for this foundation: 20 tests passed (14 engine, two CLI, four worker).
 Clippy with warnings denied and formatting checks passed. The `borea targets`
 command and unsupported-target rejection were also checked as actual CLI
 invocations. These results do not certify any new distro installation.
+
+## Family/distribution page validation
+
+The GUI integration tests cover automatic navigation after a family click,
+mandatory distribution/edition/variant decisions, action/keyboard guards, changing
+parents after review, explicit compositor/shell choices, Butterbian's unverified
+state and opt-in openSUSE extras. Rendered screenshots are generated by setting
+`WINDPAD_SHOTS` for the GUI tests. These validate the selection UI and catalog;
+they do not validate deployment, rebuild the live ISO or prove an installed OS boots.
+
+Results: 68 tests passed across the catalog, distribution adapters and GUI,
+including 16 live-wizard integration tests and navigation at 900 × 600.
+`cargo clippy --locked --workspace --all-targets -- -D warnings`, formatting and
+whitespace checks passed. Light/dark and small-window screenshots were inspected.

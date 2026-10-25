@@ -29,6 +29,8 @@ pub enum Toolchain {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Acquisition {
+    /// Requested project with no verified acquisition or deployment method yet.
+    PendingVerification,
     /// Bootstrap from the target's repositories with its own package manager.
     PackageBootstrap { manager: &'static str, toolchain: Toolchain },
     /// Install the parent target, then apply the derivative's upstream layer.
@@ -54,6 +56,9 @@ impl fmt::Display for Toolchain {
 impl fmt::Display for Acquisition {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Acquisition::PendingVerification => {
+                f.write_str("upstream acquisition pending verification")
+            }
             Acquisition::PackageBootstrap { manager, toolchain } => {
                 write!(f, "{manager} bootstrap, tools from {toolchain}")
             }
@@ -160,6 +165,15 @@ pub const ADAPTERS: &[AdapterSpec] = &[
         },
         needs: &[H::KernelExt4],
         open_questions: &["Pin the point release and security archive identity in the plan."],
+    },
+    AdapterSpec {
+        distro: "butterbian",
+        acquisition: Acquisition::PendingVerification,
+        needs: &[],
+        open_questions: &[
+            "Verify the official Butterbian upstream and its Xfce/mangobutter editions.",
+            "Verify artifact signatures, native deployment, boot and update model before enabling.",
+        ],
     },
     AdapterSpec {
         distro: "pikaos",

@@ -2,16 +2,18 @@
 
 **Go wherever the wind takes you.**
 
-Borea is an independent, distro-agnostic online Linux installer. It is not tied to any distribution's ISO. It runs from Borea Live or any compatible live session. Windpad, one interface for every target, guides the installation. Distribution adapters build each target from its own upstream sources, and Limine boots the result.
+Borea is an independent, distro-agnostic online Linux installer. It is not tied to any distribution's ISO. It runs from Borea Live or any compatible live session. Windpad, one interface for every target, guides the installation. Distribution adapters are intended to download and install upstream systems, customize selected packages, and preserve native updates and boot requirements.
 
-Windpad, a beautifully minimal landing pad, scans your hardware, connects you to Wi-Fi, and helps you choose your next Linux system. Family cards offer distribution and edition dropdowns, while quiet wind animations bring the interface to life. Borea resolves the latest release and prepares the selected system's drivers, firmware, and boot integration.
+Windpad, a beautifully minimal landing pad, scans your hardware, connects you to Wi-Fi, and helps you choose your next Linux system. In Borea Live, selecting a family opens a separate distribution and edition page, with no choice preselected. Borea resolves the latest release and prepares the selected system's drivers, firmware, and boot integration.
 
 ## Project status
 
-The priority is one independent Borea Live ISO installing four online targets:
-Arch rolling, Fedora Rawhide, Debian Sid, and openSUSE Tumbleweed. Rawhide and
-Sid are development channels. Borea's orchestration, planning and account logic
-are Rust; native distribution package managers and Linux filesystem tools remain
+The priority is one independent Borea Live ISO that installs upstream systems
+from the Arch, Fedora, Debian and openSUSE families. Each distribution retains
+its own release and update model. The earlier four-base CLI profiles include
+Arch rolling, Fedora Rawhide, Debian Sid and openSUSE Tumbleweed; Rawhide and
+Sid are development channels, not channels to impose on their derivatives.
+Borea's orchestration, planning and account logic are Rust; native distribution package managers and Linux filesystem tools remain
 external components, not rewritten implementations.
 
 The Arch Minimal CLI installer exists. The GUI is still a preview, and Fedora,
@@ -58,14 +60,14 @@ The bootstrapper downloads a prebuilt, versioned release. End users do not need 
 
 ## Requested product scope
 
-| Family card | Distribution dropdown | Edition coverage |
+| Family page | Distribution page | Edition coverage |
 | --- | --- | --- |
 | Arch | Arch Linux, CachyOS, Omarchy | Arch profiles; CachyOS KDE Plasma / KDE Plasma · Handheld / Minimal; upstream Omarchy experience |
 | Fedora | Fedora Linux, Bazzite, Nobara | Fedora editions; all official Bazzite variants; all current Nobara editions |
-| Debian | Debian, PikaOS | Debian profiles; all current PikaOS desktops and Standard / NVIDIA variants |
-| openSUSE | openSUSE Tumbleweed | Gaming + Firmware enabled by default; compatible desktop choice |
+| Debian | Debian, The Butterbian Project, PikaOS | Debian profiles; Butterbian Xfce / mangobutter (upstream unverified); PikaOS desktops and Standard / NVIDIA variants |
+| openSUSE | openSUSE Tumbleweed | Desktop choice plus opt-in Gaming, Media codecs, Flatpak and Printing |
 
-Arch uses current rolling repositories; Fedora and Debian default to their latest stable releases. Derivatives follow their own current official channels, and Tumbleweed uses its latest coherent published snapshot. Resolve versions when planning and pin exact identities for the approved installation. Never silently substitute an older certified release.
+Family, distribution, edition and required image variants must be chosen explicitly. The catalog lists Arch rolling and Fedora/Debian stable; the CLI also has development-channel profiles described above. Derivatives follow their own current official channels, and Tumbleweed uses its latest coherent published snapshot. Resolve versions when planning and pin exact identities for the approved installation. Never silently substitute an older certified release.
 
 Automatically scan CPU, GPUs, memory, disks, network adapters, firmware mode, displays, and device type. Keep recommendations explainable and editable. Wi-Fi is available inside both TUI and GUI. Firmware preinstallation means OS-loaded device firmware and CPU microcode; flashing device firmware is a separate explicit task.
 
@@ -82,7 +84,7 @@ The first technical vertical slice remains small:
 - Online package installation and Limine boot integration.
 - Explicit destructive-change review, meaningful progress, redacted logs, and tested boot verification.
 
-Fedora and Debian are priority base adapters after that slice, followed by the requested derivatives and Tumbleweed Gaming + Firmware. Every named target is part of the requested product scope. Each adapter preserves its native deployment, security, layout, and update behavior. Limine remains preferred; incompatible targets stay integration-pending until their boot path is tested, with no silent bootloader replacement.
+Fedora and Debian are priority base adapters after that slice, followed by the requested derivatives and Tumbleweed with optional extras. Every named target is part of the requested product scope. Each adapter preserves its native deployment, security, layout, and update behavior. Limine remains preferred; incompatible targets stay integration-pending until their boot path is tested, with no silent bootloader replacement.
 
 Running from an already-installed system, installing over the running root filesystem, Windows/macOS bootstrapping, and installing directly from firmware are outside the initial slice.
 
@@ -176,7 +178,7 @@ The USB helper writes only to a USB stick whose name you type to confirm. `borea
 | `borea-bootstrap` | `borea doctor`, `catalog`, `shells`, `wifi`, `plan`; download/verify/launch arrives in M1 |
 | `borea-engine` | Installation planning: request → checked, pinned `InstallPlan` with a digest; Arch adapter (signed bootstrap, packages, layout) |
 | `borea-worker` | Root-only executor of one approved plan, in a private mount namespace: partition, format, pacstrap, configure, Limine, validate |
-| `borea-gui` | **`borea-live`**, the guided full-screen installer Borea Live boots into (Connect → Machine → System → Desktop → Review, with a step rail), and **`windpad`**, the landing pad. Both share the selection model, theme, cards, wind, and Wi-Fi. Windpad itself: live hardware strip, family cards, compose dialog, preview under each card, hardware and Wi-Fi drawers, light and dark themes, wind animation that respects reduced motion |
+| `borea-gui` | **`borea-live`**, the guided full-screen installer Borea Live boots into (Connect → Machine → Family → Distribution → Desktop → Review, with a step rail), and **`windpad`**, the landing pad. Both share the selection model, theme, cards, wind, and Wi-Fi. Windpad itself: live hardware strip, family cards, compose dialog, preview under each card, hardware and Wi-Fi drawers, light and dark themes, wind animation that respects reduced motion |
 | `borea-flash` | TUI that writes the Borea Live ISO to a USB stick: removable/USB disks only, refuses the system disk and the image's own disk, checks the published SHA-256, requires typing the device name, opens it exclusively (directly as root, otherwise through UDisks2/polkit), and verifies every byte read back from the device |
 | `live/` | Borea Live, the standalone installer image: built entirely from upstream sources with Buildroot, with Limine as bootloader; boots straight into `borea-live`. Built without root by `borea-build` |
 | `borea-build` | Builds Borea Live: drives Buildroot, serves as its post-build and post-image hooks, writes the early boot image, signs for Secure Boot, makes signing keys, refreshes the HTML concept's catalog data |

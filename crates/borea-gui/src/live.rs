@@ -33,13 +33,20 @@ pub enum Step {
     Connect,
     Machine,
     System,
+    Distribution,
     Desktop,
     Review,
 }
 
 impl Step {
-    pub const ALL: [Step; 5] =
-        [Step::Connect, Step::Machine, Step::System, Step::Desktop, Step::Review];
+    pub const ALL: [Step; 6] = [
+        Step::Connect,
+        Step::Machine,
+        Step::System,
+        Step::Distribution,
+        Step::Desktop,
+        Step::Review,
+    ];
 
     fn number(self) -> usize {
         Step::ALL.iter().position(|s| *s == self).unwrap_or(0) + 1
@@ -49,7 +56,8 @@ impl Step {
         match self {
             Step::Connect => "Connect",
             Step::Machine => "Machine",
-            Step::System => "System",
+            Step::System => "Family",
+            Step::Distribution => "Distribution",
             Step::Desktop => "Desktop",
             Step::Review => "Review",
         }
@@ -59,7 +67,8 @@ impl Step {
         match self {
             Step::Connect => "Catch a connection.",
             Step::Machine => "A sense of your system.",
-            Step::System => "Choose your next direction.",
+            Step::System => "Choose a distribution family.",
+            Step::Distribution => "Choose your distribution.",
             Step::Desktop => "Compose your desktop.",
             Step::Review => "Ready when you are.",
         }
@@ -69,8 +78,9 @@ impl Step {
         match self {
             Step::Connect => "Borea downloads your system as it installs. Connect once, here.",
             Step::Machine => "Read from this machine, read-only. Unknown stays unknown.",
-            Step::System => {
-                "A family, a distribution, an edition. Each keeps its own release and updates."
+            Step::System => "Choose a family to see its distributions on the next page.",
+            Step::Distribution => {
+                "From the project's upstream sources, with its own releases and updates."
             }
             Step::Desktop => {
                 "Editions without a desktop let you choose one. Every step can stop here."
@@ -124,6 +134,15 @@ pub struct LiveInstaller {
     step: Step,
     /// The furthest step reached; the rail lets you return to any step up to it.
     reached: Step,
+    // The legacy card model stores indexed choices. These explicit decisions gate
+    // the live wizard so its internal placeholders can never become user choices.
+    picked_family: Option<Family>,
+    picked_distro: bool,
+    picked_edition: bool,
+    picked_variant: bool,
+    picked_mode: bool,
+    picked_compositor: bool,
+    picked_shell: bool,
 }
 
 impl LiveInstaller {
@@ -177,6 +196,13 @@ impl LiveInstaller {
             form: WifiForm::default(),
             step: Step::Connect,
             reached: Step::Connect,
+            picked_family: None,
+            picked_distro: false,
+            picked_edition: false,
+            picked_variant: false,
+            picked_mode: false,
+            picked_compositor: false,
+            picked_shell: false,
         }
     }
 
@@ -262,14 +288,70 @@ impl LiveInstaller {
         self.reached = self.reached.max(step);
     }
 
+    pub fn can_continue(&self) -> bool {
+        match self.step {
+            Step::System => self.picked_family.is_some(),
+            Step::Distribution => {
+                self.picked_distro
+                    && self.picked_edition
+                    && (self.distro().variants.is_empty() || self.picked_variant)
+            }
+            Step::Desktop => self.desktop_picked(),
+            Step::Review => Self::CAN_INSTALL,
+            _ => true,
+        }
+    }
+
+    fn desktop_picked(&self) -> bool {
+        !self.edition().composable
+            || (self.picked_mode
+                && (self.selection.choice(self.family()).mode == DesktopMode::Bare
+                    || (self.picked_compositor && self.picked_shell)))
+    }
+
+    fn reset_desktop(&mut self) {
+        self.picked_mode = false;
+        self.picked_compositor = false;
+        self.picked_shell = false;
+    }
+
+    fn selection_title(&self) -> String {
+        if self.picked_family.is_none() {
+            "Choose a family".into()
+        } else if !self.picked_distro {
+            format!("{} · Choose a distribution", self.family())
+        } else if !self.picked_edition {
+            format!("{} · Choose an edition", self.distro().name)
+        } else if !self.distro().variants.is_empty() && !self.picked_variant {
+            format!("{} · {} · Choose an image variant", self.distro().name, self.edition().name)
+        } else if !self.desktop_picked() {
+            format!("{} · {} · Choose a desktop", self.distro().name, self.edition().name)
+        } else {
+            self.selection.title(&self.catalog, self.family())
+        }
+    }
+
     pub fn apply(&mut self, ctx: &egui::Context, action: Action) {
+        if action == Action::Next && !self.can_continue() {
+            return;
+        }
         let catalog = &self.catalog;
         let s = &mut self.selection;
         let family = s.selected;
-        // Changing the system after reaching later steps means reviewing them again.
-        let resets = matches!(action, Action::Family(_) | Action::Distro(..) | Action::Edition(..));
+        // A changed target invalidates later review, including image variants.
+        let resets = matches!(
+            action,
+            Action::Family(_) | Action::Distro(..) | Action::Edition(..) | Action::Variant(..)
+        );
         // Composing from the Desktop step keeps you there, with Review to reach again.
-        let recompose = matches!(action, Action::Compose(..));
+        let recompose = matches!(
+            action,
+            Action::Compose(..)
+                | Action::Mode(..)
+                | Action::Compositor(..)
+                | Action::Shell(..)
+                | Action::Extra(..)
+        );
         match action {
             Action::Go(step) if step <= self.reached => self.step = step,
             Action::Go(_) => {}
@@ -290,15 +372,61 @@ impl LiveInstaller {
                     self.step = back;
                 }
             }
-            Action::Family(f) => s.select(f),
-            Action::Distro(f, i) => s.set_distro(f, i),
-            Action::Edition(f, i) => s.set_edition(f, i),
-            Action::Variant(f, i) => s.set_variant(f, i),
-            Action::Mode(f, mode) => s.set_mode(f, mode),
-            Action::Compositor(f, id) => s.set_compositor(catalog, f, &id),
-            Action::Shell(f, pick) => s.set_shell(f, pick),
+            Action::Family(f) => {
+                if self.picked_family != Some(f) {
+                    s.set_distro(f, 0);
+                    s.secure_boot = false;
+                    self.picked_distro = false;
+                    self.picked_edition = false;
+                    self.picked_variant = false;
+                    self.reset_desktop();
+                } else {
+                    s.select(f);
+                }
+                self.picked_family = Some(f);
+                self.go(Step::Distribution);
+            }
+            Action::Distro(f, i) => {
+                s.set_distro(f, i);
+                s.secure_boot = false;
+                self.picked_distro = true;
+                self.picked_edition = false;
+                self.picked_variant = false;
+                self.reset_desktop();
+            }
+            Action::Edition(f, i) => {
+                s.set_edition(f, i);
+                self.picked_edition = true;
+                self.picked_variant = false;
+                self.reset_desktop();
+            }
+            Action::Variant(f, i) => {
+                s.set_variant(f, i);
+                self.picked_variant = true;
+            }
+            Action::Mode(f, mode) => {
+                s.set_mode(f, mode);
+                self.reset_desktop();
+                self.picked_mode = true;
+            }
+            Action::Compositor(f, id) => {
+                s.set_compositor(catalog, f, &id);
+                self.picked_compositor = true;
+                self.picked_shell = false;
+            }
+            Action::Shell(f, pick) => {
+                s.set_shell(f, pick);
+                self.picked_shell = true;
+            }
             Action::Extra(f, id, on) => s.set_extra(f, &id, on),
-            Action::Compose(f, target) => s.compose_on(f, target),
+            Action::Compose(f, target) => {
+                s.compose_on(f, target);
+                self.picked_distro = true;
+                self.picked_edition = true;
+                self.picked_variant = false;
+                self.reset_desktop();
+                self.picked_mode = true;
+            }
             Action::SecureBoot(on) => s.secure_boot = on,
             Action::ToggleTheme => {
                 self.palette = if self.palette.dark { LIGHT } else { DARK };
@@ -307,7 +435,7 @@ impl LiveInstaller {
             Action::ToggleMotion => self.still = !self.still,
         }
         if resets {
-            self.reached = self.reached.min(Step::System);
+            self.reached = self.reached.min(Step::Distribution);
         }
         if recompose {
             self.reached = self.reached.min(Step::Desktop);
@@ -376,6 +504,7 @@ impl LiveInstaller {
                         Step::Connect => self.connect(ui),
                         Step::Machine => self.machine(ui),
                         Step::System => self.system(ui, &mut actions),
+                        Step::Distribution => self.distribution(ui, &mut actions),
                         Step::Desktop => self.desktop(ui, &mut actions),
                         Step::Review => self.review(ui, &mut actions),
                     }
@@ -420,34 +549,49 @@ impl LiveInstaller {
         }
         ui.add_space(28.0);
 
-        for step in Step::ALL {
-            let done = step < self.step || (step < self.reached && step != self.step);
-            let current = step == self.step;
-            let reachable = step <= self.reached;
-            let label = format!("Step {}: {}", step.number(), step.name());
-            let card =
-                choice_card(ui, &p, ("rail", step.number()), &label, current, reachable, |ui| {
-                    ui.horizontal(|ui| {
-                        let (dot, color) = match (current, done) {
-                            (true, _) => (icon::DOT, p.accent),
-                            (false, true) => (icon::CHECK, p.accent),
-                            (false, false) => (icon::RING, p.sub),
-                        };
-                        ui.label(RichText::new(dot).color(color));
-                        ui.vertical(|ui| {
-                            let weight = if current { p.ink } else { p.sub };
-                            ui.label(RichText::new(step.name()).size(size::BODY).color(weight));
-                            if let Some(summary) = self.summary(step) {
-                                ui.add(egui::Label::new(caption(summary, &p)).truncate());
-                            }
-                        });
-                    });
-                });
-            if card.clicked() {
-                actions.push(Action::Go(step));
-            }
-            ui.add_space(2.0);
-        }
+        // Six steps must remain reachable on short laptop displays as well.
+        ScrollArea::vertical()
+            .id_salt("step-rail")
+            .max_height((ui.available_height() - 140.0).max(100.0))
+            .show(ui, |ui| {
+                for step in Step::ALL {
+                    let done = step < self.step || (step < self.reached && step != self.step);
+                    let current = step == self.step;
+                    let reachable = step <= self.reached;
+                    let label = format!("Step {}: {}", step.number(), step.name());
+                    let card = choice_card(
+                        ui,
+                        &p,
+                        ("rail", step.number()),
+                        &label,
+                        current,
+                        reachable,
+                        |ui| {
+                            ui.horizontal(|ui| {
+                                let (dot, color) = match (current, done) {
+                                    (true, _) => (icon::DOT, p.accent),
+                                    (false, true) => (icon::CHECK, p.accent),
+                                    (false, false) => (icon::RING, p.sub),
+                                };
+                                ui.label(RichText::new(dot).color(color));
+                                ui.vertical(|ui| {
+                                    let weight = if current { p.ink } else { p.sub };
+                                    ui.label(
+                                        RichText::new(step.name()).size(size::BODY).color(weight),
+                                    );
+                                    if let Some(summary) = self.summary(step) {
+                                        ui.add(egui::Label::new(caption(summary, &p)).truncate());
+                                    }
+                                });
+                            });
+                        },
+                    );
+                    if card.clicked() {
+                        actions.push(Action::Go(step));
+                    }
+                    ui.add_space(2.0);
+                }
+            });
 
         ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
             ui.horizontal(|ui| {
@@ -480,7 +624,10 @@ impl LiveInstaller {
                 let level = hw.cpu.known().and_then(|c| c.x86_level).map(|l| l.to_string());
                 format!("{} · {}", level.unwrap_or_else(|| "CPU".into()), hw.firmware)
             }),
-            Step::System => Some(format!("{} · {}", self.distro().name, self.edition().name)),
+            Step::System => self.picked_family.map(|f| f.to_string()),
+            Step::Distribution => self
+                .picked_edition
+                .then(|| format!("{} · {}", self.distro().name, self.edition().name)),
             Step::Desktop => Some(match s.desktop_choice(&self.catalog, f) {
                 None => "Included with the edition".into(),
                 Some(_) => {
@@ -511,19 +658,19 @@ impl LiveInstaller {
     fn navigation(&self, ui: &mut Ui, actions: &mut Vec<Action>) {
         let p = self.palette;
         ui.horizontal(|ui| {
-            ui.label(caption(self.selection.title(&self.catalog, self.family()), &p));
+            ui.label(caption(self.selection_title(), &p));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let next = match self.step {
                     Step::Review => "Begin installation".to_owned(),
                     Step::Desktop => format!("Review  {}", icon::NEXT),
                     _ => format!("Next  {}", icon::NEXT),
                 };
-                let ready = self.step != Step::Review || Self::CAN_INSTALL;
+                let ready = self.can_continue();
                 let button = ui.add_enabled_ui(ready, |ui| primary(ui, &p, &next, false)).inner;
                 if button.clicked() {
                     actions.push(Action::Next);
                 }
-                if !ready {
+                if !ready && self.step == Step::Review {
                     ui.label(caption("Not in this preview build", &p));
                 }
                 let back = format!("{}  Back", icon::BACK);
@@ -593,10 +740,6 @@ impl LiveInstaller {
     fn system(&self, ui: &mut Ui, actions: &mut Vec<Action>) {
         let p = self.palette;
         let catalog = &self.catalog;
-        let s = &self.selection;
-        let family = self.family();
-        let choice = s.choice(family);
-
         section(ui, &p, "Family");
         grid(ui, 4, &Family::ALL, |ui, f| {
             let names: Vec<_> = catalog.family(*f).map(|d| d.name.as_str()).collect();
@@ -605,7 +748,7 @@ impl LiveInstaller {
                 &p,
                 ("family", *f),
                 &format!("{f} family"),
-                *f == family,
+                self.picked_family == Some(*f),
                 true,
                 |ui| {
                     ui.set_min_height(86.0);
@@ -620,12 +763,25 @@ impl LiveInstaller {
                 actions.push(Action::Family(*f));
             }
         });
+    }
 
-        section(ui, &p, "Distribution");
+    fn distribution(&self, ui: &mut Ui, actions: &mut Vec<Action>) {
+        let p = self.palette;
+        let catalog = &self.catalog;
+        let s = &self.selection;
+        let family = self.family();
+        let choice = s.choice(family);
+        section(ui, &p, &format!("{family} distributions"));
         let distros: Vec<(usize, &Distro)> = catalog.family(family).enumerate().collect();
         grid(ui, 3, &distros, |ui, (i, d)| {
-            let card =
-                choice_card(ui, &p, ("distro", &d.id), &d.name, *i == choice.distro, true, |ui| {
+            let card = choice_card(
+                ui,
+                &p,
+                ("distro", &d.id),
+                &d.name,
+                self.picked_distro && *i == choice.distro,
+                true,
+                |ui| {
                     ui.set_min_height(98.0);
                     ui.horizontal(|ui| {
                         glyph(ui, icon::distro(d.id.as_str()), size::HEADING, p.accent);
@@ -637,14 +793,32 @@ impl LiveInstaller {
                             .size(size::TINY)
                             .color(p.accent),
                     );
-                });
+                },
+            );
             if card.clicked() {
                 actions.push(Action::Distro(family, *i));
             }
         });
 
-        section(ui, &p, "Edition");
+        if !self.picked_distro {
+            return;
+        }
         let distro = s.distro(catalog, family);
+        ui.add_space(8.0);
+        match &distro.source {
+            Some(source) => {
+                ui.hyperlink_to("Upstream project", source);
+            }
+            None => notice(
+                ui,
+                &p,
+                "Upstream source pending verification. These editions are requested options, not verified downloads.",
+            ),
+        }
+        if family == Family::Opensuse {
+            ui.label(caption("Choose an edition, then add Gaming, Media codecs, Flatpak or Printing on the next page.", &p));
+        }
+        section(ui, &p, "Edition");
         let editions: Vec<(usize, &Edition)> = distro.editions.iter().enumerate().collect();
         grid(ui, 4, &editions, |ui, (i, e)| {
             let card = choice_card(
@@ -652,7 +826,7 @@ impl LiveInstaller {
                 &p,
                 ("edition", &e.id),
                 &e.name,
-                *i == choice.edition,
+                self.picked_edition && *i == choice.edition,
                 true,
                 |ui| {
                     ui.set_min_height(64.0);
@@ -670,13 +844,21 @@ impl LiveInstaller {
             }
         });
 
-        if !distro.variants.is_empty() {
+        if self.picked_edition && !distro.variants.is_empty() {
             section(ui, &p, "Image variant");
             let variants: Vec<(usize, &String)> = distro.variants.iter().enumerate().collect();
             grid(ui, 4, &variants, |ui, (i, v)| {
-                if choice_card(ui, &p, ("variant", *i), v, *i == choice.variant, true, |ui| {
-                    ui.label(RichText::new(v.as_str()).size(size::BODY));
-                })
+                if choice_card(
+                    ui,
+                    &p,
+                    ("variant", *i),
+                    v,
+                    self.picked_variant && *i == choice.variant,
+                    true,
+                    |ui| {
+                        ui.label(RichText::new(v.as_str()).size(size::BODY));
+                    },
+                )
                 .clicked()
                 {
                     actions.push(Action::Variant(family, *i));
@@ -691,6 +873,12 @@ impl LiveInstaller {
         let family = self.family();
         self.compose(ui, actions);
         section(ui, &p, "Extras");
+        if self.catalog.extras.on(&self.distro().id).next().is_none() {
+            ui.label(caption(
+                "Extra packages will be offered after the upstream repositories are verified.",
+                &p,
+            ));
+        }
         let ticked = |id: &str| self.selection.extra(&self.catalog, family, id);
         if let Some((id, on)) = widgets::extras(ui, &p, &self.catalog, self.distro(), ticked) {
             actions.push(Action::Extra(family, id, on));
@@ -706,6 +894,14 @@ impl LiveInstaller {
         let edition = self.edition();
         let choice = s.choice(family);
 
+        if distro.source.is_none() {
+            notice(
+                ui,
+                &p,
+                "This project's upstream downloads and editions still need verification.",
+            );
+            return;
+        }
         if !edition.composable {
             notice(
                 ui,
@@ -737,16 +933,24 @@ impl LiveInstaller {
             ),
         ];
         grid(ui, 2, &modes, |ui, (mode, name, about)| {
-            if choice_card(ui, &p, ("mode", *name), name, choice.mode == *mode, true, |ui| {
-                ui.label(RichText::new(*name).size(size::HEADING - 2.0));
-                ui.label(caption(*about, &p));
-            })
+            if choice_card(
+                ui,
+                &p,
+                ("mode", *name),
+                name,
+                self.picked_mode && choice.mode == *mode,
+                true,
+                |ui| {
+                    ui.label(RichText::new(*name).size(size::HEADING - 2.0));
+                    ui.label(caption(*about, &p));
+                },
+            )
             .clicked()
             {
                 actions.push(Action::Mode(family, *mode));
             }
         });
-        if choice.mode == DesktopMode::Bare {
+        if !self.picked_mode || choice.mode == DesktopMode::Bare {
             return;
         }
 
@@ -754,7 +958,7 @@ impl LiveInstaller {
         let compositors: Vec<_> = catalog.desktops.compositors(&distro.id).collect();
         grid(ui, 3, &compositors, |ui, offer| {
             let c = offer.item;
-            let on = choice.compositor.as_deref() == Some(c.id.as_str());
+            let on = self.picked_compositor && choice.compositor.as_deref() == Some(c.id.as_str());
             let card =
                 choice_card(ui, &p, ("compositor", &c.id), &c.name, on, offer.available(), |ui| {
                     ui.set_min_height(92.0);
@@ -772,6 +976,9 @@ impl LiveInstaller {
             }
         });
 
+        if !self.picked_compositor {
+            return;
+        }
         section(ui, &p, &format!("{} Shell", icon::TWO));
         let compositor = choice.compositor.clone().unwrap_or_default();
         let compositor_name = s.compositor_name(catalog, family).unwrap_or_default().to_owned();
@@ -782,7 +989,8 @@ impl LiveInstaller {
         grid(ui, 2, &shells, |ui, offer| match offer {
             Some(offer) => {
                 let shell = offer.item;
-                let on = choice.shell == Some(ShellPick::Shell(shell.id.clone()));
+                let on =
+                    self.picked_shell && choice.shell == Some(ShellPick::Shell(shell.id.clone()));
                 let card = choice_card(ui, &p, ("shell", &shell.id), &shell.name, on, true, |ui| {
                     ui.set_min_height(96.0);
                     ui.horizontal(|ui| {
@@ -810,7 +1018,7 @@ impl LiveInstaller {
                 }
             }
             None => {
-                let on = choice.shell == Some(ShellPick::NoShell);
+                let on = self.picked_shell && choice.shell == Some(ShellPick::NoShell);
                 let card = choice_card(ui, &p, "no-shell", "No shell", on, true, |ui| {
                     ui.set_min_height(96.0);
                     ui.horizontal(|ui| {
@@ -828,7 +1036,9 @@ impl LiveInstaller {
             }
         });
         ui.add_space(6.0);
-        ui.label(caption(s.arrival(catalog, family), &p));
+        if self.picked_shell {
+            ui.label(caption(s.arrival(catalog, family), &p));
+        }
     }
 
     fn review(&self, ui: &mut Ui, actions: &mut Vec<Action>) {
@@ -841,6 +1051,14 @@ impl LiveInstaller {
                 ui,
                 &p,
                 "This is a preview build: it cannot install yet. The review below is what Borea would install; nothing on this machine changes.",
+            );
+            ui.add_space(12.0);
+        }
+        if self.distro().source.is_none() {
+            notice(
+                ui,
+                &p,
+                "Upstream source pending verification. No download or installation recipe is available for this project yet.",
             );
             ui.add_space(12.0);
         }

@@ -14,7 +14,7 @@
 #   - Editions are named for the desktop you get, then upstream's own label after
 #     " · " when it adds something ("GNOME · Workstation", "KDE Plasma · Handheld").
 #   - The edition with no desktop is always "Minimal".
-#   - A ready-made desktop comes first (it is what a card starts on); Minimal,
+#   - A ready-made desktop comes first in the menu; no entry is preselected. Minimal,
 #     where you compose your own, comes last.
 #
 # Optional features (Gaming, Media codecs, Flatpak, Printing) are in extras.toml.
@@ -134,6 +134,21 @@ editions = [
   { id = "minimal", name = "Minimal", composable = true },
 ]
 
+# Requested by the owner. No upstream URL, release channel or package recipe is
+# assumed until the official project and these edition downloads are verified.
+[[distro]]
+id = "butterbian"
+name = "The Butterbian Project"
+family = "debian"
+channel = "unverified"
+status = "planned"
+summary = "Xfce or mangobutter. Upstream source and editions pending verification."
+matrix_complete = false
+editions = [
+  { id = "xfce", name = "Xfce" },
+  { id = "mangobutter", name = "mangobutter" },
+]
+
 [[distro]]
 id = "pikaos"
 name = "PikaOS"
@@ -161,7 +176,7 @@ name = "openSUSE Tumbleweed"
 family = "opensuse"
 channel = "snapshot"
 status = "planned"
-summary = "The latest coherent snapshot. Gaming is ticked by default; device firmware and microcode always come along."
+summary = "A rolling snapshot with optional Gaming, Media codecs, Flatpak and Printing packages."
 source = "https://doc.opensuse.org/documentation/tumbleweed/yast_installer/"
 editions = [
   { id = "kde-plasma", name = "KDE Plasma" },

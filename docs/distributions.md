@@ -13,8 +13,9 @@ Four family cards contain distribution dropdowns, followed by edition and hardwa
 | Fedora | Bazzite | All current official picker choices, including desktop, GPU/device, handheld/HTPC and Gaming Mode | Current upstream stable image channel, pinned by digest |
 | Fedora | Nobara | KDE Plasma · Official, GNOME, KDE Plasma, KDE Plasma · Steam HTPC, KDE Plasma · Steam Handheld | Latest Nobara release and updates, independently of Fedora's version |
 | Debian | Debian | Supported base desktop/minimal profiles | Latest stable release/point-release assets, security and stable updates |
+| Debian | The Butterbian Project | Requested Xfce / mangobutter; upstream verification pending | No verified source or release model yet |
 | Debian | PikaOS | GNOME, KDE Plasma, Hyprland, Niri, COSMIC; Standard and NVIDIA for each where published | Current official rolling channel and edition assets |
-| openSUSE | Tumbleweed | Gaming + Firmware enabled by default, supported desktop choice | Latest coherent published snapshot |
+| openSUSE | Tumbleweed | Supported desktop choice and opt-in extras | Latest coherent published snapshot |
 
 All requested editions belong in the catalog. New upstream editions become reviewed candidates and must pass certification before installation is enabled. Retired editions stop being offered for new installations. Do not invent image URLs or assume every desktop/GPU combination exists.
 

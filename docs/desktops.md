@@ -77,7 +77,7 @@ Every card's **Your desktop** panel ends with **Extras**: one checkbox per optio
 | Flatpak | Flatpak with the Flathub remote |
 | Printing | CUPS and a printer settings tool |
 
-Each checkbox says what it adds and any repository that needs ("enables RPM Fusion nonfree, for Steam"), and the review names it again. Everything starts unticked except Gaming on openSUSE Tumbleweed, which keeps its Gaming + Firmware default. What a distribution already ships in every edition is listed as "✓ Built into Bazzite: Gaming, Media codecs, Flatpak" instead of offering a checkbox. Adding an extra is one `[[extra]]` entry; the loader refuses entries for unknown distributions, built-in entries with packages, and entries with nothing to install.
+Each checkbox says what it adds and any repository that needs ("enables RPM Fusion nonfree, for Steam"), and the review names it again. Every optional extra starts unticked, including Gaming on openSUSE Tumbleweed. What a distribution already ships in every edition is listed as "✓ Built into Bazzite: Gaming, Media codecs, Flatpak" instead of offering a checkbox. Adding an extra is one `[[extra]]` entry; the loader refuses entries for unknown distributions, built-in entries with packages, and entries with nothing to install.
 
 ### CachyOS Minimal: a gaming-first base
 

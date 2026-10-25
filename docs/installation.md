@@ -46,7 +46,7 @@ This phase is irreversible with respect to the old disk contents. The journal su
 - Install the kernel, firmware policy, selected profile, display manager where applicable, network tools, and necessary system utilities.
 - Use repository consistency and version-pinning mechanisms appropriate to that distribution. Do not promise a bit-for-bit identical rolling-release installation without a snapshot repository.
 - Record package versions and repository identities for diagnosis.
-- Install resolved CPU microcode, graphics/network/Bluetooth firmware and driver components before completion. Tumbleweed defaults to the reviewed Gaming + Firmware package set described in [hardware policy](hardware-network.md).
+- Install resolved CPU microcode, graphics/network/Bluetooth firmware and driver components before completion. Tumbleweed offers opt-in gaming packages, separately from required firmware, as described in [hardware policy](hardware-network.md).
 
 For image-based targets, the adapter instead deploys its verified native image using a certified deployment/layout path and validates its native update and rollback mechanisms. Do not approximate it with base-family packages.
 

@@ -160,6 +160,8 @@ impl fmt::Display for DistroId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ReleaseChannel {
+    /// Requested project whose upstream release model has not yet been verified.
+    Unverified,
     /// Current rolling repositories (Arch, CachyOS, PikaOS).
     Rolling,
     /// A coherent published snapshot of a rolling distribution (Tumbleweed).
@@ -173,6 +175,7 @@ pub enum ReleaseChannel {
 impl fmt::Display for ReleaseChannel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            ReleaseChannel::Unverified => "upstream verification pending",
             ReleaseChannel::Rolling => "latest rolling",
             ReleaseChannel::Snapshot => "latest published snapshot",
             ReleaseChannel::Stable => "latest stable",

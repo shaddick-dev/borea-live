@@ -4,7 +4,7 @@ mod common;
 
 use borea_core::Family;
 use borea_gui::LiveInstaller;
-use borea_gui::live::Step;
+use borea_gui::live::{Action, Step};
 use common::machine;
 use eframe::egui::{self, accesskit::Role};
 use egui_kittest::Harness;
@@ -57,11 +57,14 @@ fn guided_path_through_every_step() {
 
     assert_eq!(app(&h).step(), Step::System);
     press(&mut h, "Fedora family");
+    assert_eq!(app(&h).step(), Step::Distribution);
+    press(&mut h, "Fedora Linux");
     press(&mut h, "Minimal");
-    assert_eq!(title(&h), "Fedora Linux · Minimal · Hyprland + Noctalia");
+    assert!(h.query_by_label("Fedora Linux · Minimal · Choose a desktop").is_some());
     press(&mut h, "Next");
 
     assert_eq!(app(&h).step(), Step::Desktop);
+    press(&mut h, "Compose a desktop");
     press(&mut h, "niri");
     press(&mut h, "No shell");
     press(&mut h, "Review");
@@ -84,16 +87,20 @@ fn rail_returns_to_earlier_steps_and_change_resets_progress() {
     let mut h = harness(false);
     press(&mut h, "Next");
     press(&mut h, "Next");
+    press(&mut h, "Arch family");
+    press(&mut h, "Arch Linux");
+    press(&mut h, "KDE Plasma");
     press(&mut h, "Next");
     press(&mut h, "Review");
     assert_eq!(app(&h).step(), Step::Review);
 
-    press(&mut h, "Step 3: System");
+    press(&mut h, "Step 3: Family");
     assert_eq!(app(&h).step(), Step::System);
     press(&mut h, "Debian family");
     // Review is no longer reachable from the rail until Desktop is passed again.
-    press(&mut h, "Step 5: Review");
-    assert_eq!(app(&h).step(), Step::System);
+    press(&mut h, "Step 6: Review");
+    assert_eq!(app(&h).step(), Step::Distribution);
+    assert!(!app(&h).can_continue());
 }
 
 #[test]
@@ -102,10 +109,12 @@ fn desktop_editions_skip_the_choice_and_bare_is_complete() {
     press(&mut h, "Next");
     press(&mut h, "Next");
     press(&mut h, "Fedora family");
+    press(&mut h, "Fedora Linux");
+    press(&mut h, "GNOME · Workstation");
     press(&mut h, "Next");
     assert!(h.query_by_label_contains("comes with its own desktop").is_some());
 
-    press(&mut h, "Step 3: System");
+    press(&mut h, "Step 3: Family");
     press(&mut h, "Arch family");
     press(&mut h, "CachyOS");
     press(&mut h, "Minimal");
@@ -129,12 +138,16 @@ fn desktop_step_offers_composing_on_desktop_editions() {
     press(&mut h, "Next");
     press(&mut h, "Next");
     press(&mut h, "Fedora family");
+    press(&mut h, "Fedora Linux");
+    press(&mut h, "GNOME · Workstation");
     press(&mut h, "Next");
     assert_eq!(app(&h).step(), Step::Desktop);
     press(&mut h, "Or compose your own desktop on Fedora Linux Minimal");
     assert_eq!(app(&h).step(), Step::Desktop, "stays to pick the compositor and shell");
-    assert_eq!(title(&h), "Fedora Linux · Minimal · Hyprland + Noctalia");
+    assert!(!app(&h).can_continue(), "compose offer does not pick a compositor or shell");
     press(&mut h, "niri");
+    assert!(!app(&h).can_continue());
+    press(&mut h, "Noctalia");
     press(&mut h, "Review");
     assert_eq!(title(&h), "Fedora Linux · Minimal · niri + Noctalia");
 }
@@ -160,17 +173,21 @@ fn renders_each_step() {
         press(&mut h, "Next");
         h.render().unwrap().save(format!("{dir}/live-{name}-2-machine.png")).unwrap();
         press(&mut h, "Next");
+        h.render().unwrap().save(format!("{dir}/live-{name}-3-family.png")).unwrap();
+        press(&mut h, "Arch family");
         press(&mut h, "CachyOS");
         press(&mut h, "Minimal");
-        h.render().unwrap().save(format!("{dir}/live-{name}-3-system.png")).unwrap();
+        h.render().unwrap().save(format!("{dir}/live-{name}-4-distribution.png")).unwrap();
         press(&mut h, "Next");
+        press(&mut h, "Compose a desktop");
         press(&mut h, "MangoWC");
-        h.render().unwrap().save(format!("{dir}/live-{name}-4-desktop.png")).unwrap();
+        press(&mut h, "No shell");
+        h.render().unwrap().save(format!("{dir}/live-{name}-5-desktop.png")).unwrap();
         h.get_by_role_and_label(Role::CheckBox, "Gaming for CachyOS").scroll_to_me();
         h.run();
-        h.render().unwrap().save(format!("{dir}/live-{name}-4-extras.png")).unwrap();
+        h.render().unwrap().save(format!("{dir}/live-{name}-5-extras.png")).unwrap();
         press(&mut h, "Review");
-        h.render().unwrap().save(format!("{dir}/live-{name}-5-review.png")).unwrap();
+        h.render().unwrap().save(format!("{dir}/live-{name}-6-review.png")).unwrap();
     }
 }
 
@@ -265,6 +282,9 @@ fn secure_boot_is_off_unless_chosen_and_safe_to_choose() {
     let mut h = harness(false);
     press(&mut h, "Next");
     press(&mut h, "Next");
+    press(&mut h, "Arch family");
+    press(&mut h, "Arch Linux");
+    press(&mut h, "KDE Plasma");
     press(&mut h, "Next");
     press(&mut h, "Review");
     assert!(!app(&h).selection().secure_boot, "off by default");
@@ -288,8 +308,167 @@ fn secure_boot_is_off_unless_chosen_and_safe_to_choose() {
     );
 
     // Bazzite's image-based boot path isn't certified with Secure Boot: the choice drops back to off.
-    press(&mut h, "Step 3: System");
+    press(&mut h, "Step 3: Family");
     press(&mut h, "Fedora family");
     press(&mut h, "Bazzite");
     assert!(!app(&h).selection().secure_boot);
+}
+
+#[test]
+fn family_and_distribution_are_explicit_and_on_separate_pages() {
+    let mut h = harness(false);
+    assert!(h.query_by_label("Choose a family").is_some());
+    press(&mut h, "Next");
+    press(&mut h, "Next");
+    assert!(!app(&h).can_continue());
+    assert!(h.query_by_role_and_label(Role::Button, "Arch Linux").is_none());
+    assert!(h.query_by_role_and_label(Role::Button, "None").is_none());
+    press(&mut h, "Next");
+    assert_eq!(app(&h).step(), Step::System);
+    // Keyboard/action dispatch must enforce the same guard as the disabled button.
+    h.state_mut().as_mut().unwrap().apply(&egui::Context::default(), Action::Next);
+    h.run();
+    assert_eq!(app(&h).step(), Step::System);
+
+    for (family, distros) in [
+        ("Arch family", &["Arch Linux", "CachyOS", "Omarchy"][..]),
+        ("Fedora family", &["Fedora Linux", "Bazzite", "Nobara"]),
+        ("Debian family", &["Debian", "The Butterbian Project", "PikaOS"]),
+        ("openSUSE family", &["openSUSE Tumbleweed"]),
+    ] {
+        press(&mut h, family);
+        assert_eq!(app(&h).step(), Step::Distribution);
+        assert!(!app(&h).can_continue(), "{family} has no default distribution");
+        assert!(h.query_by_role_and_label(Role::Button, "None").is_none());
+        assert!(h.query_by_role_and_label(Role::Button, "Minimal").is_none());
+        for distro in distros {
+            assert!(h.query_by_role_and_label(Role::Button, distro).is_some(), "{distro}");
+        }
+        h.state_mut().as_mut().unwrap().apply(&egui::Context::default(), Action::Next);
+        h.run();
+        assert_eq!(app(&h).step(), Step::Distribution);
+        if let Ok(dir) = std::env::var("WINDPAD_SHOTS") {
+            h.render()
+                .unwrap()
+                .save(format!("{dir}/live-{}-distributions.png", family.split(' ').next().unwrap()))
+                .unwrap();
+        }
+        press(&mut h, distros[0]);
+        assert!(!app(&h).can_continue(), "no default edition, even for a sole distribution");
+        press(&mut h, "Back");
+        assert_eq!(app(&h).step(), Step::System);
+    }
+}
+
+#[test]
+fn variants_and_desktop_require_choices_and_invalidate_later_review() {
+    let mut h = harness(false);
+    press(&mut h, "Next");
+    press(&mut h, "Next");
+    press(&mut h, "Debian family");
+    press(&mut h, "PikaOS");
+    press(&mut h, "GNOME");
+    assert!(!app(&h).can_continue(), "image variant is required");
+    press(&mut h, "NVIDIA");
+    assert!(app(&h).can_continue());
+    press(&mut h, "Next");
+    press(&mut h, "Review");
+    press(&mut h, "Step 4: Distribution");
+    press(&mut h, "KDE Plasma");
+    assert!(!app(&h).can_continue(), "new edition needs a variant decision");
+    press(&mut h, "Step 6: Review");
+    assert_eq!(app(&h).step(), Step::Distribution);
+
+    press(&mut h, "Step 3: Family");
+    press(&mut h, "Arch family");
+    press(&mut h, "Arch Linux");
+    press(&mut h, "Minimal");
+    press(&mut h, "Next");
+    assert!(!app(&h).can_continue(), "no default desktop mode");
+    press(&mut h, "Compose a desktop");
+    assert!(!app(&h).can_continue(), "no default compositor");
+    press(&mut h, "Hyprland");
+    assert!(!app(&h).can_continue(), "no default shell");
+    h.state_mut().as_mut().unwrap().apply(&egui::Context::default(), Action::Next);
+    h.run();
+    assert_eq!(app(&h).step(), Step::Desktop);
+    press(&mut h, "No shell");
+    press(&mut h, "Review");
+    press(&mut h, "Step 5: Desktop");
+    press(&mut h, "niri");
+    assert!(!app(&h).can_continue(), "changing compositor invalidates the shell decision");
+    press(&mut h, "Step 6: Review");
+    assert_eq!(app(&h).step(), Step::Desktop);
+}
+
+#[test]
+fn butterbian_editions_are_visible_but_upstream_is_unverified() {
+    let mut h = harness(false);
+    press(&mut h, "Next");
+    press(&mut h, "Next");
+    press(&mut h, "Debian family");
+    press(&mut h, "The Butterbian Project");
+    assert!(h.query_by_label_contains("Upstream source pending verification.").is_some());
+    assert!(h.query_by_role_and_label(Role::Button, "Xfce").is_some());
+    assert!(h.query_by_role_and_label(Role::Button, "mangobutter").is_some());
+    assert!(!app(&h).can_continue());
+    if let Ok(dir) = std::env::var("WINDPAD_SHOTS") {
+        h.render().unwrap().save(format!("{dir}/live-butterbian-editions.png")).unwrap();
+    }
+    press(&mut h, "mangobutter");
+    press(&mut h, "Next");
+    assert!(h.query_by_label_contains("Extra packages will be offered after").is_some());
+    press(&mut h, "Review");
+    assert_eq!(title(&h), "The Butterbian Project · mangobutter");
+    assert!(!app(&h).can_continue(), "catalog presence is not an executable installer");
+}
+
+#[test]
+fn opensuse_offers_opt_in_extra_packages() {
+    let mut h = harness(false);
+    press(&mut h, "Next");
+    press(&mut h, "Next");
+    press(&mut h, "openSUSE family");
+    press(&mut h, "openSUSE Tumbleweed");
+    press(&mut h, "Xfce");
+    press(&mut h, "Next");
+    for extra in ["Gaming", "Media codecs", "Flatpak", "Printing"] {
+        assert!(
+            h.query_by_role_and_label(Role::CheckBox, &format!("{extra} for openSUSE Tumbleweed"))
+                .is_some()
+        );
+    }
+    assert!(app(&h).selection().ticked(app(&h).catalog(), Family::Opensuse).is_empty());
+    h.get_by_role_and_label(Role::CheckBox, "Flatpak for openSUSE Tumbleweed").scroll_to_me();
+    h.run();
+    h.get_by_role_and_label(Role::CheckBox, "Flatpak for openSUSE Tumbleweed").click();
+    h.run();
+    press(&mut h, "Review");
+    assert!(
+        app(&h)
+            .selection()
+            .rows(app(&h).catalog(), Family::Opensuse)
+            .contains(&("Extras", "Flatpak".into()))
+    );
+}
+
+#[test]
+fn short_window_keeps_navigation_reachable() {
+    let mut h = harness(false);
+    h.set_size(egui::vec2(900.0, 600.0));
+    h.run();
+    press(&mut h, "Next");
+    press(&mut h, "Next");
+    press(&mut h, "Arch family");
+    press(&mut h, "Omarchy");
+    assert!(!app(&h).can_continue(), "even a sole edition must be picked");
+    press(&mut h, "Hyprland · Omarchy");
+    press(&mut h, "Next");
+    press(&mut h, "Review");
+    assert_eq!(app(&h).step(), Step::Review);
+    press(&mut h, "Step 3: Family");
+    assert_eq!(app(&h).step(), Step::System);
+    if let Ok(dir) = std::env::var("WINDPAD_SHOTS") {
+        h.render().unwrap().save(format!("{dir}/live-small-family.png")).unwrap();
+    }
 }
