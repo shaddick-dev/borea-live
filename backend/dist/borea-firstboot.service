@@ -1,0 +1,17 @@
+[Unit]
+StartLimitIntervalSec=0
+Description=Finish Borea online application setup
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/var/lib/borea/firstboot.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/borea-firstboot
+UMask=0077
+Restart=on-failure
+RestartSec=60
+
+
+[Install]
+WantedBy=multi-user.target

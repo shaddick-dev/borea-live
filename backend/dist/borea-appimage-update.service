@@ -1,0 +1,10 @@
+[Unit]
+Description=Update explicitly selected upstream AppImages
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/borea/appimages
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/borea-firstboot --appimages
+UMask=0077

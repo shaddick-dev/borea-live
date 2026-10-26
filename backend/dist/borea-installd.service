@@ -1,0 +1,23 @@
+[Unit]
+Description=Borea privileged installation service
+After=NetworkManager.service borea-probe.service
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+User=root
+Group=borea
+ExecStart=/usr/bin/borea-installd
+RuntimeDirectory=borea
+RuntimeDirectoryMode=0750
+UMask=0077
+PrivateMounts=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/run/borea /dev /sys/firmware/efi/efivars
+KillMode=control-group
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

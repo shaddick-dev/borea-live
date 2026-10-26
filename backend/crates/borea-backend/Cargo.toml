@@ -1,0 +1,20 @@
+[package]
+name = "borea-backend"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+borea-core.workspace = true
+borea-catalog.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+serde_json.workspace = true
+ureq.workspace = true
+sha2.workspace = true
+
+borea-http.workspace = true

@@ -1,0 +1,35 @@
+#!/bin/busybox sh
+/bin/busybox mount -t proc proc /proc
+/bin/busybox mount -t sysfs sysfs /sys
+/bin/busybox mount -t devtmpfs devtmpfs /dev
+/bin/busybox mkdir -p /run /sys/firmware/efi/efivars
+/bin/busybox mount -t tmpfs tmpfs /run
+/bin/busybox mount -t efivarfs efivarfs /sys/firmware/efi/efivars
+/usr/lib/systemd/systemd-udevd --daemon
+for module in virtio_pci virtio_blk virtio_net qemu_fw_cfg dm_mod dm_crypt btrfs; do /usr/sbin/modprobe "$module"; done
+/usr/bin/udevadm trigger --action=add
+/usr/bin/udevadm settle
+for iface in /sys/class/net/*; do
+ interface=${iface##*/}
+ if [ "$interface" != lo ]; then
+  /bin/busybox ip link set "$interface" up
+  /bin/busybox udhcpc -i "$interface" -s /borea-dhcp -n -q
+  break
+ fi
+done
+proxy_file=/sys/firmware/qemu_fw_cfg/by_name/opt/borea/proxy/raw
+if [ -r "$proxy_file" ]; then
+ HTTP_PROXY=$(/bin/busybox cat "$proxy_file")
+ HTTPS_PROXY=$HTTP_PROXY
+ http_proxy=$HTTP_PROXY
+ https_proxy=$HTTP_PROXY
+ export HTTP_PROXY HTTPS_PROXY http_proxy https_proxy
+fi
+ca_file=/sys/firmware/qemu_fw_cfg/by_name/opt/borea/ca/raw
+if [ -r "$ca_file" ]; then /bin/busybox cat "$ca_file" > /etc/ssl/certs/ca-certificates.crt; fi
+export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+/usr/bin/borea-vm-test
+result=$?
+echo BOREA_VM_INSTALL_EXIT_$result
+/bin/busybox sync
+/bin/busybox poweroff -f
