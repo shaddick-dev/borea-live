@@ -1,0 +1,1142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Borea installer prototype</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Belleza&family=Comfortaa:wght@700&family=Nunito+Sans:wght@700&family=Source+Sans+3:wght@600&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#1C1C1E}
+a{color:var(--bw-accent)}a:hover{color:var(--bw-text)}
+button{all:unset;cursor:pointer;box-sizing:border-box}
+button:focus-visible{outline:2px solid var(--bw-accent);outline-offset:4px}
+input{all:unset;box-sizing:border-box;caret-color:transparent}
+input:focus-visible{outline:2px solid var(--bw-accent);outline-offset:2px}
+@keyframes bw-drift{from{transform:translateX(0)}to{transform:translateX(-1900px)}}
+@keyframes bw-in{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+@keyframes bw-out{to{opacity:0;transform:translateX(-16px)}}
+@keyframes bw-gust{0%{transform:translateX(1400px);opacity:0}25%{opacity:.4}100%{transform:translateX(-600px);opacity:0}}
+@keyframes bw-wake{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes bw-nudge{0%,100%{transform:translateX(0)}50%{transform:translateX(4px)}}
+@keyframes bw-blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+@keyframes bw-deal{from{opacity:0;transform:translateY(28px) scale(.97)}to{opacity:1;transform:none}}
+@keyframes bw-sheen{from{transform:translateX(-120%)}to{transform:translateX(120%)}}
+.bw-wind{position:absolute;height:1px;background:var(--bw-frost);opacity:.18;animation:bw-drift linear infinite}
+.bw-enter{animation:bw-in .55s ease-out both}
+.bw-leave{animation:bw-out .28s ease-in both}
+.bw-gust{position:absolute;height:2px;border-radius:2px;background:var(--bw-frost);animation:bw-gust 1.4s ease-out both}
+.bw-nudge{display:inline-block;animation:bw-nudge 2.6s ease-in-out infinite}
+.bw-wake{display:block;height:3px;background:var(--bw-accent);transform-origin:right;animation:bw-wake .5s cubic-bezier(.2,.7,.2,1) both}
+.bw-caret{color:var(--bw-accent);font-weight:700;pointer-events:none;animation:bw-blink 1.06s step-end infinite}
+.bw-theme{transition:background-color .7s ease,color .7s ease}
+@keyframes bw-bloom{0%{opacity:0}25%{opacity:1}100%{opacity:0}}
+.bw-bloom{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 58%,var(--bw-glow),transparent 62%);animation:bw-bloom 1.2s ease-out both}
+.bw-burst{position:absolute;left:0;border-radius:3px;background:var(--bw-accent);animation:bw-gust 1.1s cubic-bezier(.25,.6,.2,1) both}
+.bw-still .bw-bloom,.bw-still .bw-burst{display:none}
+.bw-deal{animation:bw-deal .5s cubic-bezier(.2,.7,.2,1) both}
+.bw-card{position:relative;display:flex;flex-direction:column;box-sizing:border-box;background:var(--bw-card);border:1.5px solid var(--bw-edge);border-radius:14px;overflow:hidden;transition:transform .25s ease,border-color .5s ease,box-shadow .5s ease,background-color .6s ease,color .6s ease}
+.bw-card:hover{transform:translateY(-4px);border-color:var(--bw-edge-hi)}
+.bw-card.sel{transform:translateY(-8px);border-color:var(--bw-accent);box-shadow:0 0 0 1px var(--bw-accent),0 16px 40px rgba(6,12,10,.45),0 0 32px var(--bw-glow)}
+.bw-card.sel::after{content:'';position:absolute;inset:0;background:linear-gradient(115deg,transparent 35%,rgba(236,230,217,.14) 50%,transparent 65%);animation:bw-sheen 1.1s ease-out .05s both;pointer-events:none}
+.bw-card.open,.bw-card.open:hover{transform:none}
+.bw-card.off{opacity:.5;cursor:default}
+.bw-card.off:hover{transform:none;border-color:var(--bw-edge)}
+.bw-opt:hover,.bw-opt:focus-visible{background:var(--bw-ground);outline:none}
+.bw-pip{width:8px;height:8px;transform:rotate(45deg);box-sizing:border-box;border:1.5px solid var(--bw-edge-hi)}
+.bw-pip.done{background:var(--bw-accent);border-color:var(--bw-accent)}
+.bw-pip.skip{opacity:.25}
+.bw-pip.cur{width:11px;height:11px;background:var(--bw-accent);border-color:var(--bw-accent);box-shadow:0 0 0 4px var(--bw-glow)}
+.bw-chip{display:flex;align-items:center;gap:8px;padding:7px 14px;border:1.5px solid var(--bw-edge);border-radius:999px;font-size:15px;transition:border-color .2s ease}
+.bw-rail{display:flex;justify-content:space-between;align-items:center;padding:9px 14px;border-radius:10px;font-size:16px;transition:background-color .2s ease}
+.bw-rail:hover{background:var(--bw-card)}
+.bw-rail.cur{background:var(--bw-card);font-weight:700;box-shadow:inset 3px 0 0 var(--bw-accent)}
+.bw-tree .bw-hit:hover{background:var(--bw-card)}
+.bw-tree .bw-hit:focus-visible{outline:2px solid var(--bw-accent);outline-offset:-2px}
+.bw-row{border-radius:6px;transition:background-color .15s ease}
+.bw-row:hover{background:var(--bw-card)}
+.bw-chip.off{opacity:.5;text-decoration:line-through}
+input:focus::placeholder{color:transparent}
+.bw-chip.on{border-color:var(--bw-accent);background:var(--bw-card);font-weight:700}
+.bw-still .bw-wind,.bw-still .bw-gust,.bw-still .bw-gale{display:none}
+.bw-still,.bw-still *{animation:none!important;transition:none!important}
+.bw-still .bw-card.sel,.bw-still .bw-card:hover{transform:none}
+.bw-hero{all:unset;box-sizing:border-box;position:relative;overflow:hidden;cursor:pointer;display:flex;flex-direction:column;align-items:center;background:var(--bw-card);border:1.5px solid var(--bw-accent);border-radius:18px;
+  box-shadow:0 0 0 1px var(--bw-accent),0 20px 50px rgba(6,12,10,.45),0 0 28px var(--bw-glow);transition:transform .3s ease;
+  animation:bw-rise .7s cubic-bezier(.2,.7,.2,1) .15s backwards,bw-breathe 3.6s ease-in-out .9s infinite}
+.bw-hero:hover{transform:translateY(-6px)}
+.bw-hero:active{transform:translateY(-2px);transition-duration:.1s}
+.bw-hero:focus-visible{outline:2px solid var(--bw-accent);outline-offset:6px}
+.bw-hero::after{content:'';position:absolute;inset:0;pointer-events:none;background:linear-gradient(115deg,transparent 38%,rgba(255,255,255,.12) 50%,transparent 62%);transform:translateX(-130%);animation:bw-sweep 6s ease-in-out 1s infinite both}
+.bw-hero .bw-streak{position:absolute;left:0;height:1px;border-radius:1px;background:var(--bw-frost);opacity:.2;animation:bw-stream linear infinite;pointer-events:none}
+.bw-hero:hover .bw-nudge{animation-duration:.9s}
+@keyframes bw-rise{from{opacity:0;transform:translateX(60px) scale(.96)}to{opacity:1;transform:none}}
+@keyframes bw-breathe{0%,100%{box-shadow:0 0 0 1px var(--bw-accent),0 20px 50px rgba(6,12,10,.45),0 0 24px var(--bw-glow)}50%{box-shadow:0 0 0 1px var(--bw-accent),0 20px 50px rgba(6,12,10,.45),0 0 70px var(--bw-glow)}}
+@keyframes bw-sweep{0%{transform:translateX(-130%)}35%,100%{transform:translateX(130%)}}
+@keyframes bw-stream{from{transform:translateX(440px)}to{transform:translateX(-200px)}}
+.bw-still .bw-streak{display:none}
+@media (prefers-reduced-motion: reduce){.bw-streak{display:none}}
+@media (prefers-reduced-motion: reduce){.bw-wind,.bw-gust,.bw-gale,.bw-bloom,.bw-burst{display:none}*{animation:none!important;transition:none!important}.bw-card.sel,.bw-card:hover{transform:none}}
+
+/* Page 05: quiet overview; app-by-app decisions live in a separate editor. */
+.apps-page{position:absolute;left:120px;top:130px;width:1040px;height:565px;overflow-y:auto;padding:0 4px 8px;box-sizing:border-box;scrollbar-width:thin}
+.apps-kicker{font-size:12px;letter-spacing:.1em;color:var(--bw-accent)}
+.apps-page h1{font-size:38px;letter-spacing:-.04em;margin:12px 0 10px}.apps-lead{font-size:15px;color:var(--bw-soft);margin:0 0 28px}
+.apps-layout{display:grid;grid-template-columns:minmax(0,1fr) 276px;gap:30px}.apps-label{display:flex;gap:14px;font-size:12px;color:var(--bw-accent);margin-bottom:12px}.apps-label span{color:var(--bw-text);font-size:14px}.apps-label small{color:var(--bw-soft);font-size:11px;margin-left:8px}
+.apps-starters{display:grid;grid-template-columns:1fr 1fr;gap:12px}.apps-starters button,.app-pack{display:flex;flex-direction:column;border:1px solid var(--bw-edge);border-radius:10px;background:var(--bw-card);padding:18px;gap:12px;text-align:left;transition:border-color .2s}
+.apps-starters button:hover,.app-pack:hover{border-color:var(--bw-edge-hi)}.apps-starters button.chosen,.app-pack.chosen{border-color:var(--bw-accent);background:var(--bw-pop)}
+.apps-option-head{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%}.apps-option-head strong{font-size:17px;font-weight:600}.apps-radio,.apps-check{width:17px;height:17px;border:1px solid var(--bw-edge-hi);display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--bw-accent);font-size:12px}.apps-radio{border-radius:50%}.apps-check{border-radius:4px}
+.apps-muted{font-size:13px;color:var(--bw-soft);line-height:1.65}.apps-small{font-size:11px;color:var(--bw-soft);line-height:1.6}.apps-packs{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.app-pack{padding:15px 13px;gap:9px}.app-pack strong{font-size:14px}.app-pack .apps-small{font-size:10px}
+.apps-customize{display:flex;align-items:center;gap:9px;font-size:14px;color:var(--bw-accent);margin-top:23px}.apps-customize .apps-small{margin-left:8px;color:var(--bw-soft)}
+.apps-summary{border-left:1px solid var(--bw-rule);padding-left:25px;display:flex;flex-direction:column;min-height:350px}.apps-summary h2{font-size:22px;margin:17px 0 0}.apps-summary p{margin:9px 0}.apps-totals{display:flex;flex-direction:column;gap:6px;margin:15px 0}.apps-totals strong{font-size:26px}.apps-totals small{font-size:14px;font-weight:400}.apps-totals>span{color:var(--bw-soft);font-size:11px}.apps-preview{display:flex;flex-direction:column;gap:8px;font-size:12px;margin:5px 0 14px}.apps-text{font-size:12px;color:var(--bw-accent);text-decoration:underline;text-underline-offset:4px;text-align:left}.apps-source-note{font-size:11px;line-height:1.6;color:var(--bw-soft);margin:22px 0 8px}.apps-summary .apps-summary-foot{font-size:10px;line-height:1.7;color:var(--bw-soft);margin-top:auto;padding-top:16px}
+.apps-overlay{position:absolute;inset:0;z-index:30;background:rgba(5,12,18,.78);display:flex;align-items:center;justify-content:center}.apps-dialog{width:900px;max-height:690px;box-sizing:border-box;display:flex;flex-direction:column;background:var(--bw-ground);border:1px solid var(--bw-edge-hi);border-radius:16px;padding:28px;box-shadow:0 24px 100px #0008}.apps-dialog-head{display:flex;align-items:center;justify-content:space-between;gap:24px}.apps-dialog h2{font-size:26px;letter-spacing:-.03em;margin:8px 0 14px}.apps-close{font-size:30px;color:var(--bw-soft);padding:8px}.apps-search{display:flex;flex-direction:column;gap:8px;font-size:11px;color:var(--bw-soft);margin:10px 0 20px}.apps-search input{border:1px solid var(--bw-edge);border-radius:6px;padding:12px;font-size:14px;caret-color:var(--bw-accent);color:var(--bw-text);width:100%}.apps-editor{display:grid;grid-template-columns:175px 1fr;gap:22px;min-height:0;height:340px}.apps-editor nav,.apps-list{overflow-y:auto;scrollbar-width:thin}.apps-editor nav{display:flex;flex-direction:column;gap:3px}.apps-editor .bw-rail{font-size:12px;padding:10px}.app-row{display:flex;align-items:center;gap:15px;width:100%;padding:13px 8px;border-bottom:1px solid var(--bw-rule)}.app-row:hover{background:var(--bw-card)}.app-row strong{font-size:14px;font-weight:600;display:block}.app-row .apps-muted{font-size:11px;display:block}.apps-dialog-foot{display:flex;align-items:center;justify-content:space-between;gap:18px;border-top:1px solid var(--bw-rule);padding-top:20px;margin-top:20px}.apps-done{padding:11px 24px;border-radius:6px;background:var(--bw-accent);color:var(--bw-ground);font-size:13px;font-weight:700}.apps-sources{width:650px;gap:12px}.apps-source-row{display:flex;flex-direction:column;gap:8px;padding:16px 0;border-bottom:1px solid var(--bw-rule);font-size:13px}.apps-source-row span{font-size:12px;color:var(--bw-soft)}
+
+.system-profiles{gap:12px}.system-profiles .starter{min-height:150px}.system-profiles .starter strong{font-size:16px}.system-actions{display:flex;gap:22px;margin-top:20px;flex-wrap:wrap}.system-actions+.apps-small{margin-top:20px;max-width:540px}.role-sections{overflow-y:auto;max-height:440px;scrollbar-width:thin;padding-right:4px}.role-sections h3{font-size:12px;letter-spacing:.08em;color:var(--bw-soft);font-weight:400;margin:20px 0 12px}.roles-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.roles-grid .app-pack{min-height:112px}.source-prefer{display:flex;border:1px solid var(--bw-edge);border-radius:6px;overflow:hidden}.source-prefer button{flex:1;text-align:center;padding:12px;font-size:12px}.sources-list{overflow:auto;max-height:300px}.source-setting{display:flex;align-items:center;justify-content:space-between;width:100%;gap:16px;border-bottom:1px solid var(--bw-rule);padding:12px 0;font-size:13px}.source-setting .apps-muted{display:block;font-size:11px}.package-tree{height:370px;overflow:auto;scrollbar-width:thin}.software-warning{font-size:12px;color:#E8C486;line-height:1.6}button:disabled{opacity:.45;cursor:default}.apps-page{height:565px}.apps-packs .app-pack{min-height:150px}.apps-summary{min-height:350px}
+</style>
+</helmet>
+<div class="bw-theme {{rootClass}}" style="{{themeVars}} position: relative; width: 1280px; height: 800px; overflow: hidden; background: var(--bw-ground); color: var(--bw-text); font-family: 'JetBrains Mono', ui-monospace, monospace">
+
+  <sc-if value="{{calmWind}}" hint-placeholder-val="{{true}}">
+    <div class="bw-wind" style="top: 150px; left: 1300px; width: 240px; animation-duration: 38s; animation-delay: -9s" aria-hidden="true"></div>
+    <div class="bw-wind" style="top: 430px; left: 1300px; width: 320px; animation-duration: 52s; animation-delay: -30s" aria-hidden="true"></div>
+    <div class="bw-wind" style="top: 650px; left: 1300px; width: 180px; animation-duration: 44s; animation-delay: -18s" aria-hidden="true"></div>
+  </sc-if>
+  <sc-if value="{{is.install}}" hint-placeholder-val="{{false}}">
+    <sc-for list="{{gale}}" as="g" hint-placeholder-count="0">
+      <div class="bw-gale" style="position: absolute; left: 0; top: {{g.top}}; width: {{g.w}}; height: {{g.h}}; border-radius: 2px; background: linear-gradient(90deg, transparent, var(--bw-frost) 30%, var(--bw-frost) 70%, transparent); opacity: {{g.op}}; transform: translate3d({{g.tx}}, 0, 0); will-change: transform, opacity" aria-hidden="true"></div>
+    </sc-for>
+  </sc-if>
+
+  <sc-if value="{{heroA}}" hint-placeholder-val="{{false}}">
+    <div class="bw-bloom" aria-hidden="true"></div>
+    <div class="bw-burst" style="top: 170px; width: 820px; height: 4px" aria-hidden="true"></div>
+    <div class="bw-burst" style="top: 300px; width: 1180px; height: 6px; animation-delay: .05s" aria-hidden="true"></div>
+    <div class="bw-burst" style="top: 455px; width: 640px; height: 3px; animation-delay: .1s" aria-hidden="true"></div>
+    <div class="bw-burst" style="top: 560px; width: 980px; height: 5px; animation-delay: .14s" aria-hidden="true"></div>
+    <div class="bw-burst" style="top: 690px; width: 520px; height: 3px; animation-delay: .2s" aria-hidden="true"></div>
+  </sc-if>
+  <sc-if value="{{heroB}}" hint-placeholder-val="{{false}}">
+    <div class="bw-bloom" aria-hidden="true"></div>
+    <div class="bw-burst" style="top: 170px; width: 820px; height: 4px" aria-hidden="true"></div>
+    <div class="bw-burst" style="top: 300px; width: 1180px; height: 6px; animation-delay: .05s" aria-hidden="true"></div>
+    <div class="bw-burst" style="top: 455px; width: 640px; height: 3px; animation-delay: .1s" aria-hidden="true"></div>
+    <div class="bw-burst" style="top: 560px; width: 980px; height: 5px; animation-delay: .14s" aria-hidden="true"></div>
+    <div class="bw-burst" style="top: 690px; width: 520px; height: 3px; animation-delay: .2s" aria-hidden="true"></div>
+  </sc-if>
+
+  <header style="position: absolute; left: 120px; right: 120px; top: 52px; display: flex; justify-content: space-between; align-items: center">
+    <span style="display: flex; align-items: baseline; gap: 12px; min-width: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; white-space: nowrap">borea <span style="color: var(--bw-accent); font-weight: 400">∼</span><h1 style="margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; overflow: hidden; text-overflow: ellipsis">{{title}}</h1></span>
+    <div style="display: flex; align-items: center; gap: 14px" role="img" aria-label="{{stepLabel}}">
+      <sc-for list="{{pips}}" as="p" hint-placeholder-count="10"><span class="{{p.cls}}"></span></sc-for>
+    </div>
+  </header>
+
+  <sc-if value="{{is.network}}" hint-placeholder-val="{{true}}">
+    <section class="{{slideClass}}" style="position: absolute; left: 120px; top: 140px; width: 1040px; height: 560px; display: flex; flex-direction: column">
+      <div class="bw-gust" style="top: 60px; left: -120px; width: 320px" aria-hidden="true"></div>
+      <div style="display: flex; justify-content: space-between; align-items: baseline">
+        <span style="font-size: 14px; color: var(--bw-accent)">{{greet}}</span>
+        <sc-if value="{{scanning}}" hint-placeholder-val="{{true}}"><span style="font-size: 15px; color: var(--bw-accent)">searching <span class="bw-nudge">∼</span></span></sc-if>
+        <sc-if value="{{scanDone}}" hint-placeholder-val="{{false}}"><button onClick="{{rescan}}" style="font-size: 15px; color: var(--bw-accent); border-bottom: 1px dotted var(--bw-accent)">scan again</button></sc-if>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; margin-top: 32px">
+        <sc-for list="{{netCards}}" as="o" hint-placeholder-count="6">
+          <div class="bw-deal" style="animation-delay: {{o.delay}}">
+            <div class="{{o.cls}}" style="min-height: 128px; padding: 18px 18px 16px; gap: 12px">
+              <button onClick="{{o.pick}}" aria-pressed="{{o.pressed}}" aria-disabled="{{o.disabled}}" style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px">
+                <span style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                  <span style="font-size: 18px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{o.label}}</span>
+                  <span style="font-size: 13px">{{o.status}}</span>
+                </span>
+                <sc-if value="{{o.isWifi}}" hint-placeholder-val="{{true}}">
+                  <span style="display: flex; align-items: flex-end; gap: 3px; height: 22px; flex-shrink: 0" aria-label="{{o.signalText}}">
+                    <span style="width: 5px; height: 7px; border-radius: 1px; background: {{o.b1}}"></span>
+                    <span style="width: 5px; height: 12px; border-radius: 1px; background: {{o.b2}}"></span>
+                    <span style="width: 5px; height: 17px; border-radius: 1px; background: {{o.b3}}"></span>
+                    <span style="width: 5px; height: 22px; border-radius: 1px; background: {{o.b4}}"></span>
+                  </span>
+                </sc-if>
+              </button>
+              <sc-if value="{{o.showPass}}" hint-placeholder-val="{{false}}">
+                <span class="bw-enter" style="position: relative; display: flex; margin-top: auto"><input autoFocus="{{true}}" type="password" aria-label="Password for {{o.label}}" onChange="{{c.wifi.change}}" onFocus="{{c.wifi.focus}}" onBlur="{{blurCaret}}" style="width: 100%; font-size: 15px; border: 1.5px solid var(--bw-accent); border-radius: 6px; padding: 6px 10px"><sc-if value="{{c.wifi.on}}" hint-placeholder-val="{{false}}"><span class="bw-caret" aria-hidden="true" style="position: absolute; left: calc(11.5px + {{c.wifi.ch}}); bottom: 8px; font-size: 15px; line-height: 1">_</span></sc-if></span>
+              </sc-if>
+              <sc-if value="{{o.showOther}}" hint-placeholder-val="{{false}}">
+                <span class="bw-enter" style="display: flex; flex-direction: column; gap: 8px; margin-top: auto">
+                  <span style="position: relative; display: flex"><input aria-label="Network name" placeholder="name" onChange="{{c.oname.change}}" onFocus="{{c.oname.focus}}" onBlur="{{blurCaret}}" style="width: 100%; font-size: 15px; border: 1.5px solid var(--bw-accent); border-radius: 6px; padding: 6px 10px"><sc-if value="{{c.oname.on}}" hint-placeholder-val="{{false}}"><span class="bw-caret" aria-hidden="true" style="position: absolute; left: calc(11.5px + {{c.oname.ch}}); bottom: 8px; font-size: 15px; line-height: 1">_</span></sc-if></span>
+                  <span style="position: relative; display: flex"><input type="password" aria-label="Password" onChange="{{c.opass.change}}" onFocus="{{c.opass.focus}}" onBlur="{{blurCaret}}" style="width: 100%; font-size: 15px; border: 1.5px solid var(--bw-accent); border-radius: 6px; padding: 6px 10px"><sc-if value="{{c.opass.on}}" hint-placeholder-val="{{false}}"><span class="bw-caret" aria-hidden="true" style="position: absolute; left: calc(11.5px + {{c.opass.ch}}); bottom: 8px; font-size: 15px; line-height: 1">_</span></sc-if></span>
+                </span>
+              </sc-if>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+  </sc-if>
+
+  <sc-if value="{{is.locale}}" hint-placeholder-val="{{false}}">
+    <section class="{{slideClass}}" style="position: absolute; left: 120px; top: 140px; width: 1040px; height: 560px; display: flex; flex-direction: column; z-index: {{menuZ}}">
+      <div class="bw-gust" style="top: 40px; left: -120px; width: 300px" aria-hidden="true"></div>
+      <span style="font-size: 14px; color: var(--bw-accent)">02 · language &amp; region</span>
+      <div style="display: flex; gap: 24px; margin-top: 40px; align-items: stretch">
+        <div class="bw-deal" style="width: 400px; flex-shrink: 0">
+          <div class="bw-card sel" style="height: 100%; min-height: 344px; padding: 30px 32px; gap: 6px">
+            <span style="font-size: 14px">you're in</span>
+            <span style="font-size: 34px; font-weight: 700; line-height: 1.15">{{countryName}}</span>
+            <span style="margin-top: auto; font-size: 76px; font-weight: 700; letter-spacing: -0.04em; line-height: 1; color: var(--bw-accent)">{{localTime}}</span>
+            <span style="margin-top: 10px; font-size: 16px">{{localDate}}</span>
+          </div>
+        </div>
+        <div style="flex: 1; display: flex; flex-direction: column; gap: 16px">
+          <sc-for list="{{fields}}" as="f" hint-placeholder-count="3">
+            <div class="bw-deal" style="position: relative; z-index: {{f.z}}; animation-delay: {{f.delay}}">
+              <button onClick="{{f.open}}" aria-haspopup="listbox" aria-expanded="{{f.expanded}}" class="{{f.cls}}" style="width: 100%; height: 104px; flex-direction: row; align-items: center; justify-content: space-between; padding: 0 26px">
+                <span style="display: flex; flex-direction: column; gap: 6px; min-width: 0">
+                  <span style="font-size: 13px">{{f.label}}</span>
+                  <span style="font-size: 21px; font-weight: 700; color: var(--bw-accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{f.value}}</span>
+                </span>
+                <span style="font-size: 18px; flex-shrink: 0">▾</span>
+              </button>
+              <sc-if value="{{f.isOpen}}" hint-placeholder-val="{{false}}">
+                <div style="position: absolute; left: 0; right: 0; {{f.dropPos}}; z-index: 20; display: flex; flex-direction: {{f.dropDir}}; background: var(--bw-pop); border: 1.5px solid var(--bw-edge); border-radius: 12px; box-shadow: 0 18px 40px rgba(6, 12, 10, 0.5); overflow: hidden">
+                  <span style="position: relative; display: flex; flex-direction: column"><input value="{{f.q}}" onChange="{{onQuery}}" onFocus="{{c.search.focus}}" onBlur="{{blurCaret}}" aria-label="Search" style="font-size: 15px; padding: 13px 16px; border-bottom: 1px solid var(--bw-rule)"><sc-if value="{{c.search.on}}" hint-placeholder-val="{{false}}"><span class="bw-caret" aria-hidden="true" style="position: absolute; left: calc(16px + {{c.search.ch}}); bottom: 14px; font-size: 15px; line-height: 1">_</span></sc-if></span>
+                  <div role="listbox" style="max-height: 228px; overflow-y: auto; overscroll-behavior: contain; padding: 6px 0">
+                    <sc-for list="{{f.results}}" as="o" hint-placeholder-count="6">
+                      <button onClick="{{o.pick}}" role="option" aria-selected="{{o.sel}}" class="bw-opt" style="display: flex; gap: 10px; width: 100%; padding: 8px 16px; font-size: 15px; font-weight: {{o.weight}}"><span style="width: 12px; color: var(--bw-accent)">{{o.dot}}</span>{{o.label}}</button>
+                    </sc-for>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </section>
+  </sc-if>
+
+  <sc-if value="{{showClassCards}}" hint-placeholder-val="{{false}}">
+    <section class="{{slideClass}}" style="position: absolute; left: 120px; top: 140px; width: 1040px; height: 560px; display: flex; flex-direction: column">
+      <div class="bw-gust" style="top: 60px; left: -120px; width: 380px" aria-hidden="true"></div>
+      <span style="font-size: 14px; color: var(--bw-accent)">{{classKicker}}</span>
+      <div style="display: flex; gap: 24px; margin-top: 40px">
+        <sc-for list="{{classCards}}" as="o" hint-placeholder-count="4">
+          <div class="bw-deal" style="animation-delay: {{o.delay}}">
+            <div class="{{o.cls}}" style="width: 242px; height: {{o.h}}">
+            <button onClick="{{o.pick}}" aria-pressed="{{o.pressed}}" style="flex: 1; min-height: 0; width: 100%; box-sizing: border-box; display: flex; flex-direction: column; padding: 26px 22px 22px; align-items: center; gap: 18px">
+              <sc-if value="{{o.plate}}" hint-placeholder-val="{{true}}">
+                <span style="width: 100%; height: 132px; flex-shrink: 0; box-sizing: border-box; padding: 12px; display: flex; align-items: center; justify-content: center">
+                  <sc-if value="{{o.hasLogo}}" hint-placeholder-val="{{false}}"><img src="{{o.logo}}" alt="{{o.label}} logo" style="display: block; width: 174px; height: 108px; object-fit: contain; object-position: center"></sc-if>
+                  <sc-if value="{{o.noLogo}}" hint-placeholder-val="{{true}}"><span style="width: 174px; height: 108px; box-sizing: border-box; border: 1.5px dashed var(--bw-edge-hi); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 13px; color: var(--bw-soft)">official {{o.label}} logo</span></sc-if>
+                </span>
+              </sc-if>
+              <sc-if value="{{o.hex}}" hint-placeholder-val="{{false}}">
+              <span style="position: relative; width: 104px; height: 104px; flex-shrink: 0">
+                  <svg viewBox="0 0 100 100" width="104" height="104" aria-hidden="true" style="position: absolute; inset: 0"><polygon points="50,4 92,27 92,73 50,96 8,73 8,27" style="fill: var(--bw-ground); stroke: {{o.ring}}; stroke-width: 2.5"></polygon><path d="{{o.emblem}}" fill="none" stroke="{{o.ring}}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                  <span style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 40px; font-weight: 700; color: {{o.ring}}">{{o.mono}}</span>
+                </span>
+              </sc-if>
+              <span style="font-family: {{o.font}}; font-size: {{o.fsize}}; font-weight: {{o.fweight}}; letter-spacing: {{o.track}}; text-align: center">{{o.label}}</span>
+              <span style="display: flex; flex-direction: column; gap: 9px; width: 100%; margin-top: auto">
+                <sc-for list="{{o.stats}}" as="st" hint-placeholder-count="3">
+                  <span style="display: flex; align-items: center; justify-content: space-between; font-size: 13px">
+                    <span>{{st.name}}</span>
+                    <span style="display: flex; gap: 4px" aria-label="{{st.aria}}">
+                      <sc-for list="{{st.pips}}" as="q" hint-placeholder-count="5"><span style="width: 16px; height: 6px; border-radius: 2px; background: {{q.c}}"></span></sc-for>
+                    </span>
+                  </span>
+                </sc-for>
+              </span>
+            </button>
+            <sc-if value="{{o.showNoDesk}}" hint-placeholder-val="{{false}}">
+              <button onClick="{{toggleNoDesk}}" role="checkbox" aria-checked="{{noDeskChecked}}" style="position: relative; z-index: 1; display: flex; gap: 12px; align-items: center; padding: 13px 22px 15px; border-top: 1px solid var(--bw-rule); font-size: 14px">
+                <span style="width: 18px; height: 18px; box-sizing: border-box; border: 2px solid var(--bw-accent); border-radius: 4px; background: {{noDeskFill}}; display: flex; align-items: center; justify-content: center; color: var(--bw-card); font-size: 12px; font-weight: 700">{{noDeskMark}}</span>
+                <span style="font-weight: 600">No desktop</span>
+              </button>
+            </sc-if>
+            <sc-if value="{{o.spacer}}" hint-placeholder-val="{{false}}"><span style="height: 47px; flex-shrink: 0" aria-hidden="true"></span></sc-if>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+      <sc-if value="{{distroWarn}}" hint-placeholder-val="{{false}}"><span style="margin-top: 30px; max-width: 760px; font-size: 14px; line-height: 1.6; color: #E8C486">{{drvWarn}}</span></sc-if>
+    </section>
+  </sc-if>
+
+  <sc-if value="{{is.packs}}" hint-placeholder-val="{{false}}">
+    <section class="{{slideClass}} apps-page" aria-label="App profiles"><sc-if value="{{appStage}}">
+      <span class="apps-kicker">05 · software / apps</span>
+      <h1>Make room for your everyday.</h1>
+      <p class="apps-lead">Start small. Add what matters. You can change every app.</p>
+      <div class="apps-layout">
+        <div class="apps-choices">
+          <div class="apps-label">01 <span>Choose your starting point</span></div>
+          <div class="apps-starters">
+            <sc-for list="{{starters}}" as="o">
+              <button class="{{o.cls}} starter" onClick="{{o.pick}}" aria-pressed="{{o.pressed}}">
+                <span class="apps-option-head"><strong>{{o.label}}</strong><span class="apps-radio" aria-hidden="true">{{o.mark}}</span></span>
+                <span class="apps-muted">{{o.description}}</span><span class="apps-small">{{o.detail}}</span>
+              </button>
+            </sc-for>
+          </div>
+          <sc-if value="{{hasStarter}}">
+            <div class="apps-label" style="margin-top:24px">02 <span>Add a little more <small>optional</small></span></div>
+            <div class="apps-packs">
+              <sc-for list="{{packs}}" as="o">
+                <button class="{{o.cls}} app-pack" onClick="{{o.pick}}" aria-pressed="{{o.pressed}}">
+                  <span class="apps-option-head"><strong>{{o.label}}</strong><span class="apps-check" aria-hidden="true">{{o.mark}}</span></span>
+                  <span class="apps-muted">{{o.description}}</span><span class="apps-small">{{o.list}}</span>
+                </button>
+              </sc-for>
+            </div>
+            <button class="apps-customize" onClick="{{openApps}}">Customize apps <span aria-hidden="true">↗</span><span class="apps-small">{{customNote}}</span></button>
+          </sc-if>
+        </div>
+        <aside class="apps-summary" aria-label="Your app selection">
+          <span class="apps-kicker">YOUR SELECTION</span>
+          <h2>{{selectionName}}</h2>
+          <p class="apps-muted">{{selectionHint}}</p>
+          <sc-if value="{{hasStarter}}">
+            <div class="apps-totals" aria-live="polite"><strong>{{appCount}} <small>apps</small></strong><span>{{kitSize}} estimated installed</span></div>
+            <div class="apps-preview"><sc-for list="{{previewApps}}" as="o"><span>{{o.label}}</span></sc-for></div>
+            <button class="apps-text" onClick="{{reviewSelectedApps}}">{{reviewAppsLabel}}</button>
+            <div class="apps-source-note">{{sourceNote}}</div>
+            <sc-if value="{{hasExtraSources}}"><button class="apps-text" onClick="{{openSources}}">Sources &amp; install preference</button></sc-if>
+          </sc-if>
+          <sc-if value="{{hasStranded}}"><p class="software-warning" role="alert">{{strandedText}}. Review sources or remove the apps to continue.</p></sc-if><p class="apps-summary-foot">{{sysCount}} system packages + automatic drivers. App sizes are estimates.</p>
+        </aside>
+      </div>
+    </sc-if>
+      <sc-if value="{{profileStage}}">
+        <span class="apps-kicker">05 · software / system profile</span>
+        <h1>A system that fits.</h1>
+        <p class="apps-lead">Choose a starting point. Fine-tune the details only if you want to.</p>
+        <div class="apps-layout"><div>
+          <div class="apps-starters system-profiles"><sc-for list="{{systemProfiles}}" as="o">
+            <button class="{{o.cls}} starter" onClick="{{o.pick}}" aria-pressed="{{o.pressed}}" disabled="{{o.disabled}}"><span class="apps-option-head"><strong>{{o.label}}</strong><span class="apps-radio" aria-hidden="true">{{o.mark}}</span></span><span class="apps-muted">{{o.description}}</span><span class="apps-small">{{o.detail}}</span></button>
+          </sc-for></div>
+          <sc-if value="{{hasEnvironment}}"><div class="system-actions"><button class="apps-text" onClick="{{openRoles}}">Add roles &amp; tools <span class="apps-small">{{roleCount}}</span></button><button class="apps-text" onClick="{{openPackages}}">Customize packages</button></div><p class="apps-small">{{systemDesktopNote}}</p></sc-if>
+        </div><aside class="apps-summary"><span class="apps-kicker">YOUR SYSTEM</span><h2>{{systemProfileName}}</h2><p class="apps-muted">{{systemProfileHint}}</p><sc-if value="{{hasEnvironment}}"><div class="apps-totals"><strong>{{sysCount}} <small>system packages</small></strong></div><div class="apps-preview"><sc-for list="{{rolePreview}}" as="o"><span>{{o.label}}</span></sc-for></div><button class="apps-text" onClick="{{openPackages}}">Review package selection</button></sc-if><p class="apps-summary-foot">Hardware drivers are chosen automatically for this machine.</p></aside></div>
+      </sc-if>
+    </section>
+  </sc-if>
+
+  <sc-if value="{{appsOpen}}">
+    <div class="apps-overlay" role="presentation">
+      <section class="apps-dialog" role="dialog" aria-modal="true" onKeyDown="{{dialogKeys}}" aria-labelledby="apps-dialog-title">
+        <div class="apps-dialog-head"><div><span class="apps-kicker">YOUR APPS · {{appCount}} SELECTED</span><h2 id="apps-dialog-title">A few finishing touches.</h2></div><button class="apps-close" onClick="{{closeApps}}" aria-label="Close app customization">×</button></div>
+        <label class="apps-search">Find an app<input id="app-search" placeholder="Search by name or purpose" value="{{appQ}}" onChange="{{onAppQuery}}" type="search"></label>
+        <div class="apps-editor"><nav aria-label="App categories"><sc-for list="{{cats}}" as="o"><button class="{{o.cls}}" aria-pressed="{{o.sel}}" onClick="{{o.pick}}">{{o.label}}<span>{{o.count}}</span></button></sc-for></nav>
+          <div class="apps-list" aria-label="Available apps"><sc-for list="{{tiles}}" as="o"><button class="app-row" disabled="{{o.disabled}}" onClick="{{o.pick}}" aria-pressed="{{o.pressed}}"><span class="apps-check" aria-hidden="true">{{o.mark}}</span><span style="flex:1"><strong>{{o.label}}</strong><span class="apps-muted">{{o.desc}}</span></span><span class="apps-small">{{o.size}}</span></button></sc-for><sc-if value="{{noTiles}}"><p>No apps match. Try another name or purpose.</p></sc-if></div>
+        </div>
+        <div class="apps-dialog-foot"><button class="apps-text" onClick="{{resetAppTweaks}}">Restore profile apps</button><span class="apps-small">Changes are saved as you choose.</span><button class="apps-done" onClick="{{closeApps}}">Done</button></div>
+      </section>
+    </div>
+  </sc-if>
+  <sc-if value="{{sourcesOpen}}"><div class="apps-overlay"><section class="apps-dialog apps-sources" role="dialog" aria-modal="true" onKeyDown="{{dialogKeys}}" aria-labelledby="sources-title"><div class="apps-dialog-head"><h2 id="sources-title">Sources &amp; install preference.</h2><button class="apps-close" onClick="{{closeSoftwareDialog}}" aria-label="Close sources">×</button></div><p class="apps-muted">{{baseLabel}} sources only. Hardware requirements stay enabled.</p><div role="radiogroup" aria-label="Install from" class="source-prefer"><sc-for list="{{preferOpts}}" as="o"><button role="radio" aria-checked="{{o.checked}}" onClick="{{o.pick}}" style="background:{{o.bg}};color:{{o.fg}}">{{o.label}}</button></sc-for></div><div class="sources-list"><sc-for list="{{srcSwitches}}" as="o"><button class="source-setting" role="switch" aria-checked="{{o.checked}}" aria-disabled="{{o.locked}}" onClick="{{o.pick}}"><span><strong>{{o.label}}</strong><span class="apps-muted">{{o.note}}</span></span><span class="apps-small">{{o.status}}</span></button></sc-for></div><sc-if value="{{hasStranded}}"><p class="software-warning" role="alert">{{strandedText}}. Enable a source or remove these apps before continuing.</p></sc-if><button class="apps-done" onClick="{{closeSoftwareDialog}}">Done</button></section></div></sc-if>
+  <sc-if value="{{rolesOpen}}"><div class="apps-overlay"><section class="apps-dialog" role="dialog" aria-modal="true" onKeyDown="{{dialogKeys}}" aria-labelledby="roles-title"><div class="apps-dialog-head"><div><span class="apps-kicker">OPTIONAL</span><h2 id="roles-title">A few extra capabilities.</h2></div><button class="apps-close" onClick="{{closeSoftwareDialog}}" aria-label="Close roles">×</button></div><p class="apps-muted">Choose complete sets here. Individual packages can be edited separately.</p><div class="role-sections"><sc-for list="{{roleSections}}" as="section"><h3>{{section.label}}</h3><div class="roles-grid"><sc-for list="{{section.items}}" as="o"><button class="{{o.cls}}" aria-pressed="{{o.pressed}}" onClick="{{o.pick}}"><span class="apps-option-head"><strong>{{o.label}}</strong><span class="apps-check">{{o.mark}}</span></span><span class="apps-muted">{{o.description}}</span></button></sc-for></div></sc-for></div><div class="apps-dialog-foot"><button class="apps-text" onClick="{{openPackages}}">Customize individual packages</button><button class="apps-done" onClick="{{closeSoftwareDialog}}">Done</button></div></section></div></sc-if>
+  <sc-if value="{{packagesOpen}}"><div class="apps-overlay"><section class="apps-dialog" role="dialog" aria-modal="true" onKeyDown="{{dialogKeys}}" aria-labelledby="packages-title"><div class="apps-dialog-head"><h2 id="packages-title">The details, if you need them.</h2><button class="apps-close" onClick="{{closeSoftwareDialog}}" aria-label="Close packages">×</button></div><p class="apps-muted">Boot essentials are protected. Drivers follow your hardware automatically.</p><label class="apps-search">Search packages and apps<input type="search" value="{{appQ}}" onChange="{{onAppQuery}}" aria-label="Search packages and apps"></label><div class="package-tree">        <div role="tree" aria-label="What to install" style="flex: 1; min-width: 0; overflow-y: auto; overscroll-behavior: contain; padding-right: 26px">
+          <sc-for list="{{tree}}" as="r" hint-placeholder-count="14">
+            <div role="treeitem" aria-level="{{r.level}}" aria-expanded="{{r.expanded}}" aria-checked="{{r.checked}}" class="bw-tree" style="display: flex; align-items: {{r.align}}; min-height: {{r.h}}; margin-top: {{r.gap}}; opacity: {{r.op}}">
+              <span aria-hidden="true" style="flex-shrink: 0; white-space: pre; font-size: 15px; color: var(--bw-rule)">{{r.prefix}}</span>
+              <button onClick="{{r.toggle}}" tabIndex="{{r.caretTab}}" aria-label="{{r.caretLabel}}" style="flex-shrink: 0; width: 22px; text-align: center; font-size: 13px; color: var(--bw-soft); visibility: {{r.caretVis}}">{{r.caret}}</button>
+              <button onClick="{{r.click}}" disabled="{{r.inert}}" title="{{r.tip}}" style="flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px; min-height: {{r.h}}; padding: {{r.pad}}; border-radius: 6px; cursor: {{r.cursor}}" class="{{r.cls}}">
+                <span style="flex-shrink: 0; width: 16px; height: 16px; box-sizing: border-box; border: 1.5px solid {{r.ring}}; border-radius: {{r.rad}}; background: {{r.fill}}; display: {{r.ctl}}; align-items: center; justify-content: center; color: var(--bw-ground); font-size: 11px; font-weight: 700">{{r.mark}}</span>
+                <span style="flex-shrink: 0; font-size: {{r.size}}; font-weight: {{r.weight}}; color: {{r.color}}">{{r.label}}</span>
+                <span style="flex: 1; min-width: 0; font-size: 13px; line-height: 1.6; color: var(--bw-soft); white-space: {{r.ws}}; overflow: hidden; text-overflow: ellipsis">{{r.meta}}</span>
+                <span style="flex-shrink: 0; font-size: 12px; color: {{r.rightColor}}">{{r.right}}</span>
+              </button>
+            </div>
+          </sc-for>
+          <sc-if value="{{noRows}}" hint-placeholder-val="{{false}}"><span style="display: block; padding: 14px 10px; font-size: 16px">Nothing matches that.</span></sc-if>
+        </div></div><div class="apps-dialog-foot"><span class="apps-small">Changes are saved as you choose.</span><button class="apps-done" onClick="{{closeSoftwareDialog}}">Done</button></div></section></div></sc-if>
+  <sc-if value="{{is.disk}}" hint-placeholder-val="{{false}}">
+    <section class="{{slideClass}}" style="position: absolute; left: 120px; top: 140px; width: 1040px; height: 560px; display: flex; flex-direction: column">
+      <div class="bw-gust" style="top: 50px; left: -120px; width: 300px" aria-hidden="true"></div>
+      <span style="font-size: 14px; color: var(--bw-accent)">06 · space · nvme0n1, 1 TB</span>
+      <div style="display: flex; gap: 24px; margin-top: 40px">
+        <sc-for list="{{diskCards}}" as="o" hint-placeholder-count="2">
+          <div class="bw-deal" style="animation-delay: {{o.delay}}">
+            <button onClick="{{o.pick}}" aria-pressed="{{o.pressed}}" class="{{o.cls}}" style="width: 508px; height: 230px; padding: 26px; gap: 10px">
+              <span style="font-size: 24px; font-weight: 700">{{o.label}}</span>
+              <span style="font-size: 14px">{{o.sub}}</span>
+              <span style="margin-top: auto; display: flex; height: 34px; gap: 4px" aria-hidden="true">
+                <span style="width: {{o.winW}}; border-radius: 6px; background: var(--bw-edge); display: flex; align-items: center; padding-left: 12px; font-size: 13px; overflow: hidden; white-space: nowrap">{{o.winLabel}}</span>
+                <span style="flex: 1; border-radius: 6px; background: var(--bw-accent); color: var(--bw-card); display: flex; align-items: center; padding-left: 12px; font-size: 13px; font-weight: 700">{{o.boreaLabel}}</span>
+              </span>
+            </button>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+  </sc-if>
+
+  <sc-if value="{{is.you}}" hint-placeholder-val="{{false}}">
+    <section class="{{slideClass}}" style="position: absolute; left: 120px; top: 140px; width: 1040px; height: 560px; display: flex; flex-direction: column">
+      <div class="bw-gust" style="top: 70px; left: -120px; width: 240px" aria-hidden="true"></div>
+      <span style="font-size: 14px; color: var(--bw-accent)">07 · you</span>
+      <div class="bw-deal" style="margin-top: 36px">
+        <div class="bw-card" style="flex-direction: row; gap: 48px; padding: 30px 34px">
+          <div style="display: flex; flex-direction: column; align-items: center; gap: 14px; width: 170px">
+            <span style="position: relative; width: 132px; height: 132px">
+              <svg viewBox="0 0 100 100" width="132" height="132" aria-hidden="true" style="position: absolute; inset: 0"><polygon points="50,4 92,27 92,73 50,96 8,73 8,27" style="fill: var(--bw-ground); stroke: var(--bw-accent); stroke-width: 2.5"></polygon></svg>
+              <span style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 52px; font-weight: 700; color: var(--bw-accent)">{{avatar}}</span>
+            </span>
+            <span style="font-size: 15px; font-weight: 700; text-align: center; word-break: break-all">{{handle}}</span>
+          </div>
+          <div style="flex: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 36px; row-gap: 22px">
+            <label style="display: flex; flex-direction: column; gap: 8px; font-size: 14px">username<span style="position: relative; display: flex; flex-direction: column"><input value="{{userVal}}" spellCheck="{{false}}" autoCapitalize="off" onChange="{{c.yname.change}}" onFocus="{{c.yname.focus}}" onBlur="{{blurCaret}}" style="font-size: 20px; font-weight: 600; border: 1.5px solid var(--bw-edge); border-radius: 6px; padding: 7px 12px"><sc-if value="{{c.yname.on}}" hint-placeholder-val="{{false}}"><span class="bw-caret" aria-hidden="true" style="position: absolute; left: calc(13.5px + {{c.yname.ch}}); bottom: 9px; font-size: 20px; line-height: 1">_</span></sc-if></span></label>
+            <label style="display: flex; flex-direction: column; gap: 8px; font-size: 14px">hostname<span style="position: relative; display: flex; flex-direction: column"><input value="{{hostVal}}" spellCheck="{{false}}" autoCapitalize="off" onChange="{{c.yhost.change}}" onFocus="{{c.yhost.focus}}" onBlur="{{blurCaret}}" style="font-size: 20px; font-weight: 600; border: 1.5px solid var(--bw-edge); border-radius: 6px; padding: 7px 12px"><sc-if value="{{c.yhost.on}}" hint-placeholder-val="{{false}}"><span class="bw-caret" aria-hidden="true" style="position: absolute; left: calc(13.5px + {{c.yhost.ch}}); bottom: 9px; font-size: 20px; line-height: 1">_</span></sc-if></span></label>
+            <label style="display: flex; flex-direction: column; gap: 8px; font-size: 14px">passphrase<span style="position: relative; display: flex; flex-direction: column"><input type="password" onChange="{{c.ypass.change}}" onFocus="{{c.ypass.focus}}" onBlur="{{blurCaret}}" style="font-size: 20px; font-weight: 600; border: 1.5px solid var(--bw-edge); border-radius: 6px; padding: 7px 12px"><sc-if value="{{c.ypass.on}}" hint-placeholder-val="{{false}}"><span class="bw-caret" aria-hidden="true" style="position: absolute; left: calc(13.5px + {{c.ypass.ch}}); bottom: 9px; font-size: 20px; line-height: 1">_</span></sc-if></span></label>
+            <div style="display: flex; flex-direction: column; gap: 8px; font-size: 14px">
+              <sc-if value="{{showAdmin}}" hint-placeholder-val="{{false}}">
+                <label class="bw-enter" style="display: flex; flex-direction: column; gap: 8px">admin password<span style="position: relative; display: flex; flex-direction: column"><input type="password" onChange="{{c.yadmin.change}}" onFocus="{{c.yadmin.focus}}" onBlur="{{blurCaret}}" style="font-size: 20px; font-weight: 600; border: 1.5px solid var(--bw-accent); border-radius: 6px; padding: 7px 12px"><sc-if value="{{c.yadmin.on}}" hint-placeholder-val="{{false}}"><span class="bw-caret" aria-hidden="true" style="position: absolute; left: calc(13.5px + {{c.yadmin.ch}}); bottom: 9px; font-size: 20px; line-height: 1">_</span></sc-if></span></label>
+              </sc-if>
+            </div>
+            <button onClick="{{toggleSame}}" aria-pressed="{{samePressed}}" style="grid-column: span 2; display: flex; gap: 12px; align-items: center; font-size: 16px">
+              <span style="width: 20px; height: 20px; box-sizing: border-box; border: 2px solid var(--bw-accent); border-radius: 5px; background: {{checkFill}}; display: flex; align-items: center; justify-content: center; color: var(--bw-card); font-size: 14px; font-weight: 700">{{checkMark}}</span>
+              <span style="font-weight: 600">Same passphrase for admin</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </sc-if>
+
+  <sc-if value="{{is.review}}" hint-placeholder-val="{{false}}">
+    <section class="{{slideClass}}" style="position: absolute; left: 120px; top: 112px; width: 1040px; height: 606px; display: flex; gap: 64px">
+      <div class="bw-gust" style="top: 40px; left: -120px; width: 420px" aria-hidden="true"></div>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; padding-top: 28px">
+        <span style="font-size: 14px; color: var(--bw-accent)">08 · review</span>
+        <div style="display: flex; flex-direction: column; margin-top: 22px">
+          <sc-for list="{{reviewRows}}" as="o" hint-placeholder-count="6">
+            <button onClick="{{o.jump}}" class="bw-row" title="Change {{o.label}}" style="display: flex; align-items: baseline; gap: 20px; padding: 11px 10px; margin-left: -10px">
+              <span style="width: 64px; flex-shrink: 0; font-size: 13px; color: var(--bw-soft)">{{o.label}}</span>
+              <span style="flex: 1; min-width: 0; font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{o.value}}</span>
+            </button>
+          </sc-for>
+        </div>
+        <button onClick="{{togglePkgs}}" aria-expanded="{{pkgsOpen}}" style="margin-top: 22px; align-self: flex-start; font-size: 14px; color: var(--bw-soft)">{{pkgsCaret}} {{totalPkgs}} packages</button>
+        <sc-if value="{{showPkgs}}" hint-placeholder-val="{{false}}">
+          <div style="margin-top: 12px; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 14px; padding-right: 8px">
+            <sc-for list="{{composed}}" as="g" hint-placeholder-count="2">
+              <div style="display: flex; flex-direction: column; gap: 4px">
+                <span style="font-size: 13px; color: var(--bw-accent)">{{g.label}} <span style="color: var(--bw-soft)">· {{g.count}}</span></span>
+                <span style="font-size: 13px; line-height: 1.65; color: var(--bw-soft)">{{g.flat}}</span>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{hasStranded}}" hint-placeholder-val="{{false}}"><span style="margin-top: 14px; font-size: 14px; color: #E89A86">{{strandedText}}</span></sc-if>
+        <sc-if value="{{hasDrvWarn}}" hint-placeholder-val="{{false}}"><span style="margin-top: 14px; font-size: 13px; line-height: 1.6; color: #E8C486">{{drvWarn}}</span></sc-if>
+      </div>
+
+      <button onClick="{{next}}" disabled="{{installBlocked}}" class="bw-hero" aria-label="Install {{heroName}}" style="width: 380px; flex-shrink: 0; height: 560px; padding: 52px 36px 40px">
+        <sc-for list="{{streaks}}" as="w" hint-placeholder-count="5"><span class="bw-streak" aria-hidden="true" style="top: {{w.top}}; width: {{w.w}}; animation-duration: {{w.dur}}; animation-delay: {{w.delay}}"></span></sc-for>
+        <img src="{{heroLogo}}" alt="" style="position: relative; display: block; width: 210px; height: 150px; object-fit: contain">
+        <span style="position: relative; margin-top: 28px; font-family: {{heroFont}}; font-size: 34px; font-weight: {{heroWeight}}; letter-spacing: {{heroTrack}}">{{heroName}}</span>
+        <span style="position: relative; margin-top: 8px; font-size: 15px; color: var(--bw-soft)">{{heroSub}}</span>
+        <span style="position: relative; margin-top: auto; align-self: stretch; text-align: center; font-size: 40px; font-weight: 700; letter-spacing: -0.02em; color: var(--bw-accent)">Install</span>
+      </button>
+    </section>
+  </sc-if>
+
+  <sc-if value="{{is.install}}" hint-placeholder-val="{{false}}">
+    <section class="{{slideClass}}" style="position: absolute; left: 120px; top: 140px; width: 1040px; height: 560px; display: flex; flex-direction: column">
+      <div class="bw-gust" style="top: 100px; left: -120px; width: 520px" aria-hidden="true"></div>
+      <sc-if value="{{finished}}" hint-placeholder-val="{{false}}">
+        <div class="bw-gust" style="top: 20px; left: -120px; width: 900px; height: 3px" aria-hidden="true"></div>
+        <div class="bw-gust" style="top: 140px; left: -120px; width: 1200px; height: 4px; animation-delay: .06s" aria-hidden="true"></div>
+        <div class="bw-gust" style="top: 260px; left: -120px; width: 700px; height: 3px; animation-delay: .12s" aria-hidden="true"></div>
+      </sc-if>
+      <span style="font-size: 14px; color: var(--bw-accent)">09 · installing</span>
+      <span style="margin-top: 14px; font-size: 160px; font-weight: 700; letter-spacing: -0.05em; line-height: 1">{{pct}}<span style="color: var(--bw-accent)">%</span></span>
+      <span style="margin-top: 16px; font-size: 24px; font-weight: 600">{{now}}</span>
+      <sc-if value="{{installing}}" hint-placeholder-val="{{true}}">
+        <div style="margin-top: auto; font-size: 26px; letter-spacing: 0.04em; white-space: pre" aria-hidden="true"><span style="color: var(--bw-accent)">{{windDone}}</span><span style="color: var(--bw-edge)">{{windLeft}}</span></div>
+      </sc-if>
+      <sc-if value="{{finished}}" hint-placeholder-val="{{false}}">
+        <button onClick="{{next}}" class="bw-enter" style="margin-top: auto; align-self: flex-start; display: flex; flex-direction: column; gap: 8px; font-size: 40px; font-weight: 700; color: var(--bw-accent)"><span>continue <span class="bw-nudge">→</span></span><span class="bw-wake" style="height: 4px"></span></button>
+      </sc-if>
+    </section>
+  </sc-if>
+
+  <sc-if value="{{is.done}}" hint-placeholder-val="{{false}}">
+    <section class="{{slideClass}}" style="position: absolute; left: 120px; top: 140px; width: 1040px; height: 560px; display: flex; flex-direction: column">
+      <div class="bw-gust" style="top: 60px; left: -120px; width: 500px" aria-hidden="true"></div>
+      <span style="font-size: 14px; color: var(--bw-accent)">10 · done</span>
+      <p style="margin: 28px 0 0; font-size: 46px; font-weight: 700; letter-spacing: -0.03em">Restart, then remove the USB.</p>
+      <sc-if value="{{mok}}" hint-placeholder-val="{{false}}"><p style="margin: 28px 0 0; max-width: 640px; font-size: 17px; line-height: 1.6">Once, on the first restart, a blue screen asks about a key for your graphics driver. Choose <b style="color: var(--bw-accent)">Enroll MOK</b>, then type your passphrase.</p></sc-if>
+      <button onClick="{{restart}}" style="margin-top: auto; align-self: flex-start; display: flex; flex-direction: column; gap: 8px; font-size: 40px; font-weight: 700; color: var(--bw-accent)"><span>restart <span class="bw-nudge">→</span></span><span class="bw-wake" style="height: 4px"></span></button>
+    </section>
+  </sc-if>
+
+  <sc-if value="{{anyMenu}}" hint-placeholder-val="{{false}}">
+    <button onClick="{{closeMenus}}" aria-label="Close menu" tabIndex="-1" style="position: absolute; inset: 0; z-index: 9; cursor: default"></button>
+  </sc-if>
+
+  <footer style="position: absolute; left: 0; right: 0; bottom: 0; height: 68px; padding: 0 120px; z-index: 5; display: flex; justify-content: space-between; align-items: center; font-size: 14px; background: color-mix(in srgb, var(--bw-card) 70%, var(--bw-ground)); border-top: 1px solid var(--bw-edge)">
+    <span style="flex: 1; min-width: 0; margin-right: 32px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--bw-soft)">{{trail}}</span>
+    <div style="display: flex; gap: 32px; align-items: baseline">
+      <button onClick="{{toggleMotion}}">motion {{motionLabel}}</button>
+      <sc-if value="{{canBack}}" hint-placeholder-val="{{false}}"><button onClick="{{back}}">← back</button></sc-if>
+      <sc-if value="{{canNext}}" hint-placeholder-val="{{true}}"><button onClick="{{next}}" style="display: flex; flex-direction: column; gap: 5px; font-size: 20px; font-weight: 700; color: var(--bw-accent)"><span>continue <span class="bw-nudge">→</span></span><span class="bw-wake"></span></button></sc-if>
+    </div>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"start":{"editor":"enum","options":["network","locale","distro","desktop","packs","disk","you","review","install","done"],"default":"network"},"motion":{"editor":"boolean","default":true},"hw":{"editor":"enum","options":["tuf-f15","gtx1080","rtx5070","rx7800","thinkpad"],"default":"tuf-f15"},"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const steps = ['network', 'locale', 'distro', 'desktop', 'packs', 'disk', 'you', 'review', 'install', 'done'];
+    const start = Math.max(0, steps.indexOf(props.start || 'network'));
+    this.steps = steps;
+    this.state = {
+      i: start, leaving: false, motion: props.motion !== false,
+      lang: 'en_GB', region: 'GB', kbd: 'gb', tz: 'Europe/London', field: null, q: '', kbdTouched: false, tzTouched: false,
+      vals: {}, focus: null, greet: 0, found: steps[start] === 'network' ? 0 : 5, net: 'home',
+      base: 'arch', desktop: 'plasma', env: null, softwareStage:'profile', appStarter:null, appPacks:{}, appsOpen:false, sourcesOpen:false, rolesOpen:false, packagesOpen:false, addons: {}, view05: 'groups', sw: {}, sel: null, prefer: 'native', collapsed: {}, on: {}, disk: 'beside', samePass: true, noDesk: false,
+      progress: steps[start] === 'done' ? 100 : 0, frame: 0, hero: 0
+    };
+    this.gale = Array.from({ length: 12 }, (_, k) => ({
+      x: Math.random() * 1700, y: 96 + Math.random() * 640,
+      w: 60 + Math.random() * 220, k: 0.6 + Math.random() * 0.8, appear: k / 12 * 0.9
+    }));
+  }
+  componentDidMount() {
+    this.reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    this.timer = setInterval(() => {
+      const s = this.state;
+      if (this.steps[s.i] === 'install' && s.progress < 100) this.setState({ progress: s.progress + 1 });
+    }, 140);
+    this.scanner = setInterval(() => {
+      const s = this.state;
+      if (this.steps[s.i] === 'network' && s.found < 5) this.setState({ found: s.found + 1 });
+    }, 520);
+    this.clock = setInterval(() => {
+      if (this.steps[this.state.i] === 'locale') this.setState({ frame: this.state.frame + 1 });
+    }, 15000);
+    this.greeter = setInterval(() => {
+      const s = this.state;
+      if (this.steps[s.i] === 'network' && s.motion && !this.reduced) this.setState({ greet: s.greet + 1 });
+    }, 2600);
+    const tick = (t) => {
+      this.raf = requestAnimationFrame(tick);
+      const s = this.state;
+      const dt = Math.min(50, t - (this.last || t)) / 1000;
+      this.last = t;
+      if (this.steps[s.i] !== 'install' || !s.motion || this.reduced) return;
+      // Ease towards the target instead of jumping with each progress tick.
+      const ease = 1 - Math.exp(-dt * 2.2);
+      this.pgS = (this.pgS || 0) + (s.progress / 100 - (this.pgS || 0)) * ease;
+      const p = this.pgS;
+      const target = 70 + 700 * p * p * p;
+      this.spd = (this.spd || target) + (target - (this.spd || target)) * ease;
+      this.gale.forEach((g) => {
+        g.x -= this.spd * g.k * dt;
+        if (g.x < -g.w * 3) { g.x = 1280 + Math.random() * 300; g.y = 96 + Math.random() * 640; }
+      });
+      this.setState({ frame: s.frame + 1 });
+    };
+    this.raf = requestAnimationFrame(tick);
+  }
+  componentWillUnmount() { clearInterval(this.timer); clearInterval(this.scanner); clearInterval(this.greeter); clearInterval(this.clock); cancelAnimationFrame(this.raf); }
+  go(to) {
+    if (to > this.state.i && this.state.i <= 7 && to >= 5) {
+      const v = this.renderVals();
+      if (!v.softwareReady) return;
+    }
+    // "No desktop" on page 03 skips the desktop screen in both directions.
+    if (this.steps[to] === 'desktop' && this.state.noDesk) to += to > this.state.i ? 1 : -1;
+    if (to < 0 || to >= this.steps.length) return;
+    if (this.steps[to] === 'install') { this.pgS = 0; this.spd = undefined; }
+    const reset = Object.assign({ appQ:'', appsOpen:false, sourcesOpen:false, rolesOpen:false, packagesOpen:false }, this.steps[to] === 'install' ? { progress: 0 } : {});
+    if (!this.state.motion) { this.setState(Object.assign({ i: to }, reset)); return; }
+    this.setState({ leaving: true });
+    setTimeout(() => this.setState(Object.assign({ i: to, leaving: false }, reset)), 300);
+  }
+  renderVals() {
+    const s = this.state;
+    const step = this.steps[s.i];
+    const set = (patch) => () => this.setState(patch);
+    const and = (xs) => xs.length < 2 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1];
+    const name = (list, id) => (list.find(([k]) => k === id) || [id, id])[1];
+    const delay = (k) => (s.motion ? k * 70 : 0) + 'ms';
+    const card = (sel, extra) => 'bw-card' + (sel ? ' sel' : '') + (extra ? ' ' + extra : '');
+    const pipsFor = (n, lit) => Array.from({ length: 5 }, (_, k) => ({ c: k < n ? lit : 'var(--bw-edge)' }));
+
+    const netList = [['home', 'home-wifi', 4, true], ['bt', 'BT-Hub-7F2A', 3, true], ['cafe', 'cafe-guest', 3, false], ['vm', 'VM8812345', 2, true], ['edu', 'eduroam', 1, true]];
+    const LANGS = [['en_GB','English (United Kingdom)','english uk britain'],['en_US','English (United States)','english us america'],['en_AU','English (Australia)','english'],['en_IN','English (India)','english'],['de_DE','Deutsch','german'],['fr_FR','Français','french'],['es_ES','Español (España)','spanish'],['es_MX','Español (México)','spanish latin'],['pt_BR','Português (Brasil)','portuguese brazil'],['pt_PT','Português (Portugal)','portuguese'],['it_IT','Italiano','italian'],['nl_NL','Nederlands','dutch'],['pl_PL','Polski','polish'],['sv_SE','Svenska','swedish'],['nb_NO','Norsk bokmål','norwegian'],['da_DK','Dansk','danish'],['fi_FI','Suomi','finnish'],['is_IS','Íslenska','icelandic'],['cs_CZ','Čeština','czech'],['hu_HU','Magyar','hungarian'],['ro_RO','Română','romanian'],['el_GR','Ελληνικά','greek'],['tr_TR','Türkçe','turkish'],['ru_RU','Русский','russian'],['uk_UA','Українська','ukrainian'],['he_IL','עברית','hebrew'],['ar_EG','العربية','arabic'],['fa_IR','فارسی','persian farsi'],['hi_IN','हिन्दी','hindi'],['bn_BD','বাংলা','bengali'],['ta_IN','தமிழ்','tamil'],['th_TH','ไทย','thai'],['vi_VN','Tiếng Việt','vietnamese'],['id_ID','Bahasa Indonesia','indonesian'],['zh_CN','中文 (简体)','chinese simplified'],['zh_TW','中文 (繁體)','chinese traditional'],['ja_JP','日本語','japanese'],['ko_KR','한국어','korean'],['sw_KE','Kiswahili','swahili'],['cy_GB','Cymraeg','welsh'],['ga_IE','Gaeilge','irish'],['eu_ES','Euskara','basque'],['ca_ES','Català','catalan']];
+    const KBDS = [['gb','English (UK) · QWERTY'],['us','English (US) · QWERTY'],['us-intl','English (US, intl.) · dead keys'],['us-dvorak','English (US) · Dvorak'],['us-colemak','English (US) · Colemak'],['us-colemak-dh','English (US) · Colemak-DH'],['us-workman','English (US) · Workman'],['gb-extd','English (UK, extended) · QWERTY'],['de','German · QWERTZ'],['ch','Swiss German · QWERTZ'],['fr','French · AZERTY'],['be','Belgian · AZERTY'],['fr-bepo','French · BÉPO'],['es','Spanish · QWERTY'],['latam','Spanish (Latin America) · QWERTY'],['pt','Portuguese · QWERTY'],['br','Portuguese (Brazil) · ABNT2'],['it','Italian · QWERTY'],['se','Swedish · QWERTY'],['no','Norwegian · QWERTY'],['dk','Danish · QWERTY'],['fi','Finnish · QWERTY'],['is','Icelandic · QWERTY'],['pl','Polish · programmer'],['cz','Czech · QWERTZ'],['hu','Hungarian · QWERTZ'],['ro','Romanian · QWERTY'],['ru','Russian · ЙЦУКЕН'],['ua','Ukrainian · ЙЦУКЕН'],['gr','Greek'],['il','Hebrew'],['ara','Arabic'],['ir','Persian'],['tr-q','Turkish · Q'],['tr-f','Turkish · F'],['in','Hindi · InScript'],['in-tam','Tamil · InScript'],['bd','Bengali · Probhat'],['th','Thai · Kedmanee'],['vn','Vietnamese · Telex input'],['jp','Japanese · JIS, with input method'],['kr','Korean · 2-set, with input method'],['cn','Chinese · Pinyin input method'],['tw','Chinese · Zhuyin input method']];
+    const LANG_KBD = { en_GB: 'gb', en_US: 'us', en_AU: 'us', en_IN: 'us', de_DE: 'de', fr_FR: 'fr', es_ES: 'es', es_MX: 'latam', pt_BR: 'br', pt_PT: 'pt', it_IT: 'it', nl_NL: 'us-intl', pl_PL: 'pl', sv_SE: 'se', nb_NO: 'no', da_DK: 'dk', fi_FI: 'fi', is_IS: 'is', cs_CZ: 'cz', hu_HU: 'hu', ro_RO: 'ro', el_GR: 'gr', tr_TR: 'tr-q', ru_RU: 'ru', uk_UA: 'ua', he_IL: 'il', ar_EG: 'ara', fa_IR: 'ir', hi_IN: 'in', bn_BD: 'bd', ta_IN: 'in-tam', th_TH: 'th', vi_VN: 'vn', id_ID: 'us', zh_CN: 'cn', zh_TW: 'tw', ja_JP: 'jp', ko_KR: 'kr', sw_KE: 'us', cy_GB: 'gb', ga_IE: 'gb', eu_ES: 'es', ca_ES: 'es' };
+    const LANG_TZ = { en_GB: 'Europe/London', en_US: 'America/New_York', en_AU: 'Australia/Sydney', en_IN: 'Asia/Kolkata', de_DE: 'Europe/Berlin', fr_FR: 'Europe/Paris', es_ES: 'Europe/Madrid', es_MX: 'America/Mexico_City', pt_BR: 'America/Sao_Paulo', pt_PT: 'Europe/Lisbon', it_IT: 'Europe/Rome', nl_NL: 'Europe/Amsterdam', pl_PL: 'Europe/Warsaw', sv_SE: 'Europe/Stockholm', nb_NO: 'Europe/Oslo', da_DK: 'Europe/Copenhagen', fi_FI: 'Europe/Helsinki', is_IS: 'Atlantic/Reykjavik', cs_CZ: 'Europe/Prague', hu_HU: 'Europe/Budapest', ro_RO: 'Europe/Bucharest', el_GR: 'Europe/Athens', tr_TR: 'Europe/Istanbul', ru_RU: 'Europe/Moscow', uk_UA: 'Europe/Kyiv', he_IL: 'Asia/Jerusalem', ar_EG: 'Africa/Cairo', fa_IR: 'Asia/Tehran', hi_IN: 'Asia/Kolkata', bn_BD: 'Asia/Dhaka', ta_IN: 'Asia/Kolkata', th_TH: 'Asia/Bangkok', vi_VN: 'Asia/Ho_Chi_Minh', id_ID: 'Asia/Jakarta', zh_CN: 'Asia/Shanghai', zh_TW: 'Asia/Taipei', ja_JP: 'Asia/Tokyo', ko_KR: 'Asia/Seoul', sw_KE: 'Africa/Nairobi', cy_GB: 'Europe/London', ga_IE: 'Europe/Dublin', eu_ES: 'Europe/Madrid', ca_ES: 'Europe/Madrid' };
+    const TZS = Array.from(new Set(Object.values(LANG_TZ).concat(['UTC', 'America/Chicago', 'America/Denver', 'America/Los_Angeles']))).sort()
+      .map((id) => [id, id.replace(/_/g, ' '), '']);
+
+    // Official logo files go here unaltered (from each project's brand page). Empty = labelled placeholder.
+    // Each distro's name in its own brand type: the real face first (ships on the ISO where licensed), closest free match second.
+    //   Arch Linux: wordmark is Karat (commercial)                  -> Nunito Sans stand-in
+    //   Fedora:     brand guide recommends Comfortaa for headlines  -> exact
+    //   Debian:     logo text appears to be Poppl-Laudatio (commercial) -> Belleza stand-in
+    //   openSUSE:   brand font is Fifth Leg                        -> Source Sans 3 stand-in
+    // Hero themes: natural darks built around each distro's own colour. Borea's Taiga Dusk before a distro is picked.
+    const THEMES = {
+      borea:    { ground: '#1C1C1E', card: '#262628', pop: '#212123', rule: '#363638', edge: '#444447', edgeHi: '#7A7A7E', soft: '#ADADB1', accent: '#F2F2F3', text: '#DCDCDE', frost: '#E6E6E8', glow: 'rgba(255,255,255,.12)' },   // neutral greys until a distro brings its colour
+      arch:     { ground: '#121C25', card: '#1A2835', pop: '#16222E', rule: '#2A3C4C', edge: '#34495C', edgeHi: '#6E8AA3', soft: '#B4C6D6', accent: '#38A8E2', text: '#E7EEF4', frost: '#D6E8F5', glow: 'rgba(23,147,209,.26)' },
+      fedora:   { ground: '#151A2E', card: '#1D2440', pop: '#191F38', rule: '#2C3557', edge: '#364068', edgeHi: '#7381AE', soft: '#BCC4E0', accent: '#51A2DA', text: '#ECEFF7', frost: '#D9E4F5', glow: 'rgba(81,162,218,.26)' },
+      debian:   { ground: '#22141A', card: '#2E1B23', pop: '#28171E', rule: '#43262F', edge: '#553039', edgeHi: '#A0737E', soft: '#D9BFC6', accent: '#F0567A', text: '#F3E9EC', frost: '#F2DCE2', glow: 'rgba(215,10,83,.3)' },
+      opensuse: { ground: '#142114', card: '#1B2D1C', pop: '#172718', rule: '#284229', edge: '#315234', edgeHi: '#6F9A70', soft: '#BCD4B8', accent: '#73BA25', text: '#ECF3E6', frost: '#DDEFD5', glow: 'rgba(115,186,37,.26)' }
+    };
+    const tk = THEMES[s.i >= this.steps.indexOf('distro') ? s.base : 'borea'] || THEMES.borea;
+    const themeVars = '--bw-ground: ' + tk.ground + '; --bw-card: ' + tk.card + '; --bw-pop: ' + tk.pop + '; --bw-rule: ' + tk.rule +
+      '; --bw-edge: ' + tk.edge + '; --bw-edge-hi: ' + tk.edgeHi + '; --bw-soft: ' + tk.soft + '; --bw-accent: ' + tk.accent +
+      '; --bw-text: ' + tk.text + '; --bw-frost: ' + tk.frost + '; --bw-glow: ' + tk.glow + ';';
+    const TITLE_TYPE = {
+      arch: ["'Karat', 'Nunito Sans', sans-serif", '26px', '700', '-0.01em'],
+      fedora: ["'Comfortaa', sans-serif", '25px', '700', '0'],
+      debian: ["'Poppl-Laudatio', 'Belleza', sans-serif", '28px', '400', '0.01em'],
+      opensuse: ["'Fifth Leg', 'Source Sans 3', sans-serif", '27px', '600', '0']
+    };
+    const LOGOS = {"arch": "logos/arch-mark.png", "fedora": "logos/fedora-mark.png", "debian": "logos/debian-openlogo.svg", "opensuse": "logos/opensuse-geeko.svg"};
+    // Desktop cards keep the hexagon letter; distro cards show the logo plate.
+    const bases = [
+      ['arch', 'Arch Linux', '', [5, 2, 2]], ['debian', 'Debian', '', [2, 5, 3]],
+      ['fedora', 'Fedora', '', [4, 4, 4]], ['opensuse', 'openSUSE', '', [4, 4, 3]]
+    ];
+    const desks = [
+      ['plasma', 'KDE Plasma', 'K', [3, 5, 4]], ['gnome', 'GNOME', 'G', [2, 2, 5]],
+      ['cosmic', 'COSMIC', 'C', [3, 3, 3]], ['budgie', 'Budgie', 'B', [4, 3, 4]]
+    ];
+    // Software catalogue exported from the borea-catalog crate (cargo run --example export_json).
+    const CATALOG = {"repos":[{"id":"arch.core-extra","distro":"arch","label":"core & extra","trust":"official","base":true,"defaultOn":true,"onDemand":false,"note":"the Arch repositories"},{"id":"arch.multilib","distro":"arch","label":"multilib","trust":"official","base":false,"defaultOn":true,"onDemand":false,"note":"32-bit libraries for Steam and Wine"},{"id":"debian.main","distro":"debian","label":"main","trust":"official","base":true,"defaultOn":true,"onDemand":false,"note":"the Debian archive"},{"id":"debian.contrib","distro":"debian","label":"contrib","trust":"official","base":false,"defaultOn":true,"onDemand":false,"note":"free software with non-free parts"},{"id":"debian.non-free","distro":"debian","label":"non-free","trust":"official","base":false,"defaultOn":true,"onDemand":false,"note":"NVIDIA drivers and Steam"},{"id":"debian.non-free-firmware","distro":"debian","label":"non-free-firmware","trust":"official","base":false,"defaultOn":true,"onDemand":false,"note":"firmware for Wi-Fi, graphics and CPUs"},{"id":"fedora.fedora","distro":"fedora","label":"Fedora","trust":"official","base":true,"defaultOn":true,"onDemand":false,"note":"the Fedora repositories"},{"id":"fedora.rpmfusion-free","distro":"fedora","label":"RPM Fusion free","trust":"community","base":false,"defaultOn":true,"onDemand":false,"note":"codecs and extra tools"},{"id":"fedora.rpmfusion-nonfree","distro":"fedora","label":"RPM Fusion nonfree","trust":"community","base":false,"defaultOn":false,"onDemand":false,"note":"Steam, Discord, NVIDIA drivers"},{"id":"opensuse.oss","distro":"opensuse","label":"OSS","trust":"official","base":true,"defaultOn":true,"onDemand":false,"note":"the openSUSE repositories"},{"id":"opensuse.non-oss","distro":"opensuse","label":"Non-OSS","trust":"official","base":false,"defaultOn":true,"onDemand":false,"note":"closed apps like Steam and Discord"},{"id":"opensuse.packman","distro":"opensuse","label":"Packman","trust":"community","base":false,"defaultOn":true,"onDemand":false,"note":"full multimedia codecs"},{"id":"opensuse.nvidia","distro":"opensuse","label":"NVIDIA","trust":"community","base":false,"defaultOn":false,"onDemand":true,"note":"NVIDIA driver, set up the openSUSE way"}],"categories":["Browsers","Chat & email","Office","Audio & video","Graphics","Games","Development","Utilities"],"apps":[{"id":"firefox","name":"Firefox","what":"web browser","cat":"Browsers","mb":280,"native":[{"distro":"arch","pkg":"firefox","repo":"arch.core-extra"},{"distro":"debian","pkg":"firefox-esr","repo":"debian.main"},{"distro":"fedora","pkg":"firefox","repo":"fedora.fedora"},{"distro":"opensuse","pkg":"MozillaFirefox","repo":"opensuse.oss"}],"aur":null,"flatpak":"org.mozilla.firefox","appimage":null,"listed":true},{"id":"chromium","name":"Chromium","what":"web browser","cat":"Browsers","mb":350,"native":[{"distro":"arch","pkg":"chromium","repo":"arch.core-extra"},{"distro":"debian","pkg":"chromium","repo":"debian.main"},{"distro":"fedora","pkg":"chromium","repo":"fedora.fedora"},{"distro":"opensuse","pkg":"chromium","repo":"opensuse.oss"}],"aur":null,"flatpak":"org.chromium.Chromium","appimage":null,"listed":true},{"id":"brave","name":"Brave","what":"private browser","cat":"Browsers","mb":400,"native":[],"aur":"brave-bin","flatpak":"com.brave.Browser","appimage":null,"listed":false},{"id":"tor","name":"Tor Browser","what":"anonymous browsing","cat":"Browsers","mb":300,"native":[{"distro":"arch","pkg":"torbrowser-launcher","repo":"arch.core-extra"},{"distro":"debian","pkg":"torbrowser-launcher","repo":"debian.contrib"},{"distro":"fedora","pkg":"torbrowser-launcher","repo":"fedora.fedora"},{"distro":"opensuse","pkg":"torbrowser-launcher","repo":"opensuse.oss"}],"aur":null,"flatpak":"org.torproject.torbrowser-launcher","appimage":null,"listed":false},{"id":"helium","name":"Helium","what":"light, private Chromium","cat":"Browsers","mb":320,"native":[],"aur":"helium-browser-bin","flatpak":null,"appimage":"imputnet/helium-linux","listed":true},{"id":"mullvad","name":"Mullvad Browser","what":"anti-fingerprinting","cat":"Browsers","mb":300,"native":[],"aur":"mullvad-browser-bin","flatpak":"net.mullvad.MullvadBrowser","appimage":null,"listed":true},{"id":"thunderbird","name":"Thunderbird","what":"email","cat":"Chat & email","mb":280,"native":[{"distro":"arch","pkg":"thunderbird","repo":"arch.core-extra"},{"distro":"debian","pkg":"thunderbird","repo":"debian.main"},{"distro":"fedora","pkg":"thunderbird","repo":"fedora.fedora"},{"distro":"opensuse","pkg":"MozillaThunderbird","repo":"opensuse.oss"}],"aur":null,"flatpak":"org.mozilla.Thunderbird","appimage":null,"listed":true},{"id":"discord","name":"Discord","what":"chat and voice","cat":"Chat & email","mb":300,"native":[{"distro":"arch","pkg":"discord","repo":"arch.core-extra"},{"distro":"fedora","pkg":"discord","repo":"fedora.rpmfusion-nonfree"},{"distro":"opensuse","pkg":"discord","repo":"opensuse.non-oss"}],"aur":null,"flatpak":"com.discordapp.Discord","appimage":null,"listed":true},{"id":"signal","name":"Signal","what":"private messaging","cat":"Chat & email","mb":300,"native":[{"distro":"arch","pkg":"signal-desktop","repo":"arch.core-extra"}],"aur":null,"flatpak":"org.signal.Signal","appimage":null,"listed":true},{"id":"telegram","name":"Telegram","what":"messaging","cat":"Chat & email","mb":150,"native":[{"distro":"arch","pkg":"telegram-desktop","repo":"arch.core-extra"},{"distro":"debian","pkg":"telegram-desktop","repo":"debian.main"},{"distro":"fedora","pkg":"telegram-desktop","repo":"fedora.rpmfusion-free"},{"distro":"opensuse","pkg":"telegram-desktop","repo":"opensuse.oss"}],"aur":null,"flatpak":"org.telegram.desktop","appimage":null,"listed":true},{"id":"element","name":"Element","what":"Matrix chat","cat":"Chat & email","mb":250,"native":[{"distro":"arch","pkg":"element-desktop","repo":"arch.core-extra"}],"aur":null,"flatpak":"im.riot.Riot","appimage":null,"listed":true},{"id":"libreoffice","name":"LibreOffice","what":"office suite","cat":"Office","mb":650,"native":[{"distro":"arch","pkg":"libreoffice-fresh","repo":"arch.core-extra"},{"distro":"debian","pkg":"libreoffice","repo":"debian.main"},{"distro":"fedora","pkg":"libreoffice","repo":"fedora.fedora"},{"distro":"opensuse","pkg":"libreoffice","repo":"opensuse.oss"}],"aur":null,"flatpak":"org.libreoffice.LibreOffice","appimage":null,"listed":true},{"id":"okular","name":"Okular","what":"PDF reader","cat":"Office","mb":60,"native":[{"distro":"arch","pkg":"okular","repo":"arch.core-extra"},{"distro":"debian","pkg":"okular","repo":"debian.main"},{"distro":"fedora","pkg":"okular","repo":"fedora.fedora"},{"distro":"opensuse","pkg":"okular","repo":"opensuse.oss"}],"aur":null,"flatpak":"org.kde.okular","appimage":null,"listed":true},{"id":"obsidian","name":"Obsidian","what":"notes","cat":"Office","mb":300,"native":[{"distro":"arch","pkg":"obsidian","repo":"arch.core-extra"}],"aur":null,"flatpak":"md.obsidian.Obsidian","appimage":null,"listed":true},{"id":"onlyoffice","name":"ONLYOFFICE","what":"office suite","cat":"Office","mb":700,"native":[],"aur":"onlyoffice-bin","flatpak":"org.onlyoffice.desktopeditors","appimage":null,"listed":true},{"id":"vlc","name":"VLC","what":"video player","cat":"Audio & video","mb":90,"native":[{"distro":"arch","pkg":"vlc","repo":"arch.core-extra"},{"distro":"debian","pkg":"vlc","repo":"debian.main"},{"distro":"fedora","pkg":"vlc","repo":"fedora.fedora"},{"distro":"opensuse","pkg":"vlc","repo":"opensuse.oss"}],"aur":null,"flatpak":"org.videolan.VLC","appimage":null,"listed":true},{"id":"mpv","name":"mpv","what":"minimal player","cat":"Audio & video","mb":40,"native":[{"distro":"arch","pkg":"mpv","repo":"arch.core-extra"},{"distro":"debian","pkg":"mpv","repo":"debian.main"},{"distro":"fedora","pkg":"mpv","repo":"fedora.fedora"},{"distro":"opensuse","pkg":"mpv","repo":"opensuse.oss"}],"aur":null,"flatpak":"io.mpv.Mpv","appimage":null,"listed":true},{"id":"spotify","name":"Spotify","what":"music streaming","cat":"Audio & video","mb":300,"native":[{"distro":"arch","pkg":"spotify-launcher","repo":"arch.core-extra"}],"aur":null,"flatpak":"com.spotify.Client","appimage":null,"listed":true},{"id":"audacity","name":"Audacity","what":"audio editing","cat":"Audio & video","mb":90,"native":[{"distro":"arch","pkg":"audacity","repo":"arch.core-extra"},{"distro":"debian","pkg":"audacity","repo":"debian.main"},{"distro":"fedora","pkg":"audacity","repo":"fedora.fedora"},{"distro":"opensuse","pkg":"audacity","repo":"opensuse.oss"}],"aur":null,"flatpak":"org.audacityteam.Audacity","appimage":null,"listed":true},{"id":"codecs","name":"Media codecs","what":"plays every format","cat":"Audio & video","mb":40,"native":[{"distro":"arch","pkg":"gst-plugins-ugly","repo":"arch.core-extra"},{"distro":"debian","pkg":"gstreamer1.0-plugins-ugly","repo":"debian.main"},{"distro":"fedora","pkg":"gstreamer1-plugins-ugly","repo":"fedora.rpmfusion-free"},{"distro":"opensuse","pkg":"gstreamer-plugins-ugly","repo":"opensuse.packman"}],"aur":null,"flatpak":null,"appimage":null,"listed":true},{"id":"gimp","name":"GIMP","what":"photo editing","cat":"Graphics","mb":350,"native":[{"distro":"arch","pkg":"gimp","repo":"arch.core-extra"},{"distro":"debian","pkg":"gimp","repo":"debian.main"},{"distro":"fedora","pkg":"gimp","repo":"fedora.fedora"},{"distro":"opensuse","pkg":"gimp","repo":"opensuse.oss"}],"aur":null,"flatpak":"org.gimp.GIMP","appimage":null,"listed":true},{"id":"krita","name":"Krita","what":"digital painting","cat":"Graphics","mb":420,"native":[{"distro":"arch","pkg":"krita","repo":"arch.core-extra"},{"distro":"debian","pkg":"krita","repo":"debian.main"},{"distro":"fedora","pkg":"krita","repo":"fedora.fedora"},{"distro":"opensuse","pkg":"krita","repo":"opensuse.oss"}],"aur":null,"flatpak":"org.kde.krita","appimage":null,"listed":true},{"id":"inkscape","name":"Inkscape","what":"vector art","cat":"Graphics","mb":230,"native":[{"distro":"arch","pkg":"inkscape","repo":"arch.core-extra"},{"distro":"debian","pkg":"inkscape","repo":"debian.main"},{"distro":"fedora","pkg":"inkscape","repo":"fedora.fedora"},{"distro":"opensuse","pkg":"inkscape","repo":"opensuse.oss"}],"aur":null,"flatpak":"org.inkscape.Inkscape","appimage":null,"listed":true},{"id":"blender","name":"Blender","what":"3D","cat":"Graphics","mb":900,"native":[{"distro":"arch","pkg":"blender","repo":"arch.core-extra"},{"distro":"debian","pkg":"blender","repo":"debian.main"},{"distro":"fedora","pkg":"blender","repo":"fedora.fedora"},{"distro":"opensuse","pkg":"blender","repo":"opensuse.oss"}],"aur":null,"flatpak":"org.blender.Blender","appimage":null,"listed":true},{"id":"kdenlive","name":"Kdenlive","what":"video editing","cat":"Audio & video","mb":250,"native":[{"distro":"arch","pkg":"kdenlive","repo":"arch.core-extra"},{"distro":"debian","pkg":"kdenlive","repo":"debian.main"},{"distro":"fedora","pkg":"kdenlive","repo":"fedora.fedora"},{"distro":"opensuse","pkg":"kdenlive","repo":"opensuse.oss"}],"aur":null,"flatpak":"org.kde.kdenlive","appimage":null,"listed":true},{"id":"obs","name":"OBS Studio","what":"record and stream","cat":"Audio & video","mb":220,"native":[{"distro":"arch","pkg":"obs-studio","repo":"arch.core-extra"},{"distro":"debian","pkg":"obs-studio","repo":"debian.main"},{"distro":"fedora","pkg":"obs-studio","repo":"fedora.fedora"},{"distro":"opensuse","pkg":"obs-studio","repo":"opensuse.packman"}],"aur":null,"flatpak":"com.obsproject.Studio","appimage":null,"listed":true},{"id":"steam","name":"Steam","what":"game store","cat":"Games","mb":900,"native":[{"distro":"arch","pkg":"steam","repo":"arch.multilib"},{"distro":"debian","pkg":"steam-installer","repo":"debian.non-free"},{"distro":"fedora","pkg":"steam","repo":"fedora.rpmfusion-nonfree"},{"distro":"opensuse","pkg":"steam","repo":"opensuse.non-oss"}],"aur":null,"flatpak":"com.valvesoftware.Steam","appimage":null,"listed":true},{"id":"lutris","name":"Lutris","what":"game launcher","cat":"Games","mb":60,"native":[{"distro":"arch","pkg":"lutris","repo":"arch.core-extra"},{"distro":"debian","pkg":"lutris","repo":"debian.main"},{"distro":"fedora","pkg":"lutris","repo":"fedora.fedora"},{"distro":"opensuse","pkg":"lutris","repo":"opensuse.oss"}],"aur":null,"flatpak":"net.lutris.Lutris","appimage":null,"listed":true},{"id":"heroic","name":"Heroic","what":"Epic and GOG","cat":"Games","mb":300,"native":[],"aur":"heroic-games-launcher-bin","flatpak":"com.heroicgameslauncher.hgl","appimage":null,"listed":true},{"id":"prism","name":"Prism Launcher","what":"Minecraft","cat":"Games","mb":120,"native":[{"distro":"arch","pkg":"prismlauncher","repo":"arch.core-extra"}],"aur":null,"flatpak":"org.prismlauncher.PrismLauncher","appimage":null,"listed":true},{"id":"vscodium","name":"VSCodium","what":"code editor","cat":"Development","mb":380,"native":[],"aur":"vscodium-bin","flatpak":"com.vscodium.codium","appimage":null,"listed":true},{"id":"neovim","name":"Neovim","what":"terminal editor","cat":"Development","mb":30,"native":[{"distro":"arch","pkg":"neovim","repo":"arch.core-extra"},{"distro":"debian","pkg":"neovim","repo":"debian.main"},{"distro":"fedora","pkg":"neovim","repo":"fedora.fedora"},{"distro":"opensuse","pkg":"neovim","repo":"opensuse.oss"}],"aur":null,"flatpak":null,"appimage":null,"listed":true},{"id":"keepassxc","name":"KeePassXC","what":"password manager","cat":"Utilities","mb":40,"native":[{"distro":"arch","pkg":"keepassxc","repo":"arch.core-extra"},{"distro":"debian","pkg":"keepassxc","repo":"debian.main"},{"distro":"fedora","pkg":"keepassxc","repo":"fedora.fedora"},{"distro":"opensuse","pkg":"keepassxc","repo":"opensuse.oss"}],"aur":null,"flatpak":"org.keepassxc.KeePassXC","appimage":null,"listed":true},{"id":"syncthing","name":"Syncthing","what":"file sync","cat":"Utilities","mb":60,"native":[{"distro":"arch","pkg":"syncthing","repo":"arch.core-extra"},{"distro":"debian","pkg":"syncthing","repo":"debian.main"},{"distro":"fedora","pkg":"syncthing","repo":"fedora.fedora"},{"distro":"opensuse","pkg":"syncthing","repo":"opensuse.oss"}],"aur":null,"flatpak":null,"appimage":null,"listed":true},{"id":"qbittorrent","name":"qBittorrent","what":"torrents","cat":"Utilities","mb":40,"native":[{"distro":"arch","pkg":"qbittorrent","repo":"arch.core-extra"},{"distro":"debian","pkg":"qbittorrent","repo":"debian.main"},{"distro":"fedora","pkg":"qbittorrent","repo":"fedora.fedora"},{"distro":"opensuse","pkg":"qbittorrent","repo":"opensuse.oss"}],"aur":null,"flatpak":"org.qbittorrent.qBittorrent","appimage":null,"listed":true},{"id":"timeshift","name":"Timeshift","what":"system snapshots","cat":"Utilities","mb":20,"native":[{"distro":"arch","pkg":"timeshift","repo":"arch.core-extra"},{"distro":"debian","pkg":"timeshift","repo":"debian.main"},{"distro":"fedora","pkg":"timeshift","repo":"fedora.fedora"}],"aur":null,"flatpak":null,"appimage":null,"listed":true},{"id":"localsend","name":"LocalSend","what":"send files to nearby devices","cat":"Utilities","mb":60,"native":[],"aur":"localsend-bin","flatpak":"org.localsend.localsend_app","appimage":"localsend/localsend","listed":true},{"id":"flatseal","name":"Flatseal","what":"Flatpak permissions","cat":"Utilities","mb":10,"native":[],"aur":null,"flatpak":"com.github.tchx84.Flatseal","appimage":null,"listed":true}],"presets":[{"name":"Essentials","apps":["firefox","thunderbird","libreoffice","okular","vlc","codecs","keepassxc"],"addons":[]},{"name":"Gaming","apps":["steam","lutris","heroic","prism","discord"],"addons":["gaming"]},{"name":"Creator","apps":["gimp","krita","inkscape","kdenlive","obs","audacity"],"addons":[]},{"name":"Developer","apps":["vscodium","neovim"],"addons":["dev","containers"]}],"groups":[{"id":"minimal","name":"Minimal install","what":"just enough to boot, log in and get online","kind":"env","section":"","desktop":false,"allowsApps":false,"items":["base","kernel","firmware","networkmanager","sudo","nano"],"guiItems":[],"optional":["openssh"],"apps":[]},{"id":"server","name":"Server","what":"headless, managed over SSH or the web","kind":"env","section":"","desktop":false,"allowsApps":false,"items":["base","kernel","firmware","networkmanager","sudo","nano","openssh","cockpit","firewalld","chrony","fail2ban","rsync","tmux"],"guiItems":[],"optional":[],"apps":[]},{"id":"server-gui","name":"Server with GUI","what":"a full server, plus your desktop to manage it","kind":"env","section":"","desktop":true,"allowsApps":true,"items":["base","kernel","firmware","networkmanager","sudo","nano","openssh","cockpit","firewalld","chrony","fail2ban","rsync","tmux","pipewire"],"guiItems":[],"optional":[],"apps":[]},{"id":"workstation","name":"Workstation","what":"a desktop for everyday use: sound, printing, Bluetooth","kind":"env","section":"","desktop":true,"allowsApps":true,"items":["base","kernel","firmware","networkmanager","sudo","nano","pipewire","cups","bluez","firewalld"],"guiItems":[],"optional":["openssh"],"apps":[]},{"id":"web","name":"Web Server","what":"nginx with TLS certificates","kind":"addon","section":"Server roles","desktop":false,"allowsApps":true,"items":["nginx","certbot"],"guiItems":[],"optional":[],"apps":[]},{"id":"database","name":"Database Server","what":"PostgreSQL, or MariaDB","kind":"addon","section":"Server roles","desktop":false,"allowsApps":true,"items":["postgresql"],"guiItems":[],"optional":["mariadb"],"apps":[]},{"id":"files","name":"File Sharing","what":"share folders and send files across your network","kind":"addon","section":"Server roles","desktop":false,"allowsApps":true,"items":["samba"],"guiItems":[],"optional":["nfs-server"],"apps":["localsend"]},{"id":"virt","name":"Virtualization Host","what":"run virtual machines with KVM","kind":"addon","section":"Virtualization","desktop":false,"allowsApps":true,"items":["qemu","libvirt","ovmf","dnsmasq"],"guiItems":["virt-manager"],"optional":["cockpit-machines"],"apps":[]},{"id":"containers","name":"Container Management","what":"build and run containers","kind":"addon","section":"Virtualization","desktop":false,"allowsApps":true,"items":["podman","buildah","skopeo","distrobox"],"guiItems":[],"optional":["cockpit-podman"],"apps":[]},{"id":"dev","name":"Development Tools","what":"compilers, git and debuggers","kind":"addon","section":"Tools","desktop":false,"allowsApps":true,"items":["build","make","git","gdb","cmake","python"],"guiItems":[],"optional":["rustup"],"apps":[]},{"id":"monitor","name":"Monitoring","what":"system load, disks and temperatures","kind":"addon","section":"Tools","desktop":false,"allowsApps":true,"items":["btop","smartmontools","lm-sensors","iotop"],"guiItems":[],"optional":[],"apps":[]},{"id":"network","name":"Network Tools","what":"scan, trace and measure networks","kind":"addon","section":"Tools","desktop":false,"allowsApps":true,"items":["nmap","tcpdump","mtr","iperf3"],"guiItems":[],"optional":["tshark"],"apps":[]},{"id":"gaming","name":"Gaming Tweaks","what":"performance mode and an FPS overlay","kind":"addon","section":"Tools","desktop":false,"allowsApps":true,"items":["gamemode","mangohud"],"guiItems":[],"optional":[],"apps":[]}],"pkgs":{"base":["base","systemd-sysv","systemd","systemd"],"kernel":["linux","linux-image-amd64","kernel","kernel-default"],"firmware":["linux-firmware","firmware-linux","linux-firmware","kernel-firmware-all"],"networkmanager":["networkmanager","network-manager","NetworkManager","NetworkManager"],"sudo":["sudo","sudo","sudo","sudo"],"nano":["nano","nano","nano","nano"],"openssh":["openssh","openssh-server","openssh-server","openssh-server"],"cockpit":["cockpit","cockpit","cockpit","cockpit"],"firewalld":["firewalld","firewalld","firewalld","firewalld"],"chrony":["chrony","chrony","chrony","chrony"],"fail2ban":["fail2ban","fail2ban","fail2ban","fail2ban"],"rsync":["rsync","rsync","rsync","rsync"],"tmux":["tmux","tmux","tmux","tmux"],"pipewire":["pipewire","pipewire-audio","pipewire","pipewire"],"cups":["cups","cups","cups","cups"],"bluez":["bluez","bluez","bluez","bluez"],"nginx":["nginx","nginx","nginx","nginx"],"certbot":["certbot","certbot","certbot","python3-certbot"],"postgresql":["postgresql","postgresql","postgresql-server","postgresql-server"],"mariadb":["mariadb","mariadb-server","mariadb-server","mariadb"],"samba":["samba","samba","samba","samba"],"nfs-server":["nfs-utils","nfs-kernel-server","nfs-utils","nfs-kernel-server"],"qemu":["qemu-desktop","qemu-system-x86","qemu-kvm","qemu-kvm"],"libvirt":["libvirt","libvirt-daemon-system","libvirt","libvirt"],"ovmf":["edk2-ovmf","ovmf","edk2-ovmf","qemu-ovmf-x86_64"],"dnsmasq":["dnsmasq","dnsmasq","dnsmasq","dnsmasq"],"virt-manager":["virt-manager","virt-manager","virt-manager","virt-manager"],"cockpit-machines":["cockpit-machines","cockpit-machines","cockpit-machines","cockpit-machines"],"podman":["podman","podman","podman","podman"],"buildah":["buildah","buildah","buildah","buildah"],"skopeo":["skopeo","skopeo","skopeo","skopeo"],"distrobox":["distrobox","distrobox","distrobox","distrobox"],"cockpit-podman":["cockpit-podman","cockpit-podman","cockpit-podman","cockpit-podman"],"build":["base-devel","build-essential","gcc","gcc"],"make":["make","make","make","make"],"git":["git","git","git","git"],"gdb":["gdb","gdb","gdb","gdb"],"cmake":["cmake","cmake","cmake","cmake"],"python":["python","python3","python3","python3"],"rustup":["rustup","rustup","rustup","rustup"],"btop":["btop","btop","btop","btop"],"smartmontools":["smartmontools","smartmontools","smartmontools","smartmontools"],"lm-sensors":["lm_sensors","lm-sensors","lm_sensors","sensors"],"iotop":["iotop","iotop","iotop","iotop"],"nmap":["nmap","nmap","nmap","nmap"],"tcpdump":["tcpdump","tcpdump","tcpdump","tcpdump"],"mtr":["mtr","mtr-tiny","mtr","mtr"],"iperf3":["iperf3","iperf3","iperf3","iperf3"],"tshark":["wireshark-cli","tshark","wireshark-cli","wireshark"],"gamemode":["gamemode","gamemode","gamemode","gamemode"],"mangohud":["mangohud","mangohud","mangohud","mangohud"]},"desktops":{"plasma":[["plasma-meta","sddm"],["task-kde-desktop","sddm"],["@kde-desktop-environment","sddm"],["patterns-kde-kde_plasma","sddm"]],"gnome":[["gnome","gdm"],["task-gnome-desktop","gdm3"],["@workstation-product-environment","gdm"],["patterns-gnome-gnome","gdm"]],"cosmic":[["cosmic","cosmic-greeter"],["cosmic-session","cosmic-greeter"],["@cosmic-desktop-environment","cosmic-greeter"],["patterns-cosmic-cosmic","cosmic-greeter"]],"budgie":[["budgie","lightdm"],["budgie-desktop","lightdm"],["@budgie-desktop-environment","lightdm"],["patterns-budgie-budgie","lightdm"]]},"drivers":{"tuf-f15":{"name":"ASUS TUF Gaming F15","laptop":true,"arch":{"found":[["ASUS TUF Gaming F15","laptop"],["GeForce RTX 3060 Laptop","NVIDIA driver (open modules)"],["Intel Iris Xe (Alder Lake)","Mesa"],["MUX switch","hybrid now · both modes set up, switch any time (restart)"],["also","Intel microcode · speakers & mics"]],"packages":[["arch.core-extra","nvidia-open"],["arch.core-extra","nvidia-utils"],["arch.core-extra","nvidia-settings"],["arch.multilib","lib32-nvidia-utils"],["arch.core-extra","vulkan-intel"],["arch.core-extra","intel-media-driver"],["arch.multilib","lib32-vulkan-intel"],["arch.core-extra","mesa"],["arch.multilib","lib32-mesa"],["arch.core-extra","switcheroo-control"],["arch.core-extra","nvidia-prime"],["arch.core-extra","power-profiles-daemon"],["arch.core-extra","intel-ucode"],["arch.core-extra","sof-firmware"]],"sources":["arch.core-extra","arch.multilib"],"services":["nvidia-suspend.service","nvidia-resume.service","nvidia-hibernate.service","nvidia-powerd.service","switcheroo-control.service"],"kernelArgs":[],"mok":false,"warning":"Secure Boot is on. Arch isn't signed for it: Borea sets up sbctl, which needs Secure Boot in Setup Mode (firmware settings)."},"debian":{"found":[["ASUS TUF Gaming F15","laptop"],["GeForce RTX 3060 Laptop","NVIDIA driver (open modules)"],["Intel Iris Xe (Alder Lake)","Mesa"],["MUX switch","hybrid now · both modes set up, switch any time (restart)"],["also","Intel microcode · speakers & mics"]],"packages":[["debian.main","linux-headers-amd64"],["debian.non-free","nvidia-driver"],["debian.non-free","nvidia-open-kernel-dkms"],["debian.non-free-firmware","firmware-misc-nonfree"],["debian.main","mesa-vulkan-drivers"],["debian.non-free","intel-media-va-driver-non-free"],["debian.non-free-firmware","firmware-intel-graphics"],["debian.main","switcheroo-control"],["debian.main","power-profiles-daemon"],["debian.non-free-firmware","intel-microcode"],["debian.non-free-firmware","firmware-sof-signed"]],"sources":["debian.main","debian.non-free","debian.non-free-firmware"],"services":["nvidia-suspend.service","nvidia-resume.service","nvidia-hibernate.service","nvidia-powerd.service","switcheroo-control.service"],"kernelArgs":["nvidia-drm.modeset=1"],"mok":true,"warning":null},"fedora":{"found":[["ASUS TUF Gaming F15","laptop"],["GeForce RTX 3060 Laptop","NVIDIA driver (open modules)"],["Intel Iris Xe (Alder Lake)","Mesa"],["MUX switch","hybrid now · both modes set up, switch any time (restart)"],["also","Intel microcode · speakers & mics"]],"packages":[["fedora.rpmfusion-nonfree","akmod-nvidia"],["fedora.rpmfusion-nonfree","xorg-x11-drv-nvidia-cuda"],["fedora.rpmfusion-nonfree","xorg-x11-drv-nvidia-power"],["fedora.fedora","mesa-vulkan-drivers"],["fedora.fedora","libva-intel-media-driver"],["fedora.fedora","mesa-dri-drivers"],["fedora.fedora","switcheroo-control"],["fedora.fedora","tuned-ppd"],["fedora.fedora","microcode_ctl"],["fedora.fedora","alsa-sof-firmware"]],"sources":["fedora.rpmfusion-nonfree","fedora.fedora"],"services":["nvidia-suspend.service","nvidia-resume.service","nvidia-hibernate.service","nvidia-powerd.service","switcheroo-control.service"],"kernelArgs":[],"mok":true,"warning":null},"opensuse":{"found":[["ASUS TUF Gaming F15","laptop"],["GeForce RTX 3060 Laptop","NVIDIA driver (open modules)"],["Intel Iris Xe (Alder Lake)","Mesa"],["MUX switch","hybrid now · both modes set up, switch any time (restart)"],["also","Intel microcode · speakers & mics"]],"packages":[["opensuse.oss","nvidia-open-driver-G07-signed-kmp-meta"],["opensuse.nvidia","nvidia-video-G07"],["opensuse.nvidia","nvidia-gl-G07"],["opensuse.nvidia","nvidia-compute-utils-G07"],["opensuse.oss","libvulkan_intel"],["opensuse.oss","intel-media-driver"],["opensuse.oss","Mesa-dri"],["opensuse.oss","switcheroo-control"],["opensuse.oss","power-profiles-daemon"],["opensuse.oss","ucode-intel"],["opensuse.oss","sof-firmware"]],"sources":["opensuse.oss","opensuse.nvidia"],"services":["nvidia-suspend.service","nvidia-resume.service","nvidia-hibernate.service","nvidia-powerd.service","switcheroo-control.service"],"kernelArgs":[],"mok":false,"warning":null}},"gtx1080":{"name":"MSI B450 TOMAHAWK MAX","laptop":false,"arch":{"found":[["MSI B450 TOMAHAWK MAX","desktop"],["GeForce GTX 1080","NVIDIA 580 legacy driver"],["also","AMD microcode"]],"packages":[["arch.core-extra","linux-headers"],["aur","nvidia-580xx-dkms"],["aur","nvidia-580xx-utils"],["aur","lib32-nvidia-580xx-utils"],["arch.core-extra","amd-ucode"]],"sources":["arch.core-extra","aur"],"services":[],"kernelArgs":[],"mok":false,"warning":null},"debian":{"found":[["MSI B450 TOMAHAWK MAX","desktop"],["GeForce GTX 1080","NVIDIA 550 driver"],["also","AMD microcode"]],"packages":[["debian.main","linux-headers-amd64"],["debian.non-free","nvidia-driver"],["debian.non-free","nvidia-kernel-dkms"],["debian.non-free-firmware","amd64-microcode"]],"sources":["debian.main","debian.non-free","debian.non-free-firmware"],"services":[],"kernelArgs":["nvidia-drm.modeset=1"],"mok":false,"warning":null},"fedora":{"found":[["MSI B450 TOMAHAWK MAX","desktop"],["GeForce GTX 1080","NVIDIA 580 legacy driver"],["also","AMD microcode"]],"packages":[["fedora.rpmfusion-nonfree","akmod-nvidia-580xx"],["fedora.rpmfusion-nonfree","xorg-x11-drv-nvidia-580xx"],["fedora.rpmfusion-nonfree","xorg-x11-drv-nvidia-580xx-cuda"],["fedora.fedora","amd-ucode-firmware"]],"sources":["fedora.rpmfusion-nonfree","fedora.fedora"],"services":[],"kernelArgs":[],"mok":false,"warning":null},"opensuse":{"found":[["MSI B450 TOMAHAWK MAX","desktop"],["GeForce GTX 1080","NVIDIA 580 legacy driver"],["also","AMD microcode"]],"packages":[["opensuse.nvidia","nvidia-driver-G06-kmp-meta"],["opensuse.nvidia","nvidia-video-G06"],["opensuse.nvidia","nvidia-gl-G06"],["opensuse.nvidia","nvidia-compute-utils-G06"],["opensuse.oss","ucode-amd"]],"sources":["opensuse.nvidia","opensuse.oss"],"services":[],"kernelArgs":[],"mok":false,"warning":null}},"rtx5070":{"name":"ASUS PRIME B760-PLUS","laptop":false,"arch":{"found":[["ASUS PRIME B760-PLUS","desktop"],["GeForce RTX 5070","NVIDIA driver (open modules)"],["also","Intel microcode"]],"packages":[["arch.core-extra","nvidia-open"],["arch.core-extra","nvidia-utils"],["arch.core-extra","nvidia-settings"],["arch.multilib","lib32-nvidia-utils"],["arch.core-extra","intel-ucode"]],"sources":["arch.core-extra","arch.multilib"],"services":[],"kernelArgs":[],"mok":false,"warning":"Secure Boot is on. Arch isn't signed for it: Borea sets up sbctl, which needs Secure Boot in Setup Mode (firmware settings)."},"debian":{"found":[["ASUS PRIME B760-PLUS","desktop"],["GeForce RTX 5070","open-source nouveau"],["also","Intel microcode"]],"packages":[["debian.main","mesa-vulkan-drivers"],["debian.non-free-firmware","firmware-misc-nonfree"],["debian.non-free-firmware","intel-microcode"]],"sources":["debian.main","debian.non-free-firmware"],"services":[],"kernelArgs":[],"mok":false,"warning":"Debian 13's NVIDIA driver is too old for the GeForce RTX 5070: it runs on nouveau, without full speed. Arch, Fedora and openSUSE support it fully."},"fedora":{"found":[["ASUS PRIME B760-PLUS","desktop"],["GeForce RTX 5070","NVIDIA driver (open modules)"],["also","Intel microcode"]],"packages":[["fedora.rpmfusion-nonfree","akmod-nvidia"],["fedora.rpmfusion-nonfree","xorg-x11-drv-nvidia-cuda"],["fedora.fedora","microcode_ctl"]],"sources":["fedora.rpmfusion-nonfree","fedora.fedora"],"services":[],"kernelArgs":[],"mok":true,"warning":null},"opensuse":{"found":[["ASUS PRIME B760-PLUS","desktop"],["GeForce RTX 5070","NVIDIA driver (open modules)"],["also","Intel microcode"]],"packages":[["opensuse.oss","nvidia-open-driver-G07-signed-kmp-meta"],["opensuse.nvidia","nvidia-video-G07"],["opensuse.nvidia","nvidia-gl-G07"],["opensuse.nvidia","nvidia-compute-utils-G07"],["opensuse.oss","ucode-intel"]],"sources":["opensuse.oss","opensuse.nvidia"],"services":[],"kernelArgs":[],"mok":false,"warning":null}},"rx7800":{"name":"Gigabyte B650 AORUS ELITE AX","laptop":false,"arch":{"found":[["Gigabyte B650 AORUS ELITE AX","desktop"],["Radeon RX 7800 XT","Mesa · amdgpu"],["also","AMD microcode"]],"packages":[["arch.core-extra","vulkan-radeon"],["arch.multilib","lib32-vulkan-radeon"],["arch.core-extra","mesa"],["arch.multilib","lib32-mesa"],["arch.core-extra","amd-ucode"]],"sources":["arch.core-extra","arch.multilib"],"services":[],"kernelArgs":[],"mok":false,"warning":null},"debian":{"found":[["Gigabyte B650 AORUS ELITE AX","desktop"],["Radeon RX 7800 XT","Mesa · amdgpu"],["also","AMD microcode"]],"packages":[["debian.main","mesa-vulkan-drivers"],["debian.main","mesa-va-drivers"],["debian.non-free-firmware","firmware-amd-graphics"],["debian.non-free-firmware","amd64-microcode"]],"sources":["debian.main","debian.non-free-firmware"],"services":[],"kernelArgs":[],"mok":false,"warning":null},"fedora":{"found":[["Gigabyte B650 AORUS ELITE AX","desktop"],["Radeon RX 7800 XT","Mesa · amdgpu"],["also","AMD microcode"]],"packages":[["fedora.fedora","mesa-vulkan-drivers"],["fedora.rpmfusion-free","mesa-va-drivers-freeworld"],["fedora.fedora","mesa-dri-drivers"],["fedora.fedora","amd-ucode-firmware"]],"sources":["fedora.fedora","fedora.rpmfusion-free"],"services":[],"kernelArgs":[],"mok":false,"warning":null},"opensuse":{"found":[["Gigabyte B650 AORUS ELITE AX","desktop"],["Radeon RX 7800 XT","Mesa · amdgpu"],["also","AMD microcode"]],"packages":[["opensuse.oss","libvulkan_radeon"],["opensuse.oss","Mesa-dri"],["opensuse.oss","ucode-amd"]],"sources":["opensuse.oss"],"services":[],"kernelArgs":[],"mok":false,"warning":null}},"thinkpad":{"name":"Lenovo ThinkPad X1 Carbon Gen 11","laptop":true,"arch":{"found":[["Lenovo ThinkPad X1 Carbon Gen 11","laptop"],["Intel Iris Xe (Raptor Lake)","Mesa"],["also","Intel microcode · speakers & mics · fingerprint reader"]],"packages":[["arch.core-extra","vulkan-intel"],["arch.core-extra","intel-media-driver"],["arch.multilib","lib32-vulkan-intel"],["arch.core-extra","mesa"],["arch.multilib","lib32-mesa"],["arch.core-extra","power-profiles-daemon"],["arch.core-extra","intel-ucode"],["arch.core-extra","sof-firmware"],["arch.core-extra","fprintd"]],"sources":["arch.core-extra","arch.multilib"],"services":[],"kernelArgs":[],"mok":false,"warning":"Secure Boot is on. Arch isn't signed for it: Borea sets up sbctl, which needs Secure Boot in Setup Mode (firmware settings)."},"debian":{"found":[["Lenovo ThinkPad X1 Carbon Gen 11","laptop"],["Intel Iris Xe (Raptor Lake)","Mesa"],["also","Intel microcode · speakers & mics · fingerprint reader"]],"packages":[["debian.main","mesa-vulkan-drivers"],["debian.non-free","intel-media-va-driver-non-free"],["debian.non-free-firmware","firmware-intel-graphics"],["debian.main","power-profiles-daemon"],["debian.non-free-firmware","intel-microcode"],["debian.non-free-firmware","firmware-sof-signed"],["debian.main","fprintd"],["debian.main","libpam-fprintd"]],"sources":["debian.main","debian.non-free","debian.non-free-firmware"],"services":[],"kernelArgs":[],"mok":false,"warning":null},"fedora":{"found":[["Lenovo ThinkPad X1 Carbon Gen 11","laptop"],["Intel Iris Xe (Raptor Lake)","Mesa"],["also","Intel microcode · speakers & mics · fingerprint reader"]],"packages":[["fedora.fedora","mesa-vulkan-drivers"],["fedora.fedora","libva-intel-media-driver"],["fedora.fedora","mesa-dri-drivers"],["fedora.fedora","tuned-ppd"],["fedora.fedora","microcode_ctl"],["fedora.fedora","alsa-sof-firmware"],["fedora.fedora","fprintd"],["fedora.fedora","fprintd-pam"]],"sources":["fedora.fedora"],"services":[],"kernelArgs":[],"mok":false,"warning":null},"opensuse":{"found":[["Lenovo ThinkPad X1 Carbon Gen 11","laptop"],["Intel Iris Xe (Raptor Lake)","Mesa"],["also","Intel microcode · speakers & mics · fingerprint reader"]],"packages":[["opensuse.oss","libvulkan_intel"],["opensuse.oss","intel-media-driver"],["opensuse.oss","Mesa-dri"],["opensuse.oss","power-profiles-daemon"],["opensuse.oss","ucode-intel"],["opensuse.oss","sof-firmware"],["opensuse.oss","fprintd"],["opensuse.oss","fprintd-pam"]],"sources":["opensuse.oss"],"services":[],"kernelArgs":[],"mok":false,"warning":null}}},"required":["base","kernel","firmware","networkmanager","sudo"],"sections":["Server roles","Virtualization","Tools"],"firewall":{"openssh":["ssh"],"cockpit":["cockpit"],"nginx":["http","https"],"samba":["samba"],"nfs-server":["nfs"],"localsend":["53317/tcp","53317/udp"]}};
+    const mbLabel = (mb) => mb < 1024 ? mb + ' MB' : (mb / 1024).toFixed(1) + ' GB';
+    const gb = mbLabel;
+    const baseName = name(bases, s.base), deskName = name(desks, s.desktop);
+    // Sources: only this distro's repos, the AUR on Arch, and Flathub. Same rules as source.rs.
+    // On the ISO, borea-probe scans the machine at boot and writes /run/borea/hardware.json (probe.rs);
+    // the installer reads that. Here the 'hw' prop picks a sample machine as a stand-in. Never a question.
+    const HW = CATALOG.drivers[this.props.hw] || CATALOG.drivers['tuf-f15'];
+    const drv = HW[s.base];
+    const needed = (src) => drv.sources.includes(src);
+    const myRepos = CATALOG.repos.filter((r) => r.distro === s.base && (!r.onDemand || needed(r.id)));
+    const repoById = (id) => CATALOG.repos.find((r) => r.id === id);
+    const sw = s.sw || {};
+    const isOn = (src) => {
+      if (needed(src)) return true;
+      if (src === 'aur') return s.base === 'arch' && !!sw.aur;
+      if (src === 'flathub') return sw.flathub !== undefined ? !!sw.flathub : true;
+      if (src === 'appimage') return sw.appimage !== undefined ? !!sw.appimage : true;
+      const r = repoById(src);
+      if (!r || r.distro !== s.base) return false;
+      return r.base || (sw[src] !== undefined ? !!sw[src] : r.defaultOn);
+    };
+    const srcLabel = (src) => (src === 'aur' ? 'AUR' : src === 'flathub' ? 'Flathub' : src === 'appimage' ? 'AppImage' : (repoById(src) || { label: src }).label);
+    // Same order as resolve.rs: distro packages, AUR, Flathub; or Flathub first. An upstream AppImage is always last.
+    const candidates = (app) => {
+      const native = app.native.filter((n) => n.distro === s.base).map((n) => ({ src: n.repo, pkg: n.pkg }));
+      const aur = app.aur && s.base === 'arch' ? [{ src: 'aur', pkg: app.aur }] : [];
+      const flat = app.flatpak ? [{ src: 'flathub', pkg: app.flatpak }] : [];
+      const img = app.appimage ? [{ src: 'appimage', pkg: app.appimage }] : [];
+      return (s.prefer === 'flatpak' ? flat.concat(native, aur) : native.concat(aur, flat)).concat(img);
+    };
+    const resolveApp = (app) => {
+      const c = candidates(app);
+      const hit = c.find((x) => isOn(x.src));
+      if (hit) return { from: hit.src, pkg: hit.pkg };
+      return c.length ? { needs: c[0].src } : null;
+    };
+    const PRESET = (nm) => (CATALOG.presets.find((p) => p.name === nm) || { apps: [] }).apps;
+    const selectedPresets = CATALOG.presets.filter((p) => s.appPacks[p.name]);
+    const appDefaults = new Set(s.appStarter === 'everyday' ? PRESET('Essentials') : []);
+    selectedPresets.forEach((p) => p.apps.forEach((id) => appDefaults.add(id)));
+    const sel = Object.fromEntries(CATALOG.apps.map((a) => [a.id, (s.sel || {})[a.id] ?? appDefaults.has(a.id)]));
+    const appsHere = CATALOG.apps.filter((a) => candidates(a).length > 0);
+    const appsListed = appsHere.filter((a) => a.listed);   // the grid; search still reaches everything
+    // Install groups (groups.rs): one base environment + any add-ons, mapped onto this distro's packages.
+    const DIDX = { arch: 0, debian: 1, fedora: 2, opensuse: 3 }[s.base];
+    const envId = s.env || (s.noDesk ? 'server' : 'workstation');
+    const addonDefaults = {};
+    selectedPresets.forEach((p) => p.addons.forEach((id) => {addonDefaults[id] = true;}));
+    const addons = Object.assign({}, addonDefaults, s.addons || {});
+    const envG = CATALOG.groups.find((g) => g.id === envId);
+    const sysKeys = [];
+    const addKey = (k) => { if (!sysKeys.includes(k)) sysKeys.push(k); };
+    const pk = s.pk || {};
+    // Add-ons can bring desktop apps too (File Sharing → LocalSend): desktop only, resolved like any app.
+    const offers = (g) => g.items.concat(envG.desktop ? g.guiItems.concat(g.apps) : [], g.optional);
+    const addonApp = (id) => CATALOG.groups.some((g) => g.apps.includes(id));
+    const isReq = (g, k) => g.kind === 'env' && CATALOG.required.includes(k);
+    const pkOn = (g, k) => isReq(g, k) || ((pk[g.id] || {})[k] !== undefined ? pk[g.id][k] : (g.items.includes(k) || (envG.desktop && (g.guiItems.includes(k) || g.apps.includes(k)))));
+    const envKeys = offers(envG).filter((k) => pkOn(envG, k));
+    envKeys.forEach(addKey);
+    CATALOG.groups.filter((g) => g.kind === 'addon' && addons[g.id]).forEach((g) => offers(g).filter((k) => pkOn(g, k)).forEach(addKey));
+    const addonApps = sysKeys.filter((k) => !CATALOG.pkgs[k]);   // app ids picked inside add-ons
+    const sysPkgs = sysKeys.filter((k) => CATALOG.pkgs[k]).map((k) => CATALOG.pkgs[k][DIDX]);
+    const deskPair = envG.desktop ? CATALOG.desktops[s.desktop][DIDX] : null;
+    if (deskPair) sysPkgs.push(deskPair[0], deskPair[1]);
+    const appsAllowed = envG.allowsApps;
+    const kit = [], stranded = [], batches = {};
+    CATALOG.apps.filter((a) => appsAllowed && (sel[a.id] || addonApps.includes(a.id))).forEach((a) => {
+      const r = resolveApp(a);
+      if (r && r.from) { kit.push({ a: a.name, mb: a.mb, cat: a.cat }); (batches[r.from] = batches[r.from] || []).push(r.pkg); }
+      else stranded.push(a.name);
+    });
+    const kitMb = kit.reduce((t, x) => t + x.mb, 0);
+    // Optional sources that are on (for the loadout card)
+    const optional = myRepos.filter((r) => !r.base).map((r) => r.id).concat(s.base === 'arch' ? ['aur'] : [], ['flathub', 'appimage']);
+    const extrasOn = optional.filter(isOn).map((id) => [id, srcLabel(id)]);
+
+    const caps = { app: 16, wifi: 20, oname: 20, opass: 20, search: 28, yname: 22, yhost: 22, ypass: 22, yadmin: 22 };
+    const c = {};
+    Object.keys(caps).forEach((k) => {
+      const len = k === 'search' ? s.q.length : (k === 'app' ? (s.appQ || '').length : (s.vals[k] || '').length);
+      c[k] = {
+        ch: Math.min(len, caps[k]) + 'ch', on: s.focus === k,
+        change: (e) => {
+          let v = e.target.value;
+          if (k === 'yname') v = v.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9_-]/g, '').replace(/^[^a-z]+/, '').slice(0, 32);
+          if (k === 'yhost') v = v.toLowerCase().replace(/[\s_.]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/^-+/, '').slice(0, 63);
+          this.setState({ vals: Object.assign({}, this.state.vals, { [k]: v }) });
+        },
+        focus: () => this.setState({ focus: k })
+      };
+    });
+
+    const wifi = netList.slice(0, s.found).map(([id, l, bars, locked]) => {
+      const sel = s.net === id;
+      const col = (n) => (n <= bars ? 'var(--bw-accent)' : 'var(--bw-edge)');
+      return { label: l, status: locked ? 'secured' : 'open', isWifi: true, cls: card(sel), pressed: sel ? 'true' : 'false', disabled: 'false',
+        b1: col(1), b2: col(2), b3: col(3), b4: col(4), signalText: bars + ' of 4 bars',
+        delay: '0ms', pick: set({ net: id }), showPass: locked && sel, showOther: false };
+    });
+    const tail = [];
+    if (s.found >= 5) tail.push({ label: 'Other network…', status: 'hidden', isWifi: false, cls: card(s.net === 'other'), pressed: s.net === 'other' ? 'true' : 'false', disabled: 'false',
+      delay: '0ms', pick: set({ net: 'other' }), showPass: false, showOther: s.net === 'other' });
+    tail.push({ label: 'Ethernet', status: 'no cable', isWifi: false, cls: card(false, 'off'), pressed: 'false', disabled: 'true',
+      delay: '0ms', pick: () => {}, showPass: false, showOther: false });
+
+    const kbdName = name(KBDS, s.kbd);
+    const tzRow = TZS.find(([id]) => id === s.tz) || [s.tz, s.tz.replace(/_/g, ' ')];
+    const pickLang = (id) => () => this.setState((st) => Object.assign({ lang: id, region: id.split('_')[1], field: null, q: '' },
+      st.kbdTouched ? {} : { kbd: LANG_KBD[id] || 'us' }, st.tzTouched ? {} : { tz: LANG_TZ[id] || st.tz }));
+    const fieldDefs = {
+      lang: ['language', name(LANGS, s.lang), LANGS.map(([id, l, en]) => [id, l, en, pickLang(id)]), s.lang],
+      kbd: ['keyboard', kbdName, KBDS.map(([id, l]) => [id, l, id, () => this.setState({ kbd: id, kbdTouched: true, field: null, q: '' })]), s.kbd],
+      tz: ['time zone', tzRow[1], TZS.map(([id, l]) => [id, l, id, () => this.setState({ tz: id, tzTouched: true, field: null, q: '' })]), s.tz]
+    };
+    const fields = Object.keys(fieldDefs).map((k, idx) => {
+      const [label, value, list, cur] = fieldDefs[k];
+      const isOpen = s.field === k;
+      const q = s.q.trim().toLowerCase();
+      const results = !isOpen ? [] : list.filter(([id, l, extra]) => !q || (id + ' ' + l + ' ' + extra).toLowerCase().includes(q))
+        .map(([id, l, , pick]) => ({ label: l, dot: id === cur ? '●' : '', weight: id === cur ? '700' : '400', sel: id === cur ? 'true' : 'false', pick }));
+      return { label, value, isOpen, results, q: s.q, z: isOpen ? '5' : '1', expanded: isOpen ? 'true' : 'false',
+        cls: card(isOpen, isOpen ? 'open' : ''), delay: delay(idx), dropPos: idx === 0 ? 'top: 112px' : 'bottom: 112px', dropDir: idx === 0 ? 'column' : 'column-reverse', open: () => this.setState({ field: isOpen ? null : k, q: '' }) };
+    });
+    let country = s.region;
+    try { country = new Intl.DisplayNames(['en'], { type: 'region' }).of(s.region); } catch (e) { country = s.region; }
+    const countryName = country;
+    if (['GB', 'US', 'NL', 'AE', 'PH'].includes(s.region)) country = 'the ' + country;
+    const tag = s.lang.replace('_', '-');
+    let localTime = '', localDate = '';
+    try {
+      const now = new Date();
+      localTime = new Intl.DateTimeFormat(tag, { hour: '2-digit', minute: '2-digit', timeZone: s.tz }).format(now);
+      localDate = new Intl.DateTimeFormat(tag, { weekday: 'long', day: 'numeric', month: 'long', timeZone: s.tz }).format(now);
+    } catch (e) { localTime = ''; localDate = ''; }
+
+    const statNames = step === 'distro' ? ['fresh', 'steady', 'easy'] : ['light', 'custom', 'polish'];
+    const classSrc = step === 'distro' ? bases : desks;
+    const curClass = step === 'distro' ? s.base : s.desktop;
+    const classCards = classSrc.map(([id, l, mono, stats], k) => {
+      const sel = curClass === id;
+      const logo = step === 'distro' ? (LOGOS[id] || '') : '';
+      const ty = step === 'distro' ? TITLE_TYPE[id] : ["'JetBrains Mono', ui-monospace, monospace", '22px', '700', '-0.01em'];
+      return { font: ty[0], fsize: ty[1], fweight: ty[2], track: ty[3], label: l, mono, emblem: '', plate: step === 'distro', hex: step !== 'distro', logo, hasLogo: !!logo, noLogo: !logo, cls: card(sel), pressed: sel ? 'true' : 'false', ring: sel ? 'var(--bw-accent)' : 'var(--bw-edge-hi)', delay: delay(k),
+        pick: step === 'distro' ? () => this.setState({ base: id, hero: s.base === id ? s.hero : s.hero + 1 }) : set({ desktop: id }), showNoDesk: step === 'distro' && sel, spacer: step === 'distro' && !sel, h: step === 'distro' ? '378px' : '330px',
+        stats: stats.map((n, j) => ({ name: statNames[j], aria: statNames[j] + ' ' + n + ' of 5', pips: pipsFor(n, sel ? 'var(--bw-accent)' : 'var(--bw-soft)') })) };
+    });
+
+    const setSw = (src, on) => this.setState({ sw: Object.assign({}, this.state.sw, { [src]: on }) });
+    const pickApp = (app) => () => {
+      const cur = Object.assign({}, s.sel || {});
+      if (sel[app.id]) { cur[app.id] = false; this.setState({ sel: cur }); return; }
+      const r = resolveApp(app);
+      if (!r) return;
+      cur[app.id] = true;
+      const patch = { sel: cur };
+      if (r.needs) patch.sw = Object.assign({}, sw, { [r.needs]: true });   // ticking switches on the source it needs
+      this.setState(patch);
+    };
+    const aq = (s.appQ || '').trim().toLowerCase();
+    const groups = CATALOG.categories.map((cat) => {
+      const pool = (aq ? CATALOG.apps : appsListed).filter((a) => !addonApp(a.id));   // searching reaches the whole catalogue; add-on apps live in their add-on
+      const apps = pool.filter((a) => a.cat === cat && (!aq || (a.name + ' ' + a.what + ' ' + a.id).toLowerCase().includes(aq)));
+      const open = aq ? true : !(s.collapsed || {})[cat];
+      const rows = apps.map((a) => {
+        const on = !!sel[a.id], r = resolveApp(a), avail = !!r;
+        const src = !avail ? 'not on ' + baseName : on ? (r.from ? srcLabel(r.from) : 'source off') : '';
+        const needTip = avail && !on && r.needs ? ' · ticking turns on ' + srcLabel(r.needs) : '';
+        return { name: a.name, title: a.what + needTip, checked: on ? 'true' : 'false', mark: on ? '✓' : '', weight: on ? '700' : '400',
+          box: on ? 'var(--bw-accent)' : 'var(--bw-edge-hi)', fill: on ? 'var(--bw-accent)' : 'transparent',
+          src, srcColor: !avail ? 'var(--bw-soft)' : on && !r.from ? '#E89A86' : (on ? 'var(--bw-soft)' : 'var(--bw-accent)'),
+          op: avail ? '1' : '0.45', cursor: avail ? 'pointer' : 'not-allowed', disabled: avail ? 'false' : 'true', pick: pickApp(a) };
+      });
+      const n = apps.filter((a) => sel[a.id] && resolveApp(a)).length;
+      const offered = apps.filter((a) => candidates(a).length > 0).length;
+      return { label: cat, rows, open, expanded: open ? 'true' : 'false', caret: open ? '▾' : '▸', count: n + '/' + offered,
+        toggle: () => this.setState({ collapsed: Object.assign({}, s.collapsed, { [cat]: open }) }), hidden: apps.length === 0 };
+    }).filter((g) => !g.hidden);
+    const srcSwitches = myRepos.map((r) => ({ id: r.id, label: r.label, note: r.base ? 'always on' : r.trust + ' · ' + r.note, locked: !!r.base || needed(r.id), need: !r.base && needed(r.id) }))
+      .concat(s.base === 'arch' ? [{ id: 'aur', label: 'AUR', note: 'community · built on your PC', locked: needed('aur'), need: needed('aur') }] : [])
+      .concat([{ id: 'flathub', label: 'Flathub', note: 'sandboxed apps, any distro', locked: false },
+        { id: 'appimage', label: 'AppImage', note: "upstream · the app's own release, only when nothing else has it", locked: false }])
+      .map((x) => { const on = isOn(x.id); return { label: x.label, note: x.note, trust: x.need ? 'drivers' : x.locked ? 'always on' : x.id === 'appimage' ? 'upstream' : (x.id === 'aur' || x.id === 'flathub' || /community/.test(x.note) ? 'community' : 'official'), checked: on ? 'true' : 'false', locked: x.locked ? 'true' : 'false',
+        track: on ? 'var(--bw-accent)' : 'var(--bw-edge)', knob: on ? '14px' : '0px', pick: x.locked ? () => {} : () => setSw(x.id, !on) }; });
+    const preferOpts = [['native', baseName === 'Arch Linux' ? 'Arch packages' : baseName + ' packages'], ['flatpak', 'Flathub first']].map(([id, label]) => {
+      const cur = (s.prefer || 'native') === id;
+      return { label, checked: cur ? 'true' : 'false', bg: cur ? 'var(--bw-accent)' : 'transparent', fg: cur ? 'var(--bw-ground)' : 'var(--bw-text)', weight: cur ? '700' : '400', pick: () => this.setState({ prefer: id }) };
+    });
+    const presetChips = [];
+    const envCards = CATALOG.groups.filter((g) => g.kind === 'env').map((g, k) => {
+      const on = g.id === envId;
+      return { name: g.name, what: g.what, checked: on ? 'true' : 'false', cls: card(on), ring: on ? 'var(--bw-accent)' : 'var(--bw-edge-hi)',
+        dot: on ? 'var(--bw-accent)' : 'transparent', delay: delay(k), pick: () => this.setState({ env:g.id, noDesk:!g.desktop }) };
+    });
+    const addonCards = CATALOG.groups.filter((g) => g.kind === 'addon').map((g, k) => {
+      const on = !!addons[g.id];
+      const keys = g.items.concat(envG.desktop ? g.guiItems : []);
+      return { name: g.name, what: g.what, pkgs: keys.filter((x) => CATALOG.pkgs[x]).map((x) => CATALOG.pkgs[x][DIDX]).join(' · '), checked: on ? 'true' : 'false',
+        cls: card(on), ring: on ? 'var(--bw-accent)' : 'var(--bw-edge-hi)', fill: on ? 'var(--bw-accent)' : 'transparent', mark: on ? '✓' : '',
+        delay: delay(k + 1), pick: () => this.setState({ addons: Object.assign({}, s.addons, { [g.id]: !on }) }) };
+    });
+    const addonNames = CATALOG.groups.filter((g) => g.kind === 'addon' && addons[g.id]).map((g) => g.name);
+    // ---- tree list (page 05): base environment / add-ons / applications ----
+    const openMap = s.treeOpen || {};
+    const isOpen = (id, dflt) => (aq ? true : (openMap[id] !== undefined ? openMap[id] : dflt));
+    const flip = (id, cur) => () => this.setState({ treeOpen: Object.assign({}, this.state.treeOpen, { [id]: !cur }) });
+    const matches = (txt) => !aq || txt.toLowerCase().includes(aq);
+    const tree = [];
+    const node = (o) => Object.assign({ level: '1', prefix: '', caret: '', caretVis: 'hidden', caretTab: '-1', caretLabel: '', toggle: () => {}, expanded: 'false', checked: 'false',
+      ctl: 'none', ring: 'var(--bw-edge-hi)', rad: '4px', fill: 'transparent', mark: '', label: '', meta: '', right: '', rightColor: 'var(--bw-soft)',
+      size: '15px', weight: '400', color: 'var(--bw-text)', h: '34px', gap: '0px', op: '1', inert: false, cursor: 'pointer', cls: 'bw-hit', click: () => {},
+      tip: '', align: 'center', pad: '0 10px', ws: 'nowrap' }, o);
+    const guide = (lasts) => '   '.repeat(lasts.length);   // plain indentation, no connector lines
+    // Top-level sections are an accordion: Base environment starts open, opening one closes the others. Search opens all.
+    const openSec = s.treeSec !== undefined ? s.treeSec : 'envs';
+    const section = (id, label, right, kids) => {
+      const op = aq ? true : openSec === id;
+      const pick = () => this.setState({ treeSec: op ? '' : id });
+      tree.push(node({ level: '1', caret: op ? '▾' : '▸', caretVis: 'visible', caretTab: '0', caretLabel: (op ? 'Collapse ' : 'Expand ') + label, toggle: pick, expanded: String(op),
+        label, size: '15px', weight: '700', color: op ? 'var(--bw-text)' : 'var(--bw-soft)', right, h: '38px', gap: tree.length ? '18px' : '0px', click: pick }));
+      if (op) kids.forEach((k, i) => k(i === kids.length - 1));
+    };
+    // While searching, a group shows only its matching packages unless the group itself matched.
+    const leafs = (names, lasts, all) => {
+      names = aq && !all ? names.filter((n) => matches(n)) : names;
+      if (!names.length) return;
+      tree.push(node({ level: String(lasts.length + 1), prefix: '   '.repeat(lasts.length + 1), meta: names.join('  ·  '),
+        inert: true, cursor: 'default', cls: '', h: '26px', align: 'flex-start', pad: '2px 10px 8px', ws: 'normal' }));
+    };
+
+    // A group's packages as tick rows. Only the chosen environment's packages can be changed.
+    const P = (k) => (CATALOG.pkgs[k] ? CATALOG.pkgs[k][DIDX] : (CATALOG.apps.find((a) => a.id === k) || { name: k }).name);
+    const clickPkg = (g, k) => () => {
+      const cur = Object.assign({}, pk[g.id] || {});
+      if (g.kind === 'addon' && !addons[g.id]) {      // ticking inside an unticked add-on: just that package
+        offers(g).forEach((x) => { cur[x] = x === k; });
+        this.setState({ addons: Object.assign({}, s.addons, { [g.id]: true }), pk: Object.assign({}, pk, { [g.id]: cur }) });
+        return;
+      }
+      cur[k] = !pkOn(g, k);
+      if (g.kind === 'addon' && !offers(g).some((x) => (x === k ? cur[k] : pkOn(g, x)))) {   // last one unticked: add-on off
+        const p2 = Object.assign({}, pk); delete p2[g.id];
+        this.setState({ addons: Object.assign({}, s.addons, { [g.id]: false }), pk: p2 });
+        return;
+      }
+      this.setState({ pk: Object.assign({}, pk, { [g.id]: cur }) });
+    };
+    const pkgRows = (g, last, all, live) => {
+      const ks = offers(g).filter((k) => (!aq || all || matches(P(k))) && !isReq(g, k));
+      const rows = ks.map((k) => {
+        const req = isReq(g, k), on = live ? pkOn(g, k) : (req || g.items.includes(k) || (envG.desktop && g.guiItems.includes(k)));
+        const fw = (CATALOG.firewall[k] || []).filter((r) => /\d/.test(r)).map((r) => r.split('/')[0]).filter((x, i, xs) => xs.indexOf(x) === i);
+        const appSrc = g.apps.includes(k) ? (() => { const r = resolveApp(CATALOG.apps.find((a) => a.id === k)); return r ? srcLabel(r.from || r.needs) : 'not available'; })() : '';
+        const meta = req ? 'needed to boot' : appSrc ? appSrc + (fw.length && envKeys.includes('firewalld') ? ' · opens port ' + fw.join(', ') : '')
+          : g.optional.includes(k) ? 'extra' : g.guiItems.includes(k) ? 'with a desktop' : '';
+        return node({ level: '3', prefix: guide([last, false]), checked: String(on), ctl: 'flex', ring: on ? 'var(--bw-accent)' : 'var(--bw-edge-hi)',
+          fill: on ? 'var(--bw-accent)' : 'transparent', mark: on ? '✓' : '', label: P(k), meta, size: '14px', h: '30px',
+          op: req || !live ? '0.55' : '1', inert: req || !live, cursor: req || !live ? 'default' : 'pointer', tip: req ? 'Every system needs this' : '',
+          click: req || !live ? () => {} : clickPkg(g, k) });
+      });
+      // What every system needs: one locked line rather than five.
+      const req = offers(g).filter((k) => isReq(g, k));
+      if (req.length && (!aq || all || req.some((k) => matches(P(k))))) {
+        rows.unshift(node({ level: '3', prefix: guide([last, false]), checked: 'true', ctl: 'flex', ring: 'var(--bw-accent)', fill: 'var(--bw-accent)', mark: '✓',
+          label: 'base system', meta: req.map(P).join(' · '), size: '14px', h: '30px', op: '0.55', inert: true, cursor: 'default', tip: 'Every system needs these' }));
+      }
+      if (g.desktop && live && (!aq || all)) {
+        const dp = CATALOG.desktops[s.desktop][DIDX];
+        rows.unshift(node({ level: '3', prefix: guide([last, false]), checked: 'true', ctl: 'flex', ring: 'var(--bw-accent)', fill: 'var(--bw-accent)', mark: '✓',
+          label: deskName, meta: dp[0] + ' · ' + dp[1], size: '14px', h: '30px', op: '0.55', inert: true, cursor: 'default', tip: 'Change it on page 04' }));
+      }
+      rows.forEach((r) => tree.push(r));
+    };
+
+    // 1. base environment (pick one)
+    const envPk = (g) => { const pk = g.items.map((k) => CATALOG.pkgs[k][DIDX]); if (g.desktop) { const d = CATALOG.desktops[s.desktop][DIDX]; pk.unshift(d[0] + '  (' + deskName + ')', d[1]); } return pk; };
+    const envKids = CATALOG.groups.filter((g) => g.kind === 'env' && matches(g.name + ' ' + g.what + ' ' + envPk(g).join(' '))).map((g) => (last) => {
+      const selfHit = matches(g.name + ' ' + g.what);
+      const on = g.id === envId, op = aq ? !selfHit : isOpen('env:' + g.id, false);   // name matches stay folded; package matches open
+      // With "No desktop" ticked, picking a desktop environment brings the desktop back (and page 04 with it).
+      const addsDesk = s.noDesk && g.desktop;
+      tree.push(node({ level: '2', prefix: guide([last]), caret: op ? '▾' : '▸', caretVis: 'visible', caretTab: '0', caretLabel: (op ? 'Hide ' : 'Show ') + g.name + ' packages',
+        toggle: flip('env:' + g.id, op), expanded: String(op), checked: String(on), ctl: 'flex', rad: '50%', ring: on ? 'var(--bw-accent)' : 'var(--bw-edge-hi)',
+        fill: on ? 'var(--bw-accent)' : 'transparent', label: g.name, weight: on ? '700' : '400', tip: g.what, meta: on ? g.what : (addsDesk ? 'adds ' + deskName + ' back' : ''),
+        click: () => this.setState({ env: g.id, noDesk: !g.desktop, treeOpen: Object.assign({}, this.state.treeOpen, { ['env:' + g.id]: true }) }) }));
+      if (op) pkgRows(g, last, selfHit, on);
+    });
+    if (envKids.length) section('envs', 'Base environment', '', envKids);
+
+    // 2. add-ons (pick any), under section headings; each package can be ticked on its own
+    const addonKids = [];
+    CATALOG.sections.forEach((sec) => {
+      const hits = CATALOG.groups.filter((g) => g.kind === 'addon' && g.section === sec && matches(g.name + ' ' + g.what + ' ' + offers(g).map(P).join(' ')));
+      if (!hits.length) return;
+      addonKids.push((last) => tree.push(node({ level: '2', prefix: guide([last]), label: sec, size: '12px', color: 'var(--bw-soft)', h: '28px', gap: addonKids.length ? '6px' : '0px',
+        inert: true, cursor: 'default', cls: '' })));
+      hits.forEach((g) => addonKids.push((last) => {
+        const selfHit = matches(g.name + ' ' + g.what);
+        const on = !!addons[g.id], op = aq ? !selfHit : isOpen('add:' + g.id, false);
+        const full = on && g.items.concat(envG.desktop ? g.guiItems : []).every((k) => pkOn(g, k));
+        const n = on ? offers(g).filter((k) => pkOn(g, k)).length : 0;
+        tree.push(node({ level: '2', prefix: guide([last]), caret: op ? '▾' : '▸', caretVis: 'visible', caretTab: '0', caretLabel: (op ? 'Hide ' : 'Show ') + g.name + ' packages',
+          toggle: flip('add:' + g.id, op), expanded: String(op), checked: on ? (full ? 'true' : 'mixed') : 'false', ctl: 'flex', ring: on ? 'var(--bw-accent)' : 'var(--bw-edge-hi)',
+          fill: on ? 'var(--bw-accent)' : 'transparent', mark: on ? (full ? '✓' : '–') : '', label: g.name, weight: on ? '700' : '400', tip: g.what, meta: op ? g.what : '',
+          right: on ? n + ' of ' + offers(g).length : '', rightColor: 'var(--bw-accent)',
+          click: () => { const p2 = Object.assign({}, pk); delete p2[g.id]; this.setState({ addons: Object.assign({}, s.addons, { [g.id]: !on }), pk: p2 }); } }));
+        if (op) pkgRows(g, last, selfHit, true);
+      }));
+    });
+    if (addonKids.length) section('addons', 'Add-ons', '', addonKids);
+
+    // 3. applications (by category)
+    let appKids = [];
+    if (!appsAllowed) {
+      if (!aq) appKids = [(last) => tree.push(node({ level: '2', prefix: guide([last]), label: 'Desktop apps are skipped on a ' + envG.name.toLowerCase() + '.', size: '14px', color: 'var(--bw-soft)', inert: true, cursor: 'default', cls: '' }))];
+    } else {
+      appKids = groups.filter((gr) => gr.rows.length).map((gr) => (last) => {
+        const op = isOpen('cat:' + gr.label, false);
+        tree.push(node({ level: '2', prefix: guide([last]), caret: op ? '▾' : '▸', caretVis: 'visible', caretTab: '0', caretLabel: (op ? 'Collapse ' : 'Expand ') + gr.label,
+          toggle: flip('cat:' + gr.label, op), expanded: String(op), label: gr.label, right: (() => { const n = gr.rows.filter((r) => r.checked === 'true').length; return n ? String(n) : ''; })(),
+          rightColor: 'var(--bw-accent)', click: flip('cat:' + gr.label, op) }));
+        if (op) gr.rows.forEach((r, i) => {
+          const on = r.checked === 'true', lastRow = i === gr.rows.length - 1;
+          tree.push(node({ level: '3', prefix: guide([last, lastRow]), checked: r.checked, ctl: 'flex', ring: r.box, fill: r.fill, mark: r.mark, label: r.name, weight: r.weight,
+            tip: r.title, right: r.src, rightColor: r.srcColor, op: r.op, inert: r.disabled === 'true', cursor: r.cursor, click: r.pick, h: '32px' }));
+        });
+      });
+    }
+    if (appKids.length) section('apps', 'Applications', appsAllowed && kit.length ? kit.length + ' picked' : '', appKids);
+
+    // 4. drivers (read-only: found on this machine, chosen automatically)
+    const drvFound = drv.found.slice(1).map(([what, how]) => [what, how.replace('NVIDIA driver (open modules)', 'NVIDIA, open modules')]);
+    const drvKids = drvFound.filter(([w, h]) => matches(w + ' ' + h)).map(([what, how]) => (last) =>
+      tree.push(node({ level: '2', prefix: guide([last]), label: what, meta: how, inert: true, cursor: 'default', cls: '' })));
+    if (drv.packages.some(([, n]) => matches(n)) || drvKids.length) drvKids.push((last) => leafs(drv.packages.map(([, n]) => n), [last], !aq || drvKids.length > 0));
+    if (drvKids.length) section('drivers', 'Drivers', HW.name + (HW.laptop ? ' · laptop' : ''), drvKids);
+    const allIds = ['envs', 'addons', 'apps', 'drivers'].concat(CATALOG.groups.map((g) => (g.kind === 'env' ? 'env:' : 'add:') + g.id), CATALOG.categories.map((c) => 'cat:' + c));
+    const setAll = (v) => () => this.setState({ treeSec: v ? openSec : '', treeOpen: allIds.reduce((m, id) => Object.assign(m, { [id]: v }), {}) });
+    const planParts = Object.keys(batches).sort((x, y) => (x === 'appimage') - (y === 'appimage') || (x === 'flathub') - (y === 'flathub') || (x === 'aur') - (y === 'aur'))
+      .map((src) => ({ n: String(batches[src].length), src: srcLabel(src) }));
+
+    const diskCards = [
+      ['erase', 'Instead of Windows', 'wipe the whole drive', '0%', '', 'borea · 1 TB'],
+      ['beside', 'Alongside Windows', 'keep everything, share the drive', '46%', 'Windows · 460 GB', 'borea · 540 GB']
+    ].map(([id, l, sub, winW, winLabel, boreaLabel], k) => {
+      const sel = s.disk === id;
+      return { label: l, sub, winW, winLabel, boreaLabel, cls: card(sel), pressed: sel ? 'true' : 'false', delay: delay(k), pick: set({ disk: id }) };
+    });
+
+    const user = s.vals.yname || 'you';
+    const host = s.vals.yhost || 'borea';
+
+    const jump = (st) => () => this.go(this.steps.indexOf(st));
+    const netLabel = !s.net ? 'online' : (s.net === 'other' ? (s.vals.oname || 'hidden network') : name(netList, s.net));
+    // Composed install, grouped by source (review page)
+    const baseRepo = myRepos.find((r) => r.base);
+    const appNames = {};
+    CATALOG.apps.filter((a) => appsAllowed && (sel[a.id] || addonApps.includes(a.id))).forEach((a) => { const r = resolveApp(a); if (r && r.from) (appNames[r.from] = appNames[r.from] || []).push(a.name + ' (' + r.pkg + ')'); });
+    const drvNames = {};
+    drv.packages.forEach(([src, n]) => { (drvNames[src] = drvNames[src] || []).push(n); });
+    const srcOrder = [baseRepo.id].concat(myRepos.filter((r) => !r.base).map((r) => r.id), ['aur', 'flathub', 'appimage']);
+    const revOpen = s.revOpen || {};
+    const composed = srcOrder.filter((src) => src === baseRepo.id || (appNames[src] || []).length || (drvNames[src] || []).length).map((src) => {
+      const parts = [];
+      if (src === baseRepo.id) {
+        parts.push({ what: envG.name.toLowerCase(), names: envKeys.filter(k=>CATALOG.pkgs[k]).map((k) => CATALOG.pkgs[k][DIDX]).concat(deskPair ? [deskPair[0], deskPair[1]] : []).join(' · ') });
+        CATALOG.groups.filter((g) => g.kind === 'addon' && addons[g.id]).forEach((g) => {
+          const keys = offers(g).filter((k) => pkOn(g, k) && !envKeys.includes(k) && CATALOG.pkgs[k]);
+          if (keys.length) parts.push({ what: g.name.toLowerCase(), names: keys.map((k) => CATALOG.pkgs[k][DIDX]).join(' · ') });
+        });
+      }
+      if ((drvNames[src] || []).length) parts.push({ what: 'drivers', names: drvNames[src].join(' · ') });
+      if ((appNames[src] || []).length) parts.push({ what: 'apps', names: appNames[src].join(' · ') });
+      const n = new Set((src === baseRepo.id ? sysPkgs : []).concat(batches[src] || [], (drvNames[src] || []))).size;
+      const r = repoById(src);
+      const open = revOpen[src] !== undefined ? revOpen[src] : true;
+      return { label: srcLabel(src), trust: r ? (r.base ? 'official · ' + baseName : r.trust) : (src === 'aur' ? 'community · built on your PC' : src === 'appimage' ? 'upstream · from the developer' : 'sandboxed'),
+        count: n + (n === 1 ? ' package' : ' packages'), parts, open, expanded: String(open), caret: open ? '▾' : '▸',
+        toggle: () => this.setState({ revOpen: Object.assign({}, revOpen, { [src]: !open }) }) };
+    });
+    const totalPkgs = composed.reduce((sum, group) => sum + Number.parseInt(group.count, 10), 0);
+    const tzShown = (s.tz || '').replace(/_/g, ' ');
+    const reviewRows = [
+      ['system', baseName + (envG.desktop ? ' · ' + deskName : '')],
+      ['machine', HW.name + (HW.laptop ? ' · laptop' : ''), 'packs'],
+      ['graphics', drvFound.filter(([w]) => w !== 'MUX switch' && w !== 'also').map(([w, h]) => w.replace(/^(GeForce|Radeon) /, '') + ' · ' + h.replace(', open modules', ' open')).slice(0, 1).join('') + (drvFound.some(([w]) => w === 'MUX switch') ? ' · MUX' : ''), 'packs'],
+      ['install', envG.name + (addonNames.length ? ' + ' + addonNames.join(', ') : ''), 'packs'],
+      ['apps', appsAllowed ? (kit.length ? kit.length + ' apps · ' + gb(kitMb) : 'none') : 'none', 'packs'],
+      ['disk', s.disk === 'beside' ? 'alongside Windows · 540 GB' : 'whole drive · 1 TB', 'disk'],
+      ['you', user + '@' + host, 'you'],
+      ['region', name(LANGS, s.lang) + ' · ' + tzShown, 'locale']
+    ].map(([label, value, st]) => ({ label, value, jump: jump(st || 'distro') }));
+    const loadout = [
+      ['network', netLabel, 'network'], ['language', name(LANGS, s.lang), 'locale'], ['keyboard', kbdName, 'locale'],
+      ['distro', baseName + (extrasOn.length ? ' + ' + extrasOn.map(([, l]) => l).join(', ') : ''), 'distro'],
+      ['desktop', deskName, 'desktop'], ['system', envG.name + (addonNames.length ? ' + ' + addonNames.join(', ') : '') + (appsAllowed ? ' · ' + kit.length + ' apps' : ''), 'packs'],
+      ['space', s.disk === 'beside' ? 'alongside Windows · 540 GB' : 'whole drive · 1 TB', 'disk'], ['you', user + '@' + host, 'you']
+    ].map(([label, value, st], k) => ({ label, value, delay: delay(k), jump: jump(st) }));
+
+    const stages = [
+      [0, s.disk === 'beside' ? 'Making space.' : 'Clearing the drive.'],
+      [8, 'Locking your space.'],
+      [14, 'Installing ' + baseName + '.'],
+      [44, drv.packages.some(([, n]) => /nvidia/.test(n)) ? 'Setting up the NVIDIA driver.' : 'Setting up drivers.'],
+      [55, envG.desktop ? 'Adding ' + deskName + '.' : 'Setting up ' + envG.name.toLowerCase() + '.'],
+      [75, kit.length ? 'Adding your apps.' : 'Tidying up.'],
+      [92, 'Finishing up.']
+    ];
+    let stage = stages[0];
+    stages.forEach((st) => { if (s.progress >= st[0]) stage = st; });
+    const n = 40, filled = Math.round(s.progress / 100 * n);
+    const pg = s.progress / 100;
+    // Smooth: eased progress, sub-pixel movement, streaks fade in and out instead of popping.
+    const pgS = this.pgS !== undefined ? this.pgS : pg;
+    const clamp = (x) => Math.max(0, Math.min(1, x));
+    const gale = this.gale.map((g) => {
+      const w = g.w * (1 + 1.4 * pgS * pgS);
+      const edge = clamp((1280 - g.x) / 240) * clamp((g.x + w) / 240);
+      const born = clamp((pgS - g.appear) / 0.1);
+      return { top: g.y.toFixed(1) + 'px', w: w.toFixed(1) + 'px', h: '2px', op: ((0.1 + 0.28 * pgS) * edge * born).toFixed(3), tx: g.x.toFixed(2) + 'px' };
+    });
+
+    const trailBits = [];
+    if (s.i > 0) trailBits.push(netLabel);
+    if (s.i > 1) trailBits.push(name(LANGS, s.lang));
+    if (s.i > 2) trailBits.push(baseName + (s.noDesk ? ' · no desktop' : s.i > 3 ? ' + ' + deskName : ''));
+    if (s.i > 4) trailBits.push(envG.name + (kit.length ? ' · ' + kit.length + ' apps' : ''));
+    if (s.i > 5) trailBits.push(s.disk === 'beside' ? 'alongside Windows' : 'whole drive');
+    const is = {}; this.steps.forEach((k) => { is[k] = k === step; });
+
+    const hasEnvironment = !!s.env;
+    const profileStage = s.softwareStage !== 'apps' || !appsAllowed;
+    const softwareReady = hasEnvironment && (!appsAllowed || !!s.appStarter) && stranded.length === 0;
+    const closeSoftwareDialog = () => this.setState({appsOpen:false,sourcesOpen:false,rolesOpen:false,packagesOpen:false,appQ:''});
+    const openDialog = (kind) => () => this.setState({appsOpen:kind==='apps',sourcesOpen:kind==='sources',rolesOpen:kind==='roles',packagesOpen:kind==='packages',appQ:''});
+    const dialogKeys = (e) => {
+      if(e.key==='Escape'){e.preventDefault();closeSoftwareDialog();setTimeout(()=>document.querySelector('.apps-customize, .system-actions button')?.focus(),0);}
+      if(e.key==='Tab') {const q=[...e.currentTarget.querySelectorAll('button:not([disabled]),input')].filter(x=>x.tabIndex>=0);if(e.shiftKey&&document.activeElement===q[0]){e.preventDefault();q.at(-1)?.focus();}else if(!e.shiftKey&&document.activeElement===q.at(-1)){e.preventDefault();q[0]?.focus();}}
+    };
+    const enableAppSources = (ids) => {const next={...sw};ids.forEach(id=>{const a=CATALOG.apps.find(a=>a.id===id);const hit=a&&resolveApp(a);if(hit?.needs)next[hit.needs]=true;});return next;};
+    const starters = [['lean','No extra apps','Keep only the desktop and system tools.'],['everyday','Everyday','A useful set for browsing, documents and media.']].map(([id,label,description])=>({label,description,detail:id==='lean'?'Add your own apps later':PRESET('Essentials').length+' editable app choices',cls:s.appStarter===id?'chosen':'',pressed:String(s.appStarter===id),mark:s.appStarter===id?'●':'',pick:()=>this.setState({appStarter:id,sw:enableAppSources(id==='everyday'?PRESET('Essentials'):[])})}));
+    const packs = CATALOG.presets.filter(p=>p.name!=='Essentials').map(p=>({label:p.name,description:({Gaming:'Games, launchers and performance tools.',Creator:'Graphics, audio and video apps.',Developer:'Editors, compilers and containers.'})[p.name]||'A focused set of apps.',list:p.apps.slice(0,2).map(id=>CATALOG.apps.find(a=>a.id===id)?.name).join(' · ')+(p.apps.length>2?' + '+(p.apps.length-2)+' more':''),cls:'app-pack'+(s.appPacks[p.name]?' chosen':''),pressed:String(!!s.appPacks[p.name]),mark:s.appPacks[p.name]?'✓':'',pick:()=>this.setState({appPacks:{...s.appPacks,[p.name]:!s.appPacks[p.name]},sw:!s.appPacks[p.name]?enableAppSources(p.apps):sw})}));
+    const customised=Object.keys(s.sel||{}).some(id=>s.sel[id]!==appDefaults.has(id));
+    const systemProfiles=CATALOG.groups.filter(g=>g.kind==='env').map(g=>({label:g.name,description:g.what,detail:g.desktop?'Uses '+deskName+' from step 04':'Console system · no desktop apps',cls:s.env===g.id?'chosen':'',pressed:String(s.env===g.id),mark:s.env===g.id?'●':'',disabled:'false',pick:()=>this.setState({env:g.id,noDesk:!g.desktop})}));
+    const roleSections=CATALOG.sections.map(label=>({label,items:CATALOG.groups.filter(g=>g.kind==='addon'&&g.section===label).map(g=>({label:g.name,description:g.what,cls:'app-pack'+(addons[g.id]?' chosen':''),pressed:String(!!addons[g.id]),mark:addons[g.id]?'✓':'',pick:()=>this.setState({addons:{...s.addons,[g.id]:!addons[g.id]}})}))}));
+    const cats=[{label:'Selected apps',count:String(kit.length),sel:String(!aq&&s.cat==='selected'),cls:'bw-rail'+(!aq&&s.cat==='selected'?' cur':''),pick:()=>this.setState({cat:'selected',appQ:''})}].concat(CATALOG.categories.map(cat=>({label:cat,count:String(kit.filter(x=>x.cat===cat).length),sel:String(!aq&&(s.cat||CATALOG.categories[0])===cat),cls:'bw-rail'+(!aq&&(s.cat||CATALOG.categories[0])===cat?' cur':''),pick:()=>this.setState({cat,appQ:''})})));
+    const tiles=CATALOG.apps.filter(a=>aq?(a.id+' '+a.name+' '+a.what).toLowerCase().includes(aq):s.cat==='selected'?(sel[a.id]||addonApps.includes(a.id)):(!addonApp(a.id)&&a.cat===(s.cat||CATALOG.categories[0])&&(a.listed||sel[a.id]))).map(a=>({label:a.name,desc:a.what+(addonApps.includes(a.id)?' · Included by a role':'')+' · '+(resolveApp(a)?srcLabel(resolveApp(a).from||resolveApp(a).needs):'Unavailable on '+baseName),size:mbLabel(a.mb),pressed:String(!!sel[a.id]||addonApps.includes(a.id)),mark:sel[a.id]||addonApps.includes(a.id)?'✓':'',disabled:!resolveApp(a)||addonApps.includes(a.id),pick:addonApps.includes(a.id)?()=>{}:pickApp(a)}));
+    return {
+      installBlocked:!softwareReady, softwareReady, profileStage, appStage:!profileStage, hasEnvironment, systemProfiles, roleSections,
+      systemProfileName:hasEnvironment?envG.name:'Choose a profile',systemProfileHint:hasEnvironment?envG.what:'Nothing is selected for you.',
+      systemDesktopNote:appsAllowed?'Next, choose your apps. Your package edits are kept.':'Desktop apps are skipped for this profile. Existing app choices are kept for later.',
+      roleCount:addonNames.length?addonNames.length+' selected':'optional',rolePreview:addonNames.map(label=>({label})),
+      starters,packs,cats,tiles,noTiles:tiles.length===0,hasStarter:!!s.appStarter,
+      customNote:customised?'Your own mix':'Alternatives, additions or removals',
+      selectionName:!s.appStarter?'Choose your apps':customised?'Your own mix':s.appStarter==='lean'?'Only the desktop':'Everyday',
+      selectionHint:!s.appStarter?'Nothing is preselected.':selectedPresets.map(p=>p.name).join(' + ')||'Only what you choose.',
+      previewApps:kit.slice(0,4).map(x=>({label:x.a})),reviewAppsLabel:kit.length?'Review all '+kit.length+' apps':'Browse apps',
+      sourceNote:'App sources follow your chosen distribution and install preference.',hasExtraSources:true,
+      reviewSelectedApps:()=>this.setState({appsOpen:true,cat:'selected',appQ:''}),openApps:openDialog('apps'),closeApps:closeSoftwareDialog,openSources:openDialog('sources'),closeSources:closeSoftwareDialog,openRoles:openDialog('roles'),openPackages:openDialog('packages'),closeSoftwareDialog,dialogKeys,
+      appsOpen:step==='packs'&&!!s.appsOpen,sourcesOpen:step==='packs'&&!!s.sourcesOpen,rolesOpen:step==='packs'&&!!s.rolesOpen,packagesOpen:step==='packs'&&!!s.packagesOpen,
+      resetAppTweaks:()=>this.setState({sel:{},sw:enableAppSources([...appDefaults])}),
+      themeVars, heroA: s.hero > 0 && s.hero % 2 === 1, heroB: s.hero > 0 && s.hero % 2 === 0,
+      c, blurCaret: () => this.setState({ focus: null }),
+      rootClass: s.motion ? '' : 'bw-still',
+      slideClass: s.leaving ? 'bw-leave' : 'bw-enter',
+      is, calmWind: step !== 'install',
+      pips: this.steps.map((st, k) => ({ cls: 'bw-pip' + (st === 'desktop' && s.noDesk ? ' skip' : k < s.i ? ' done' : (k === s.i ? ' cur' : '')) })),
+      stepLabel: 'step ' + (s.i + 1) + ' of ' + this.steps.length,
+      greet: ['hello', 'hallo', 'bonjour', 'hola', 'ciao', 'olá', 'привет', 'こんにちは', '你好', '안녕하세요', 'مرحبا', 'नमस्ते'][s.greet % 12],
+      netCards: wifi.concat(tail), scanning: s.found < 5, scanDone: s.found >= 5,
+      rescan: () => this.setState({ found: 0, net: null }),
+      fields, country, countryName, localTime, localDate, onQuery: (e) => this.setState({ q: e.target.value }),
+      showClassCards: step === 'distro' || step === 'desktop',
+      classKicker: step === 'distro' ? '03 · distro' : '04 · desktop',
+      title: ({ network: "Let's get online.", locale: 'Look right?', distro: 'Which distro?', desktop: 'Which desktop?', packs: 'Software',
+        disk: 'Where should it live?', you: "Who's this for?", review: 'Ready?', install: s.progress >= 100 ? 'Installed.' : 'Installing ' + baseName + '.', done: 'All done.' })[step],
+      classCards,
+      menuZ: s.field ? '10' : 'auto',
+      anyMenu: !!s.field,
+      closeMenus: () => this.setState({ field: null, q: '', appQ: '' }),
+      tree, expandAll: setAll(true), collapseAll: setAll(false),
+      composed: composed.map((g) => Object.assign({}, g, { flat: g.parts.map((p) => p.names).join(' · ') })), reviewRows, totalPkgs: String(totalPkgs), sourceCount: String(composed.length),
+      drvWarn: drv.warning || '', hasDrvWarn: !!drv.warning, distroWarn: step === 'distro' && !!drv.warning, mok: !!drv.mok,
+      showPkgs: !!s.revPkgs, pkgsOpen: String(!!s.revPkgs), pkgsCaret: s.revPkgs ? '▾' : '▸', togglePkgs: () => this.setState({ revPkgs: !s.revPkgs }),
+      heroLogo: LOGOS[s.base] || '', heroName: baseName, heroFont: TITLE_TYPE[s.base][0], heroWeight: TITLE_TYPE[s.base][2], heroTrack: TITLE_TYPE[s.base][3],
+      heroSub: (envG.desktop ? deskName : envG.name) + ' · ' + totalPkgs + ' packages',
+      streaks: [[120, 140, 7, 0], [210, 90, 9, -3], [330, 180, 6.5, -1.5], [420, 70, 8, -5], [500, 120, 10, -7]].map(([t, w, d, dl]) => ({ top: t + 'px', w: w + 'px', dur: d + 's', delay: dl + 's' })),
+      envCards, addonCards, appsAllowed, appsSkipped: !appsAllowed,
+      groupsView: s.view05 !== 'apps' || !appsAllowed, appsView: s.view05 === 'apps' && appsAllowed,
+      toApps: () => this.setState({ view05: 'apps' }), toGroups: () => this.setState({ view05: 'groups', appQ: '' }),
+      swTitle: s.view05 === 'apps' && appsAllowed ? 'Pick your apps.' : 'What kind of system?',
+      envNote: envG.desktop ? 'with ' + deskName + ' from step 04' : 'no desktop · ' + deskName + ' from step 04 is skipped',
+      skipNote: 'Desktop apps are skipped on a ' + envG.name.toLowerCase() + '. Choose Workstation or Server with GUI to add them.',
+      sysCount: String(new Set(sysPkgs).size), envShort: envG.name, addonShort: addonNames.length ? ' + ' + addonNames.join(', ') : '',
+      baseRepoLabel: (myRepos.find((r) => r.base) || { label: baseName }).label,
+      srcKicker: baseName + ' repos + Flathub', groups, noRows: tree.length === 0, srcSwitches:srcSwitches.map(o=>({...o,status:o.locked==='true'?'Required':o.checked==='true'?'Enabled':'Off'})), preferOpts, presetChips, planParts,
+      noPlan: kit.length === 0 && stranded.length === 0, hasStranded: stranded.length > 0,
+      strandedText: stranded.join(', ') + (stranded.length === 1 ? ' needs' : ' need') + ' a source that is off',
+      clearSoftware: () => this.setState({ sel: {} }),
+      appQ: s.appQ || '', onAppQuery: (e) => this.setState({ appQ: e.target.value }),
+      appCount: String(kit.length), kitSize: gb(kitMb), baseLabel: baseName,
+      diskCards,
+      userVal: s.vals.yname || '', hostVal: s.vals.yhost || '',
+      avatar: user.charAt(0).toUpperCase(), handle: user + '@' + host,
+      toggleSame: () => this.setState({ samePass: !s.samePass }),
+      // Ticking it moves the base environment to Server; unticking brings back Workstation if it had none.
+      toggleNoDesk: () => this.setState({ noDesk: !s.noDesk, env: !s.noDesk ? 'server' : null, softwareStage:'profile' }),
+      noDeskChecked: s.noDesk ? 'true' : 'false', noDeskFill: s.noDesk ? 'var(--bw-accent)' : 'transparent', noDeskMark: s.noDesk ? '✓' : '',
+      samePressed: s.samePass ? 'true' : 'false',
+      checkFill: s.samePass ? 'var(--bw-accent)' : 'transparent', checkMark: s.samePass ? '✓' : '',
+      showAdmin: !s.samePass,
+      loadout,
+      gale, finished: s.progress >= 100, installing: s.progress < 100,
+      pct: String(s.progress), now: s.progress >= 100 ? 'Installed.' : stage[1],
+      windDone: '∼'.repeat(filled), windLeft: '∼'.repeat(n - filled),
+      trail: trailBits.join('  ·  '),
+      motionLabel: s.motion ? 'on' : 'off',
+      toggleMotion: () => this.setState({ motion: !s.motion, leaving: false }),
+      canBack: s.i > 0 && step !== 'install' && step !== 'done',
+      canNext: (step!=='packs'||(hasEnvironment&&(profileStage||softwareReady))) && step !== 'review' && step !== 'done' && step !== 'install' && (step !== 'network' || !!s.net),
+      next: () => step==='packs'&&profileStage&&appsAllowed?this.setState({softwareStage:'apps'}):this.go(s.i+1), back: () => step==='packs'&&!profileStage?this.setState({softwareStage:'profile'}):this.go(s.i-1),
+      restart: () => this.go(0)
+    };
+  }
+}
+</script>
+</body>
+</html>

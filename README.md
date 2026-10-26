@@ -58,8 +58,8 @@ Borea Live  or  any compatible live session
 
 The bootstrapper downloads a prebuilt, versioned release. End users do not need Rust, Git, or a local compiler. Source builds remain a separate contributor workflow.
 
-The revised [app profiles design and browser preview](design/app-profiles/README.md)
-shows the optional starter → packs → customize flow for page 05.
+The revised [software profiles design and browser preview](design/software-flow/README.md)
+uses the latest Rust catalog for page 05: system profile → app choices → optional customization.
 
 ## Requested product scope
 

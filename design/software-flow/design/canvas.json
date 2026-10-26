@@ -1,0 +1,167 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "Compose.dc.html": {
+      "h": 800,
+      "is_interactive": true,
+      "title": "03 \u00b7 Distro",
+      "w": 1280,
+      "x": 2720,
+      "y": 1300
+    },
+    "Desktop.dc.html": {
+      "h": 800,
+      "is_interactive": true,
+      "title": "04 \u00b7 Desktop",
+      "w": 1280,
+      "x": 4080,
+      "y": 1300
+    },
+    "Disk.dc.html": {
+      "h": 800,
+      "is_interactive": true,
+      "title": "06 \u00b7 Disk",
+      "w": 1280,
+      "x": 6800,
+      "y": 1300
+    },
+    "Done.dc.html": {
+      "h": 800,
+      "is_interactive": true,
+      "title": "10 \u00b7 Done",
+      "w": 1280,
+      "x": 12240,
+      "y": 1300
+    },
+    "Flow.dc.html": {
+      "h": 900,
+      "w": 1440,
+      "x": 1520,
+      "y": 0,
+      "title": "02 \u00b7 Flow"
+    },
+    "Install.dc.html": {
+      "h": 800,
+      "is_interactive": true,
+      "title": "09 \u00b7 Install",
+      "w": 1280,
+      "x": 10880,
+      "y": 1300
+    },
+    "Logic.dc.html": {
+      "h": 1300,
+      "title": "03 \u00b7 Rust architecture",
+      "w": 1440,
+      "x": 0,
+      "y": 2440
+    },
+    "Main.dc.html": {
+      "h": 900,
+      "title": "01 \u00b7 Visual language",
+      "w": 1440,
+      "x": 0,
+      "y": 0
+    },
+    "Network.dc.html": {
+      "h": 800,
+      "is_interactive": true,
+      "title": "01 \u00b7 Online",
+      "w": 1280,
+      "x": 0,
+      "y": 1300
+    },
+    "Packs.dc.html": {
+      "h": 800,
+      "is_interactive": true,
+      "title": "05 \u00b7 Software \u00b7 system profiles & apps",
+      "w": 1280,
+      "x": 5440,
+      "y": 1300
+    },
+    "Prototype.dc.html": {
+      "h": 800,
+      "is_interactive": true,
+      "title": "\u25b6 Prototype \u00b7 click through, watch the wind",
+      "w": 1280,
+      "x": 3040,
+      "y": 0
+    },
+    "Review.dc.html": {
+      "h": 800,
+      "is_interactive": true,
+      "title": "08 \u00b7 Review",
+      "w": 1280,
+      "x": 9520,
+      "y": 1300
+    },
+    "Welcome.dc.html": {
+      "h": 800,
+      "is_interactive": true,
+      "title": "02 \u00b7 Language & region",
+      "w": 1280,
+      "x": 1360,
+      "y": 1300
+    },
+    "You.dc.html": {
+      "h": 800,
+      "is_interactive": true,
+      "title": "07 \u00b7 You",
+      "w": 1280,
+      "x": 8160,
+      "y": 1300
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-10-25T16:40:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "notes": {
+    "t1": {
+      "kind": "title1",
+      "maxW": 4320,
+      "text": "Borea \u2014 language, flow, prototype",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "t2": {
+      "kind": "title1",
+      "maxW": 8000,
+      "text": "Screens \u2014 neutral until you pick a distro, then its colours; wind between every slide",
+      "w": 240,
+      "x": 0,
+      "y": 1020
+    },
+    "t3": {
+      "kind": "title1",
+      "maxW": 1440,
+      "text": "Logic \u2014 Rust core",
+      "w": 240,
+      "x": 0,
+      "y": 2180
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Flow.dc.html",
+    "Prototype.dc.html",
+    "Network.dc.html",
+    "Welcome.dc.html",
+    "Compose.dc.html",
+    "Desktop.dc.html",
+    "Packs.dc.html",
+    "Disk.dc.html",
+    "You.dc.html",
+    "Review.dc.html",
+    "Install.dc.html",
+    "Done.dc.html",
+    "Logic.dc.html"
+  ],
+  "pages": [],
+  "title": "Boreal Live ISO"
+}

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Borea Rust architecture</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#1C1C1E}
+.lg-k{font-size:12px;color:#ADADB1;margin-bottom:10px}
+.lg-pre{margin:0;padding:18px 20px;border-radius:12px;border:1px solid #363638;background:#262628;font-family:inherit;font-size:12px;line-height:1.75;color:#DCDCDE;white-space:pre;overflow:hidden}
+.lg-pre i{font-style:normal;color:#8E8E93}
+.lg-pre b{font-weight:700;color:#F2F2F3}
+.lg-step{flex:1;padding:12px 14px;border-radius:10px;background:#262628;border:1px solid #363638;font-size:12px;line-height:1.55;color:#ADADB1}
+.lg-step b{display:block;font-size:13px;color:#F2F2F3;margin-bottom:4px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1300px; box-sizing: border-box; padding: 64px 80px; background: #1C1C1E; color: #DCDCDE; font-family: 'JetBrains Mono', ui-monospace, monospace; display: flex; flex-direction: column; gap: 34px">
+
+  <div style="display: flex; justify-content: space-between; align-items: flex-end">
+    <div>
+      <div style="font-size: 14px; color: #ADADB1">rust architecture</div>
+      <div style="margin-top: 12px; font-size: 30px; font-weight: 700; letter-spacing: -0.02em; color: #F2F2F3">Data decides, screens show it, one crate writes.</div>
+    </div>
+    <span style="font-size: 12px; color: #ADADB1; white-space: nowrap">no dependencies · 31 tests</span>
+  </div>
+
+  <div>
+    <div class="lg-k">boot to install</div>
+    <div style="display: flex; gap: 10px; align-items: stretch">
+      <div class="lg-step"><b>boot</b>borea-probe.service reads /sys, DMI, pci.ids</div>
+      <div class="lg-step"><b>/run/borea/hardware.json</b>machine, GPUs, MUX, a driver plan per distro</div>
+      <div class="lg-step"><b>01–07 · screens</b>edit one Plan; nothing touches disk</div>
+      <div class="lg-step" style="border-color: #F2F2F3; box-shadow: 0 0 0 1px #F2F2F3"><b>08 · Review</b>Plan → Job: every package, source, service</div>
+      <div class="lg-step"><b>09 · Install</b>borea-exec runs the Job, streams progress</div>
+      <div class="lg-step" style="border-color: #E89A86"><b style="color: #E89A86">Recover</b>the failed step, its log, one fix</div>
+    </div>
+  </div>
+
+  <div style="flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; min-height: 0">
+    <div style="display: flex; flex-direction: column; gap: 26px">
+      <div>
+        <div class="lg-k">workspace</div>
+<pre class="lg-pre">borea/
+  <b>borea-catalog</b>   what can be installed, and from where   <i>built · pure</i>
+    source.rs     this distro's repos, AUR, Flathub, AppImage
+    catalog.rs    desktop apps, app-store categories, quick picks
+    resolve.rs    one source per app, switch on what it needs
+    groups.rs     environments, add-ons, per-package Picks, firewall
+    hardware.rs   scan(root) → Hardware: GPUs, laptop, MUX, Secure Boot
+    drivers.rs    Hardware × Distro → DriverPlan
+    probe.rs      boot-time scan → /run/borea/hardware.json
+    bin/borea-probe
+  <b>borea-core</b>      Plan, Step, Msg, update()               <i>next · pure</i>
+  <b>borea-exec</b>      partition, bootstrap, install, MOK      <i>next · the only writer</i>
+  <b>borea-ui</b>        screens, theme tokens, wind, i18n       <i>next</i>
+  dist/           borea-probe.service</pre>
+      </div>
+
+      <div>
+        <div class="lg-k">the plan · everything the person decided</div>
+<pre class="lg-pre">pub struct <b>Plan</b> {
+    pub net:      NetChoice,
+    pub locale:   Locale,             <i>// language, keyboard, time zone</i>
+    pub distro:   Distro,             <i>// Arch | Debian | Fedora | OpenSuse</i>
+    pub desktop:  Option&lt;Desktop&gt;,    <i>// None = "No desktop", skips 04</i>
+    pub env:      &amp;'static str,       <i>// minimal | server | workstation…</i>
+    pub addons:   Vec&lt;&amp;'static str&gt;,
+    pub picks:    Picks,              <i>// ticks and unticks inside groups</i>
+    pub apps:     Selection,
+    pub prefer:   Prefer,             <i>// distro packages or Flathub first</i>
+    pub sources:  Sources,            <i>// driver sources locked on</i>
+    pub disk:     DiskPlan,           <i>// Alongside{size} | Whole</i>
+    pub user:     Identity,           <i>// one passphrase, or a separate admin</i>
+}</pre>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 26px">
+      <div>
+        <div class="lg-k">drivers are never a question</div>
+<pre class="lg-pre">let hw   = probe::probe()?;          <i>// the machine it booted on</i>
+let plan = plan_drivers(&amp;hw, Distro::Fedora);
+
+<b>match</b> nvidia_driver(gen, distro) {
+    Open    =&gt; <i>// Turing+: open modules</i>
+    Legacy  =&gt; <i>// Maxwell–Volta: 580 branch</i>
+    Nouveau =&gt; <i>// Kepler and older, or too new for Debian 13</i>
+}
+plan.sources   <i>// RPM Fusion nonfree, AUR… switched on, locked</i>
+plan.services  <i>// nvidia-suspend, nvidia-powerd on laptops</i>
+plan.mok       <i>// approve the key on first restart</i>
+plan.warning   <i>// shown in amber on 03 and 08</i></pre>
+      </div>
+
+      <div>
+        <div class="lg-k">review → install · the only door</div>
+<pre class="lg-pre">pub enum <b>Step</b> { Network, Locale, Distro, Desktop, System,
+                Disk, You, Review, Install, Done, Recover }
+
+(Review, Msg::Install) =&gt; {
+    let job = Job::from(&amp;m.plan, &amp;m.hw);  <i>// pure</i>
+    m.step = Install;
+    Cmd::Run(job)                         <i>// first write</i>
+}
+(Install, Failed(f)) =&gt; { m.fault = Some(f); m.step = Recover; }
+(s, Back) =&gt; m.step = s.prev(&amp;m.plan), <i>// skips Desktop</i></pre>
+      </div>
+
+      <div>
+        <div class="lg-k">theme is data</div>
+<pre class="lg-pre">pub struct <b>Theme</b> { ground, card, edge, soft, accent, text, frost, glow }
+pub const BOREA: Theme = …;   <i>// neutral greys, until a distro is picked</i>
+pub fn theme(d: Distro) -&gt; Theme;   <i>// the distro's own colour</i>
+pub struct <b>Motion</b> { on: bool, leave: 280ms, enter: 550ms, gust, gale }</pre>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1300}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
