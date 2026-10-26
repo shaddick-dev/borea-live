@@ -249,6 +249,7 @@ dependencies = [
  "borea-platform",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror",
 ]
 
@@ -294,6 +295,7 @@ dependencies = [
  "borea-job",
  "borea-locale",
  "borea-net",
+ "borea-platform",
  "nix 0.31.3",
  "serde",
  "serde_json",
@@ -345,6 +347,7 @@ name = "borea-platform"
 version = "0.1.0"
 dependencies = [
  "borea-core",
+ "serde",
 ]
 
 [[package]]
@@ -358,6 +361,7 @@ dependencies = [
  "borea-exec",
  "borea-job",
  "borea-net",
+ "borea-platform",
  "nix 0.31.3",
  "zeroize",
 ]

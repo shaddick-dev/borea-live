@@ -157,22 +157,37 @@ fn run() -> Result<(), Hint> {
         _ => {
             return Err(hint(
                 "verify",
-                "Use borea-verify arch|debian|fedora|opensuse [--check-native].",
+                "Use borea-verify arch|debian|fedora|opensuse [--check-native|--check-external|--check-flathub].",
             ));
         }
     };
     let entries = inventory(distro);
-    if args.get(1).map(String::as_str) != Some("--check-native") {
+    let mode = args.get(1).map(String::as_str);
+    if mode.is_none() {
         println!(
             "{}",
             serde_json::to_string_pretty(&entries).map_err(|e| hint("verify", e.to_string()))?
         );
         return Ok(());
     }
+    if !matches!(mode, Some("--check-native" | "--check-external" | "--check-flathub")) {
+        return Err(hint("verify", "Unknown verification mode."));
+    }
     let mut failures = Vec::new();
     for entry in &entries {
-        match query(distro, entry) {
-            Ok(()) if entry.source.contains('.') => {
+        let external = !entry.source.contains('.');
+        if mode == Some("--check-external") && !external
+            || mode == Some("--check-flathub") && entry.source != "flathub"
+        {
+            continue;
+        }
+        let result = if external && mode != Some("--check-native") {
+            borea_backend::external::verify_source(&entry.source, &entry.name)
+        } else {
+            query(distro, entry)
+        };
+        match result {
+            Ok(()) if !external || mode != Some("--check-native") => {
                 println!("PASS {} {}", entry.source, entry.name)
             }
             Ok(()) => println!("EXTERNAL {} {}", entry.source, entry.name),
@@ -185,7 +200,7 @@ fn run() -> Result<(), Hint> {
     if failures.is_empty() {
         Ok(())
     } else {
-        Err(hint("verify", format!("{} native catalog entries failed validation.", failures.len())))
+        Err(hint("verify", format!("{} catalog entries failed validation.", failures.len())))
     }
 }
 fn main() -> std::process::ExitCode {

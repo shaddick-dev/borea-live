@@ -47,8 +47,8 @@ set -euo pipefail
 # Installing Debian.
 '/usr/sbin/debootstrap' '--variant=minbase' '--keyring=/usr/share/keyrings/debian-archive-keyring.gpg' '--include=ca-certificates' 'trixie' '/run/borea/target' 'https://deb.debian.org/debian'
 'mount' '-t' 'proc' '-o' 'nosuid,nodev,noexec' 'proc' '/run/borea/target/proc'
-'mount' '-t' 'bind' '-o' 'rbind,ro' '/sys' '/run/borea/target/sys'
-'mount' '-t' 'bind' '-o' 'rbind' '/dev' '/run/borea/target/dev'
+'mount' '-o' 'rbind,ro' '/sys' '/run/borea/target/sys'
+'mount' '-o' 'rbind' '/dev' '/run/borea/target/dev'
 'mount' '-t' 'tmpfs' '-o' 'mode=0755,nosuid,nodev' 'tmpfs' '/run/borea/target/run'
 # Copy only the active NetworkManager profile identified by its UUID, root-owned mode 0600; preserve credentials verbatim. Copy DNS configuration for the native chroot.
 
@@ -171,11 +171,12 @@ chroot /run/borea/target '/usr/bin/cp' '/usr/lib/grub/x86_64-efi-signed/grubx64.
 # set prefix=($root)/grub
 # configfile $prefix/grub.cfg
 # 
-# Only when EFI/BOOT contains none of BOOTX64.EFI, grubx64.efi or grub.cfg: copy /boot/efi/EFI/debian/shimx64.efi, /boot/efi/EFI/debian/grubx64.efi and the UUID-based loader configuration. Preserve existing fallback files.
+# Only when EFI/BOOT contains none of BOOTX64.EFI, grubx64.efi, mmx64.efi or grub.cfg: copy /boot/efi/EFI/debian/shimx64.efi, /boot/efi/EFI/debian/grubx64.efi, /boot/efi/EFI/debian/mmx64.efi and the UUID-based loader configuration. Preserve existing fallback files.
 '/usr/sbin/efibootmgr' '--create' '--disk' '/dev/vda' '--part' '1' '--label' 'Debian' '--loader' '\EFI\debian\shimx64.efi'
 chroot /run/borea/target '/usr/sbin/update-grub' 
 # Restore the target's native DNS file/symlink and refresh the selected Wi-Fi profile before unmounting.
 '/usr/bin/sync' 
 
-# Cleanup: unmount owned paths in reverse order, stop private GPG agents,
-# and close only this job's encrypted mapping. Preserve the redacted install log.
+# Cleanup: stop child processes only in the job-owned private namespace,
+# unmount owned trees deepest first and close only this job's encrypted mapping.
+# Restore saved EFI/DNS configuration and preserve the redacted install log.

@@ -62,7 +62,7 @@ fn bytes(url: &str) -> Result<Vec<u8>, Hint> {
     agent
         .get(url)
         .header("User-Agent", "Borea/0.1")
-        .header("Accept", "application/vnd.github+json")
+        .header("Accept", "application/json")
         .call()
         .map_err(|_| hint("sources", "The upstream release metadata is not reachable."))?
         .body_mut()
@@ -87,9 +87,53 @@ pub fn resolve(review: &Review) -> Result<ExternalSources, Hint> {
             aur(&p.name, &mut recipes, &mut visiting, &mut result.aur)?;
         } else if p.source == "appimage" {
             result.appimages.push(appimage(&p.name)?);
+        } else if p.source == "flathub" {
+            flathub(&p.name)?;
         }
     }
     Ok(result)
+}
+/// Check the public app metadata before allowing disk writes. Flatpak still
+/// authenticates the repository and payload with its native signing policy.
+pub fn flathub(id: &str) -> Result<(), Hint> {
+    if !identifier(id) || !id.contains('.') {
+        return Err(hint("flathub", "The Flathub application identifier is invalid."));
+    }
+    validate_flathub(id, &json(&format!("https://flathub.org/api/v2/appstream/{id}"))?)
+}
+fn validate_flathub(id: &str, metadata: &serde_json::Value) -> Result<(), Hint> {
+    if metadata["id"].as_str() != Some(id)
+        || metadata["is_eol"].as_bool() != Some(false)
+        || metadata["bundle"]["type"].as_str() != Some("flatpak")
+        || !metadata["bundle"]["value"]
+            .as_str()
+            .is_some_and(|value| value.starts_with(&format!("app/{id}/x86_64/")))
+    {
+        return Err(hint(
+            "flathub",
+            format!("The Flathub app {id} is unavailable or no longer maintained."),
+        ));
+    }
+    Ok(())
+}
+
+pub fn verify_source(source: &str, name: &str) -> Result<(), Hint> {
+    match source {
+        "flathub" => flathub(name),
+        "appimage" => appimage(name).map(|_| ()),
+        "aur" if identifier(name) => {
+            let metadata = json(&format!("https://aur.archlinux.org/rpc/v5/info?arg[]={name}"))?;
+            if metadata["results"]
+                .as_array()
+                .is_some_and(|items| items.iter().any(|item| item["Name"].as_str() == Some(name)))
+            {
+                Ok(())
+            } else {
+                Err(hint("aur", format!("The AUR package {name} is unavailable.")))
+            }
+        }
+        _ => Err(hint("sources", "Choose a supported external package source and identifier.")),
+    }
 }
 fn aur(
     name: &str,
@@ -255,4 +299,20 @@ fn hash_url(url: &str) -> Result<String, Hint> {
         hash.update(&bytes[..n]);
     }
     Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+#[cfg(test)]
+mod metadata_tests {
+    use super::*;
+    #[test]
+    fn flathub_requires_matching_maintained_x86_64_application() {
+        let mut data = serde_json::json!({"id":"org.test.App", "is_eol":false, "bundle":{"type":"flatpak","value":"app/org.test.App/x86_64/stable"}});
+        assert!(validate_flathub("org.test.App", &data).is_ok());
+        assert!(validate_flathub("org.other.App", &data).is_err());
+        data["is_eol"] = true.into();
+        assert!(validate_flathub("org.test.App", &data).is_err());
+        data["is_eol"] = false.into();
+        data["bundle"]["value"] = "app/org.test.App/aarch64/stable".into();
+        assert!(validate_flathub("org.test.App", &data).is_err());
+    }
 }

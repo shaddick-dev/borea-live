@@ -12,14 +12,39 @@ use std::{
     time::{Duration, Instant},
 };
 use zeroize::Zeroizing;
+#[path = "../media.rs"]
+mod media;
 fn run() -> Result<(), String> {
-    if !Path::new("/work/.borea-test-workdir").is_file() {
+    if fs::read_to_string("/work/.borea-test-workdir").ok().as_deref().map(str::trim)
+        != Some("BOREA_TEST_WORK")
+    {
         return Err("Missing disposable work-directory marker.".into());
     }
     let boot = std::env::args().nth(1).as_deref() == Some("boot");
     let distro = std::env::var("BOREA_TEST_DISTRO").unwrap_or_else(|_| "debian".into());
     if !["arch", "debian", "fedora", "opensuse"].contains(&distro.as_str()) {
         return Err("Unknown VM test distro.".into());
+    }
+    let layout = std::env::var("BOREA_TEST_LAYOUT").unwrap_or_else(|_| "whole".into());
+    if !["whole", "alongside"].contains(&layout.as_str()) {
+        return Err("Unknown VM test layout.".into());
+    }
+    let secure_boot = match std::env::var("BOREA_TEST_SECURE_BOOT").as_deref() {
+        Ok("1") => true,
+        Ok("0") | Err(_) => false,
+        _ => return Err("BOREA_TEST_SECURE_BOOT must be 0 or 1.".into()),
+    };
+    if secure_boot && distro == "arch" {
+        return Err("Arch uses owner-key enrollment from Setup Mode; the Microsoft-enrolled fixture cannot certify that separate pathway.".into());
+    }
+    let scenario = format!("{distro} {layout} secure_boot={}\n", u8::from(secure_boot));
+    let scenario_path = Path::new("/work/scenario");
+    if scenario_path.exists() {
+        if fs::read_to_string(scenario_path).map_err(|e| e.to_string())? != scenario {
+            return Err("Use a separate disposable work directory for each distro/layout/firmware scenario.".into());
+        }
+    } else {
+        fs::write(scenario_path, scenario).map_err(|e| e.to_string())?;
     }
     let proxy = Zeroizing::new(
         std::env::var("HTTPS_PROXY").or_else(|_| std::env::var("HTTP_PROXY")).unwrap_or_default(),
@@ -30,7 +55,13 @@ fn run() -> Result<(), String> {
     memory.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
     if !Path::new("/work/target.qcow2").exists() {
         let status = Command::new("/usr/bin/qemu-img")
-            .args(["create", "-f", "qcow2", "/work/target.qcow2", "40G"])
+            .args([
+                "create",
+                "-f",
+                "qcow2",
+                "/work/target.qcow2",
+                if layout == "alongside" { "100G" } else { "40G" },
+            ])
             .status()
             .map_err(|e| e.to_string())?;
         if !status.success() {
@@ -38,17 +69,25 @@ fn run() -> Result<(), String> {
         }
     }
     if !Path::new("/work/OVMF_VARS.fd").exists() {
-        fs::copy("/usr/share/OVMF/OVMF_VARS_4M.fd", "/work/OVMF_VARS.fd")
-            .map_err(|e| e.to_string())?;
+        fs::copy(
+            if secure_boot {
+                "/usr/share/OVMF/OVMF_VARS_4M.ms.fd"
+            } else {
+                "/usr/share/OVMF/OVMF_VARS_4M.fd"
+            },
+            "/work/OVMF_VARS.fd",
+        )
+        .map_err(|e| e.to_string())?;
     }
+    let kvm = fs::OpenOptions::new().read(true).write(true).open("/dev/kvm").is_ok();
     let mut command = Command::new("/usr/bin/qemu-system-x86_64");
     command.args([
         "-machine",
-        "q35",
+        if secure_boot { "q35,smm=on" } else { "q35" },
         "-accel",
-        "tcg",
+        if kvm { "kvm" } else { "tcg" },
         "-cpu",
-        "max",
+        if kvm { "host" } else { "max" },
         "-smp",
         "2",
         "-m",
@@ -61,7 +100,11 @@ fn run() -> Result<(), String> {
         "none",
         "-no-reboot",
         "-drive",
-        "if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd",
+        if secure_boot {
+            "if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.secboot.fd"
+        } else {
+            "if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd"
+        },
         "-drive",
         "if=pflash,format=raw,file=/work/OVMF_VARS.fd",
         "-drive",
@@ -75,18 +118,37 @@ fn run() -> Result<(), String> {
         "-device",
         "virtio-rng-pci",
     ]);
+    if secure_boot {
+        command.args(["-global", "driver=cfi.pflash01,property=secure,value=on"]);
+    }
     if !boot {
+        if secure_boot {
+            media::secure_live_media()?;
+            command.args([
+                "-drive",
+                "if=none,id=live,format=raw,file=fat:ro:/work/live-esp",
+                "-device",
+                "virtio-blk-pci,drive=live,bootindex=1",
+            ]);
+        } else {
+            command.args([
+                "-kernel",
+                "/work/vmlinuz",
+                "-initrd",
+                "/work/live.cpio.gz",
+                "-append",
+                "console=ttyS0,115200 rdinit=/init panic=-1 tsc=reliable",
+            ]);
+        }
         command.args([
-            "-kernel",
-            "/work/vmlinuz",
-            "-initrd",
-            "/work/live.cpio.gz",
-            "-append",
-            "console=ttyS0,115200 rdinit=/init panic=-1 tsc=reliable",
             "-fw_cfg",
             "name=opt/borea/autotest,string=BOREA_DISPOSABLE_VM",
             "-fw_cfg",
             &format!("name=opt/borea/distro,string={distro}"),
+            "-fw_cfg",
+            &format!("name=opt/borea/layout,string={layout}"),
+            "-fw_cfg",
+            &format!("name=opt/borea/secure-boot,string={}", u8::from(secure_boot)),
             "-fw_cfg",
             "name=opt/borea/ca,file=/run/borea-ca.pem",
             "-fw_cfg",
@@ -126,10 +188,18 @@ fn run() -> Result<(), String> {
     let mut sudo = false;
     let mut distro_ok = false;
     let mut user_ok = false;
+    let mut preservation_ok = layout != "alongside";
+    let mut firmware_ok = !secure_boot;
+    let mut install_exit_ok = false;
     let expected_distro =
         if distro == "opensuse" { "opensuse-tumbleweed" } else { distro.as_str() };
+    let firmware_check = if secure_boot {
+        "test \"$(tail -c 1 /sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c | od -An -t u1 | tr -d ' ')\" = 1 && echo BOREA_SECURE_BOOT_OK; "
+    } else {
+        ""
+    };
     let checks = format!(
-        ". /etc/os-release; test \"$ID\" = {expected_distro} && echo BOREA_DISTRO_OK; test \"$(id -un)\" = boreatest && echo BOREA_USER_OK; test -b /dev/mapper/borea-root && echo BOREA_LUKS_OK; nm-online -q --timeout=60 && echo BOREA_NET_OK; sudo -S -p '[BOREA_SUDO]' id -u\n"
+        ". /etc/os-release; test \"$ID\" = {expected_distro} && echo BOREA_DISTRO_OK; test \"$(id -un)\" = boreatest && echo BOREA_USER_OK; test -b /dev/mapper/borea-root && echo BOREA_LUKS_OK; nm-online -q --timeout=60 && echo BOREA_NET_OK; {firmware_check}sudo -S -p '[BOREA_SUDO]' id -u\n"
     );
     loop {
         if start.elapsed() > Duration::from_secs(14400) {
@@ -158,10 +228,13 @@ fn run() -> Result<(), String> {
                 }
                 if !boot {
                     complete |= buffer.contains("BOREA_INSTALL_COMPLETE");
+                    preservation_ok |= buffer.contains("BOREA_PRESERVATION_OK");
+                    install_exit_ok |= buffer.contains("BOREA_VM_INSTALL_EXIT_0");
                     continue;
                 }
                 distro_ok |= buffer.contains("BOREA_DISTRO_OK");
                 user_ok |= buffer.contains("BOREA_USER_OK");
+                firmware_ok |= buffer.contains("BOREA_SECURE_BOOT_OK");
                 luks |= buffer.contains("BOREA_LUKS_OK");
                 net |= buffer.contains("BOREA_NET_OK");
                 let input = match stage {
@@ -210,9 +283,13 @@ fn run() -> Result<(), String> {
         }
     }
     let status = child.wait().map_err(|e| e.to_string())?;
-    if !status.success() || !complete || boot && !(luks && net && sudo && distro_ok && user_ok) {
+    if !status.success()
+        || !complete
+        || !boot && !(preservation_ok && install_exit_ok)
+        || boot && !(luks && net && sudo && distro_ok && user_ok && firmware_ok)
+    {
         return Err(format!(
-            "VM assertion failed: exit={status}, complete={complete}, luks={luks}, network={net}, sudo={sudo}"
+            "VM assertion failed: exit={status}, complete={complete}, luks={luks}, network={net}, sudo={sudo}, firmware={firmware_ok}, preservation={preservation_ok}, installer_exit={install_exit_ok}"
         ));
     }
     println!("BOREA_VM_TEST_PASSED {}", if boot { "boot" } else { "install" });

@@ -1,0 +1,35 @@
+Flathub public appstream audit; exact app ID, maintained state and x86_64 stable bundle metadata; native Flatpak still verifies repository signatures.
+Date: 2026-10-26
+
+PASS flathub com.brave.Browser
+PASS flathub com.discordapp.Discord
+PASS flathub com.github.tchx84.Flatseal
+PASS flathub com.heroicgameslauncher.hgl
+PASS flathub com.obsproject.Studio
+PASS flathub com.spotify.Client
+PASS flathub com.valvesoftware.Steam
+PASS flathub com.vscodium.codium
+PASS flathub im.riot.Riot
+PASS flathub io.mpv.Mpv
+PASS flathub md.obsidian.Obsidian
+PASS flathub net.lutris.Lutris
+PASS flathub net.mullvad.MullvadBrowser
+PASS flathub org.audacityteam.Audacity
+PASS flathub org.blender.Blender
+PASS flathub org.chromium.Chromium
+PASS flathub org.gimp.GIMP
+PASS flathub org.inkscape.Inkscape
+PASS flathub org.kde.kdenlive
+PASS flathub org.kde.krita
+PASS flathub org.kde.okular
+PASS flathub org.keepassxc.KeePassXC
+PASS flathub org.libreoffice.LibreOffice
+PASS flathub org.localsend.localsend_app
+PASS flathub org.mozilla.firefox
+PASS flathub org.onlyoffice.desktopeditors
+PASS flathub org.prismlauncher.PrismLauncher
+PASS flathub org.qbittorrent.qBittorrent
+PASS flathub org.signal.Signal
+PASS flathub org.telegram.desktop
+PASS flathub org.torproject.torbrowser-launcher
+PASS flathub org.videolan.VLC

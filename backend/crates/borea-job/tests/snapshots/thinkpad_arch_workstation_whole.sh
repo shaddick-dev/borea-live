@@ -65,8 +65,8 @@ chroot '/run/borea/tools/arch' '/usr/bin/pacman' '-Sp' '--noconfirm' 'base' 'blu
 # Installing Arch Linux.
 chroot '/run/borea/tools/arch' '/usr/bin/pacstrap' '-K' '/mnt' 'base' 'bluez' 'btrfs-progs' 'cryptsetup' 'cups' 'dosfstools' 'firewalld' 'fprintd' 'intel-media-driver' 'intel-ucode' 'kbd' 'linux' 'linux-firmware' 'mesa' 'nano' 'networkmanager' 'pipewire' 'plasma-meta' 'power-profiles-daemon' 'sbctl' 'sbsigntools' 'sddm' 'sof-firmware' 'sudo' 'systemd' 'systemd-ukify' 'vulkan-intel' 'zram-generator'
 'mount' '-t' 'proc' '-o' 'nosuid,nodev,noexec' 'proc' '/run/borea/target/proc'
-'mount' '-t' 'bind' '-o' 'rbind,ro' '/sys' '/run/borea/target/sys'
-'mount' '-t' 'bind' '-o' 'rbind' '/dev' '/run/borea/target/dev'
+'mount' '-o' 'rbind,ro' '/sys' '/run/borea/target/sys'
+'mount' '-o' 'rbind' '/dev' '/run/borea/target/dev'
 'mount' '-t' 'tmpfs' '-o' 'mode=0755,nosuid,nodev' 'tmpfs' '/run/borea/target/run'
 # Copy only the active NetworkManager profile identified by its UUID, root-owned mode 0600; preserve credentials verbatim. Copy DNS configuration for the native chroot.
 
@@ -172,8 +172,9 @@ chroot /run/borea/target '/usr/bin/sbctl' 'create-keys'
 chroot /run/borea/target '/usr/bin/mkdir' '-p' '/boot/EFI/Linux'
 chroot /run/borea/target '/usr/bin/mkinitcpio' '-P'
 chroot /run/borea/target '/usr/bin/sbctl' 'sign' '--save' '/boot/EFI/systemd/systemd-bootx64.efi'
-chroot /run/borea/target '/usr/bin/sbctl' 'sign' '--save' '/boot/EFI/BOOT/BOOTX64.EFI'
 chroot /run/borea/target '/usr/bin/sbctl' 'sign' '--save' '/boot/EFI/Linux/arch-linux.efi'
+# Only when no pre-existing fallback BOOTX64.EFI was saved: sign and track the newly installed Arch fallback. Existing fallback binaries are never signed or tracked.
+chroot '/run/borea/target' '/usr/bin/sbctl' 'sign' '--save' '/boot/EFI/BOOT/BOOTX64.EFI'
 chroot /run/borea/target '/usr/bin/sbctl' 'enroll-keys' '-m'
 # write target:/boot/loader/entries/arch.conf mode 644
 # title Arch Linux
@@ -194,5 +195,6 @@ chroot /run/borea/target '/usr/bin/sbctl' 'enroll-keys' '-m'
 # Restore the target's native DNS file/symlink and refresh the selected Wi-Fi profile before unmounting.
 '/usr/bin/sync' 
 
-# Cleanup: unmount owned paths in reverse order, stop private GPG agents,
-# and close only this job's encrypted mapping. Preserve the redacted install log.
+# Cleanup: stop child processes only in the job-owned private namespace,
+# unmount owned trees deepest first and close only this job's encrypted mapping.
+# Restore saved EFI/DNS configuration and preserve the redacted install log.

@@ -65,8 +65,8 @@ chroot '/run/borea/tools/arch' '/usr/bin/pacman' '-Sp' '--noconfirm' 'amd-ucode'
 # Installing Arch Linux.
 chroot '/run/borea/tools/arch' '/usr/bin/pacstrap' '-K' '/mnt' 'amd-ucode' 'base' 'base-devel' 'bluez' 'btrfs-progs' 'cryptsetup' 'cups' 'dosfstools' 'firewalld' 'git' 'kbd' 'linux' 'linux-firmware' 'linux-headers' 'nano' 'networkmanager' 'pipewire' 'plasma-meta' 'sddm' 'sudo' 'systemd' 'zram-generator'
 'mount' '-t' 'proc' '-o' 'nosuid,nodev,noexec' 'proc' '/run/borea/target/proc'
-'mount' '-t' 'bind' '-o' 'rbind,ro' '/sys' '/run/borea/target/sys'
-'mount' '-t' 'bind' '-o' 'rbind' '/dev' '/run/borea/target/dev'
+'mount' '-o' 'rbind,ro' '/sys' '/run/borea/target/sys'
+'mount' '-o' 'rbind' '/dev' '/run/borea/target/dev'
 'mount' '-t' 'tmpfs' '-o' 'mode=0755,nosuid,nodev' 'tmpfs' '/run/borea/target/run'
 # Copy only the active NetworkManager profile identified by its UUID, root-owned mode 0600; preserve credentials verbatim. Copy DNS configuration for the native chroot.
 
@@ -167,5 +167,6 @@ chroot /run/borea/target '/usr/bin/bootctl' '--esp-path=/boot' '--boot-path=/boo
 # Restore the target's native DNS file/symlink and refresh the selected Wi-Fi profile before unmounting.
 '/usr/bin/sync' 
 
-# Cleanup: unmount owned paths in reverse order, stop private GPG agents,
-# and close only this job's encrypted mapping. Preserve the redacted install log.
+# Cleanup: stop child processes only in the job-owned private namespace,
+# unmount owned trees deepest first and close only this job's encrypted mapping.
+# Restore saved EFI/DNS configuration and preserve the redacted install log.

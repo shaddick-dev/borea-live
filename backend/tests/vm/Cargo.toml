@@ -18,3 +18,4 @@ borea-exec.workspace = true
 borea-net.workspace = true
 nix.workspace = true
 zeroize.workspace = true
+borea-platform.workspace = true

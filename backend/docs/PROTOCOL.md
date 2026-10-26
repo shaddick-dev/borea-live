@@ -6,7 +6,7 @@ JSON-RPC 2.0, one JSON object per line, at `/run/borea/installd.sock`. Socket mo
 
 | Method | Parameters | Result |
 |---|---|---|
-| `system.info` | none | version, UEFI, Secure Boot, motion |
+| `system.info` | none | version, UEFI, Secure Boot, motion, power facts and low-battery warning |
 | `system.methods` | none | this method registry |
 | `hardware.get` | none | hardware report and automatic driver facts |
 | `net.scan` | none | deduplicated SSIDs, security, strength, known/active |
@@ -17,9 +17,9 @@ JSON-RPC 2.0, one JSON object per line, at `/run/borea/installd.sock`. Socket mo
 | `locale.keyboards` | none | all XKB layouts and variants |
 | `locale.timezones` | none | all compiled time zone identifiers |
 | `catalog.get` | none | single catalog: all distros, sources, profiles, apps and desktops |
-| `disks.list` | none | read-only disk/partition facts and NTFS safety flags |
+| `disks.list` | none | read-only disk/partition facts, NTFS safety flags and per-partition max_linux_size (bytes or null) |
 | `plan.validate` | plan, step? | null or Hint; step accepts a partial draft |
-| `plan.review` | plan | Review, layout, bootstrap, pinned external sources, approval digest |
+| `plan.review` | plan | Review, layout, bootstrap, pinned external sources, approval digest, power facts and warning |
 | `plan.render` | plan | review-only script and approval digest |
 | `install.start` | plan, secrets, approval | job_id; revalidates approval and disk before writes |
 | `install.events` | after? (absolute cursor, initially 0) | events (up to 256), cursor, more, truncated, busy, job_id |

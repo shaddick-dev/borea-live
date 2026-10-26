@@ -58,14 +58,15 @@ chroot '/run/borea/tools/arch' '/usr/bin/pacman' '-Sp' '--noconfirm' 'amd-ucode'
 'mount' '-t' 'btrfs' '-o' 'subvol=@cache,compress=zstd:1,noatime' '/dev/mapper/${MAPPER_NAME}' '/run/borea/target/var/cache'
 'mount' '-t' 'btrfs' '-o' 'subvol=@snapshots,compress=zstd:1,noatime' '/dev/mapper/${MAPPER_NAME}' '/run/borea/target/.snapshots'
 'mount' '-t' 'vfat' '-o' 'umask=0077' '/dev/vda1' '/run/borea/target/boot'
+# Keep existing EFI/BOOT files in bounded RAM before native package/bootloader actions; reject symlinks and oversized trees.
 '/usr/sbin/blkid' '-s' 'UUID' '-o' 'value' '/dev/vda4'
 '/usr/sbin/blkid' '-s' 'UUID' '-o' 'value' '/dev/mapper/${MAPPER_NAME}'
 
 # Installing Arch Linux.
 chroot '/run/borea/tools/arch' '/usr/bin/pacstrap' '-K' '/mnt' 'amd-ucode' 'base' 'base-devel' 'btrfs-progs' 'cryptsetup' 'dosfstools' 'git' 'kbd' 'linux' 'linux-firmware' 'linux-headers' 'nano' 'networkmanager' 'sudo' 'systemd' 'zram-generator'
 'mount' '-t' 'proc' '-o' 'nosuid,nodev,noexec' 'proc' '/run/borea/target/proc'
-'mount' '-t' 'bind' '-o' 'rbind,ro' '/sys' '/run/borea/target/sys'
-'mount' '-t' 'bind' '-o' 'rbind' '/dev' '/run/borea/target/dev'
+'mount' '-o' 'rbind,ro' '/sys' '/run/borea/target/sys'
+'mount' '-o' 'rbind' '/dev' '/run/borea/target/dev'
 'mount' '-t' 'tmpfs' '-o' 'mode=0755,nosuid,nodev' 'tmpfs' '/run/borea/target/run'
 # Copy only the active NetworkManager profile identified by its UUID, root-owned mode 0600; preserve credentials verbatim. Copy DNS configuration for the native chroot.
 
@@ -159,8 +160,10 @@ chroot /run/borea/target '/usr/bin/bootctl' '--esp-path=/boot' '--boot-path=/boo
 # initrd /initramfs-linux.img
 # options rd.luks.name=${LUKS_UUID}=borea-root root=/dev/mapper/borea-root rootflags=subvol=@ 
 # 
+# Restore every existing EFI/BOOT file verbatim before unmounting, also on failure.
 # Restore the target's native DNS file/symlink and refresh the selected Wi-Fi profile before unmounting.
 '/usr/bin/sync' 
 
-# Cleanup: unmount owned paths in reverse order, stop private GPG agents,
-# and close only this job's encrypted mapping. Preserve the redacted install log.
+# Cleanup: stop child processes only in the job-owned private namespace,
+# unmount owned trees deepest first and close only this job's encrypted mapping.
+# Restore saved EFI/DNS configuration and preserve the redacted install log.

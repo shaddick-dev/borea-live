@@ -10,7 +10,7 @@ pub const METHODS: &[Method] = &[
     Method {
         name: "system.info",
         parameters: "none",
-        result: "version, UEFI, Secure Boot, motion",
+        result: "version, UEFI, Secure Boot, motion, power facts and low-battery warning",
     },
     Method { name: "system.methods", parameters: "none", result: "this method registry" },
     Method {
@@ -57,7 +57,7 @@ pub const METHODS: &[Method] = &[
     Method {
         name: "disks.list",
         parameters: "none",
-        result: "read-only disk/partition facts and NTFS safety flags",
+        result: "read-only disk/partition facts, NTFS safety flags and per-partition max_linux_size (bytes or null)",
     },
     Method {
         name: "plan.validate",
@@ -67,7 +67,7 @@ pub const METHODS: &[Method] = &[
     Method {
         name: "plan.review",
         parameters: "plan",
-        result: "Review, layout, bootstrap, pinned external sources, approval digest",
+        result: "Review, layout, bootstrap, pinned external sources, approval digest, power facts and warning",
     },
     Method {
         name: "plan.render",

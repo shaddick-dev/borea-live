@@ -48,7 +48,10 @@ pub enum Action {
     RestoreInitramfs,
     EnrollMok,
     CopyNativeRepositories,
-    InstallEfiFallback { shim: String, grub: String, config: String },
+    InstallEfiFallback { shim: String, grub: String, mok: String, config: String },
+    PreserveEfiFallback,
+    RestoreEfiFallback,
+    SignEfiFallback,
     InstallHelpers,
     ConfigureFstab,
     CopyNetwork,
@@ -117,7 +120,7 @@ impl Job {
                 }
             }
         }
-        out.push_str("\n# Cleanup: unmount owned paths in reverse order, stop private GPG agents,\n# and close only this job's encrypted mapping. Preserve the redacted install log.\n");
+        out.push_str("\n# Cleanup: stop child processes only in the job-owned private namespace,\n# unmount owned trees deepest first and close only this job's encrypted mapping.\n# Restore saved EFI/DNS configuration and preserve the redacted install log.\n");
         out
     }
 }
@@ -446,6 +449,9 @@ pub fn compile(
         fs: Some("vfat".into()),
         options: "umask=0077".into(),
     });
+    if matches!(plan.disk, DiskPlan::Alongside { .. }) {
+        locking.push(Action::PreserveEfiFallback);
+    }
     locking.push(capture(
         Root::Live,
         "/usr/sbin/blkid",
@@ -892,6 +898,7 @@ pub fn compile(
             boot.push(Action::InstallEfiFallback {
                 shim: "/boot/efi/EFI/debian/shimx64.efi".into(),
                 grub: "/boot/efi/EFI/debian/grubx64.efi".into(),
+                mok: "/boot/efi/EFI/debian/mmx64.efi".into(),
                 config: "search --no-floppy --fs-uuid --set=root ${BOOT_UUID}\nset prefix=($root)/grub\nconfigfile $prefix/grub.cfg\n".into(),
             });
             boot.push(run(
@@ -974,11 +981,11 @@ pub fn compile(
         boot.push(target("/usr/bin/mkinitcpio", ["-P"]));
         for file in [
             format!("{}/EFI/systemd/systemd-bootx64.efi", layout.esp_mount),
-            format!("{}/EFI/BOOT/BOOTX64.EFI", layout.esp_mount),
             "/boot/EFI/Linux/arch-linux.efi".into(),
         ] {
             boot.push(target("/usr/bin/sbctl", ["sign".into(), "--save".into(), file]));
         }
+        boot.push(Action::SignEfiFallback);
         boot.push(target("/usr/bin/sbctl", ["enroll-keys", "-m"]));
         boot.push(write(
             "/boot/loader/entries/arch.conf",
@@ -1002,6 +1009,9 @@ pub fn compile(
     if review.mok && plan.distro != Distro::Arch {
         boot.push(install(plan.distro, vec!["mokutil".into()]));
         boot.push(Action::EnrollMok);
+    }
+    if matches!(plan.disk, DiskPlan::Alongside { .. }) {
+        boot.push(Action::RestoreEfiFallback);
     }
     boot.push(Action::RestoreNetwork);
     boot.push(run(Root::Live, "/usr/bin/sync", Vec::<String>::new()));

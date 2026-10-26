@@ -214,7 +214,7 @@ impl Backend {
                 let hw = borea_catalog::probe::probe().map_err(|e| fail(e.to_string()))?;
                 let cmdline = fs::read_to_string("/proc/cmdline").unwrap_or_default();
                 Ok(
-                    json!({"version":env!("CARGO_PKG_VERSION"),"architecture":std::env::consts::ARCH,"uefi":Path::new("/sys/firmware/efi").is_dir(),"secure_boot":hw.secure_boot,"motion":!cmdline.split_whitespace().any(|s|s=="borea.motion=0")}),
+                    json!({"version":env!("CARGO_PKG_VERSION"),"architecture":std::env::consts::ARCH,"uefi":Path::new("/sys/firmware/efi").is_dir(),"secure_boot":hw.secure_boot,"motion":!cmdline.split_whitespace().any(|s|s=="borea.motion=0"),"power":borea_platform::power::probe(Path::new("/"))}),
                 )
             }
             "hardware.get" => {
@@ -282,7 +282,20 @@ impl Backend {
                     .pending_ssid = Some(p.ssid);
                 to_value(borea_net::ConnectionState::Connecting)
             }
-            "disks.list" => to_value(borea_disk::probe()?),
+            "disks.list" => {
+                let facts = borea_disk::probe()?;
+                let mut result = to_value(&facts)?;
+                if let Some(disks) = result["disks"].as_array_mut() {
+                    for (disk, wire) in facts.disks.iter().zip(disks) {
+                        if let Some(parts) = wire["parts"].as_array_mut() {
+                            for (part, wire) in disk.parts.iter().zip(parts) {
+                                wire["max_linux_size"] = to_value(part.max_linux_size())?;
+                            }
+                        }
+                    }
+                }
+                Ok(result)
+            }
             "plan.validate" => {
                 #[derive(Deserialize)]
                 #[serde(deny_unknown_fields)]
@@ -311,7 +324,7 @@ impl Backend {
                 let p: PlanParams = params(input)?;
                 let job = prepare(&p.plan)?;
                 Ok(
-                    json!({"review":job.review,"layout":job.layout,"bootstrap":job.bootstrap,"external":job.external,"approval":job.digest()?}),
+                    json!({"review":job.review,"layout":job.layout,"bootstrap":job.bootstrap,"external":job.external,"approval":job.digest()?,"power":borea_platform::power::probe(Path::new("/"))}),
                 )
             }
             "plan.render" => {

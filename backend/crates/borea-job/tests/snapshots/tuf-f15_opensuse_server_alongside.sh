@@ -70,6 +70,7 @@ chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--non-interactive' 'info' 
 'mount' '-t' 'btrfs' '-o' 'subvol=@/var,compress=zstd:1,noatime' '/dev/mapper/${MAPPER_NAME}' '/run/borea/target/var'
 'mount' '-t' 'btrfs' '-o' 'subvol=@/.snapshots,compress=zstd:1,noatime' '/dev/mapper/${MAPPER_NAME}' '/run/borea/target/.snapshots'
 'mount' '-t' 'vfat' '-o' 'umask=0077' '/dev/vda1' '/run/borea/target/boot'
+# Keep existing EFI/BOOT files in bounded RAM before native package/bootloader actions; reject symlinks and oversized trees.
 '/usr/sbin/blkid' '-s' 'UUID' '-o' 'value' '/dev/vda4'
 '/usr/sbin/blkid' '-s' 'UUID' '-o' 'value' '/dev/mapper/${MAPPER_NAME}'
 
@@ -78,8 +79,8 @@ chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--non-interactive' 'info' 
 chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--root' '/mnt' '--gpg-auto-import-keys' '--non-interactive' 'install' '--auto-agree-with-licenses' '--type' 'pattern' 'minimal_base'
 chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--root' '/mnt' '--non-interactive' 'install' '--auto-agree-with-licenses' 'Mesa-dri' 'NetworkManager' 'btrfsprogs' 'chrony' 'cockpit' 'cryptsetup' 'dracut' 'fail2ban' 'firewalld' 'glibc-locale' 'intel-media-driver' 'kbd' 'kernel-default' 'kernel-firmware-all' 'libvulkan_intel' 'nano' 'nvidia-open-driver-G07-signed-kmp-meta' 'openssh-server' 'power-profiles-daemon' 'rsync' 'sdbootutil' 'shim' 'snapper' 'sof-firmware' 'sudo' 'switcheroo-control' 'systemd' 'systemd-boot' 'tmux' 'ucode-intel' 'zram-generator'
 'mount' '-t' 'proc' '-o' 'nosuid,nodev,noexec' 'proc' '/run/borea/target/proc'
-'mount' '-t' 'bind' '-o' 'rbind,ro' '/sys' '/run/borea/target/sys'
-'mount' '-t' 'bind' '-o' 'rbind' '/dev' '/run/borea/target/dev'
+'mount' '-o' 'rbind,ro' '/sys' '/run/borea/target/sys'
+'mount' '-o' 'rbind' '/dev' '/run/borea/target/dev'
 'mount' '-t' 'tmpfs' '-o' 'mode=0755,nosuid,nodev' 'tmpfs' '/run/borea/target/run'
 # Copy only the active NetworkManager profile identified by its UUID, root-owned mode 0600; preserve credentials verbatim. Copy DNS configuration for the native chroot.
 
@@ -172,8 +173,10 @@ chroot /run/borea/target '/usr/bin/dracut' '--regenerate-all' '--force'
 # 
 chroot /run/borea/target '/usr/bin/sdbootutil' '--esp-path' '/boot' '--arch' 'x64' '--secure-boot' 'install'
 chroot /run/borea/target '/usr/bin/sdbootutil' '--esp-path' '/boot' '--arch' 'x64' 'add-all-kernels'
+# Restore every existing EFI/BOOT file verbatim before unmounting, also on failure.
 # Restore the target's native DNS file/symlink and refresh the selected Wi-Fi profile before unmounting.
 '/usr/bin/sync' 
 
-# Cleanup: unmount owned paths in reverse order, stop private GPG agents,
-# and close only this job's encrypted mapping. Preserve the redacted install log.
+# Cleanup: stop child processes only in the job-owned private namespace,
+# unmount owned trees deepest first and close only this job's encrypted mapping.
+# Restore saved EFI/DNS configuration and preserve the redacted install log.

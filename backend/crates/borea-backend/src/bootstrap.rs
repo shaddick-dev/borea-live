@@ -30,6 +30,27 @@ fn find_hash(text: &str, name: &str) -> Option<String> {
             .map(str::to_ascii_lowercase)
     })
 }
+fn suse_archive(listing: &str) -> Result<String, Hint> {
+    let mut names = listing
+        .split(['\"', '\''])
+        .filter(|name| {
+            name.starts_with("openSUSE-Tumbleweed-")
+                && name.contains("Container")
+                && name.contains("Base")
+                && name.contains("x86_64")
+                && [".tar.xz", ".tar.zst", ".tar.gz"].iter().any(|suffix| name.ends_with(suffix))
+                && crate::external::identifier(name)
+        })
+        .collect::<Vec<_>>();
+    names.sort_by_key(|name| (!name.contains("latest"), *name));
+    names.dedup();
+    names.last().map(|name| (*name).to_owned()).ok_or_else(|| {
+        hint(
+            "bootstrap",
+            "The official Tumbleweed appliance listing contains no x86-64 Container Base archive.",
+        )
+    })
+}
 pub fn resolve(plan: &Plan) -> Result<Bootstrap, Hint> {
     let keyring = format!("/usr/share/keyrings/borea/{}.gpg", plan.distro.key());
     let artifact = match plan.distro {
@@ -109,14 +130,13 @@ pub fn resolve(plan: &Plan) -> Result<Bootstrap, Hint> {
             })
         }
         Distro::OpenSuse => {
-            let url = "https://download.opensuse.org/tumbleweed/appliances/openSUSE-Tumbleweed-Container-Base.latest.x86_64.tar.xz";
-            let name = url
-                .rsplit('/')
-                .next()
-                .ok_or_else(|| hint("bootstrap", "Invalid Tumbleweed artifact URL."))?;
+            let base = "https://download.opensuse.org/tumbleweed/appliances";
+            let listing = text(&format!("{base}/"))?;
+            let name = suse_archive(&listing)?;
+            let url = format!("{base}/{name}");
             let metadata = format!("{url}.sha256");
             let sums = text(&metadata)?;
-            let sha256 = find_hash(&sums, name).ok_or_else(|| {
+            let sha256 = find_hash(&sums, &name).ok_or_else(|| {
                 hint("bootstrap", "The Tumbleweed rootfs has no published SHA-256.")
             })?;
             let signature_url = if sums.starts_with("-----BEGIN PGP SIGNED MESSAGE-----") {
@@ -125,9 +145,9 @@ pub fn resolve(plan: &Plan) -> Result<Bootstrap, Hint> {
                 format!("{metadata}.asc")
             };
             Some(Artifact {
-                checksum: Some(ChecksumProof { url: metadata, filename: name.into() }),
+                checksum: Some(ChecksumProof { url: metadata, filename: name }),
                 signature_url,
-                url: url.into(),
+                url,
                 sha256,
                 keyring,
             })
@@ -146,5 +166,14 @@ mod tests {
         assert!(checksum_matches(&format!("{h}  image.tar.xz"), "image.tar.xz", &h));
         assert!(checksum_matches(&format!("SHA256 (image.tar.xz) = {h}"), "image.tar.xz", &h));
         assert!(!checksum_matches(&format!("{h}  other.tar"), "image.tar.xz", &h));
+    }
+    #[test]
+    fn tumbleweed_discovers_dated_native_archives_without_inventing_a_filename() {
+        let dated = "openSUSE-Tumbleweed-Container-Base.x86_64-20261024.tar.xz";
+        let listing = format!(
+            "<a href=\"openSUSE-Tumbleweed-Container-Base.latest.x86_64.tar.xz\">latest</a><a href='{dated}'>dated</a><a href=\"../openSUSE-Tumbleweed-Container-Base.x86_64.tar.xz\">escape</a><a href=\"openSUSE-Tumbleweed-Container-Base.aarch64.tar.xz\">other</a>"
+        );
+        assert_eq!(suse_archive(&listing).ok().as_deref(), Some(dated));
+        assert!(suse_archive("<a href=\"unrelated.tar.xz\">wrong</a>").is_err());
     }
 }

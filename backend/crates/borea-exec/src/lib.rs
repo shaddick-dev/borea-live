@@ -144,6 +144,7 @@ pub struct Session {
     initramfs_deferred: bool,
     wifi_profile: Option<(String, Zeroizing<String>)>,
     resolv_state: Option<ResolvState>,
+    preserved_efi: Option<BTreeMap<PathBuf, Vec<u8>>>,
     _install_lock: nix::fcntl::Flock<File>,
     namespace: runtime::PrivateNamespace,
     command_failure: Option<(Option<i32>, Vec<String>)>,
@@ -237,6 +238,7 @@ impl Session {
             initramfs_deferred: false,
             wifi_profile: None,
             resolv_state: None,
+            preserved_efi: None,
             _install_lock: install_lock,
             namespace,
             command_failure: None,
@@ -252,6 +254,12 @@ impl Session {
                 let id = format!("{}.{}", self.stage, self.action);
                 let action = stage.actions[self.action].clone();
                 if self.stage == 1 && self.action == 0 {
+                    if let Some(warning) = borea_platform::power::probe(Path::new("/")).warning {
+                        self.log
+                            .write_all(format!("WARNING: {warning}\n").as_bytes())
+                            .map_err(|e| err(e.to_string()))?;
+                        emit(Event::Line { stderr: true, text: warning });
+                    }
                     let facts = borea_disk::probe()?;
                     borea_disk::validate(
                         &self.job.plan.disk,
@@ -276,20 +284,14 @@ impl Session {
                     let retryable = matches!(&action,Action::Run(c) if c.retry && ["/usr/bin/apt-get","/usr/bin/dnf","/usr/bin/pacman","/usr/bin/zypper","/usr/bin/flatpak","/usr/sbin/akmods"].contains(&c.program.as_str()))
                         && self.stage > 2;
                     let (exit_code, stderr_tail) = self.command_failure.take().unwrap_or_default();
+                    let suggestion = runtime::fault_suggestion(&error.message, &stderr_tail).into();
                     let fault = Fault {
                         action_id: id,
                         title: error.message.clone(),
                         command: self.redactor.redact(&format!("{action:?}")),
                         exit_code,
                         stderr_tail,
-                        suggestion: if error.message.contains("signature")
-                            || error.message.contains("key")
-                        {
-                            "Check the upstream signing key and retry verification."
-                        } else {
-                            "Check the connection and available space; inspect the redacted log."
-                        }
-                        .into(),
+                        suggestion,
                         retryable,
                     };
                     emit(Event::Failed { fault: fault.clone() });
@@ -372,7 +374,7 @@ impl Session {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                     io(fs::create_dir(&current))?;
                     let permissions = if current == destination { mode } else { 0o755 };
-                    io(fs::set_permissions(&current, fs::Permissions::from_mode(permissions)))?;
+                    runtime::set_mode(&current, permissions)?;
                 }
                 Err(error) => return Err(err(error.to_string())),
             }
@@ -420,7 +422,7 @@ impl Session {
             .mode(mode)
             .custom_flags(nix::libc::O_NOFOLLOW)
             .open(&path))?;
-        io(f.set_permissions(fs::Permissions::from_mode(mode)))?;
+        runtime::set_mode(&path, mode)?;
         io(f.write_all(contents.as_bytes()))?;
         io(f.sync_all())
     }
@@ -820,9 +822,33 @@ impl Session {
                 self.mounted.retain(|p| p != Path::new(path));
             }
             Action::AcquireToolRoot { artifact } => self.acquire(artifact, emit)?,
-            Action::InstallEfiFallback { shim, grub, config } => {
+            Action::PreserveEfiFallback => {
+                let path = self.target_path(&format!("{}/EFI/BOOT", self.job.layout.esp_mount))?;
+                self.preserved_efi = Some(runtime::capture_efi(&path)?);
+            }
+            Action::RestoreEfiFallback => self.restore_efi()?,
+            Action::SignEfiFallback => {
+                let existing = self.preserved_efi.as_ref().is_some_and(|files| {
+                    files
+                        .keys()
+                        .any(|path| path.to_string_lossy().eq_ignore_ascii_case("BOOTX64.EFI"))
+                });
+                if !existing {
+                    self.command(
+                        Root::Target,
+                        "/usr/bin/sbctl",
+                        vec![
+                            "sign".into(),
+                            "--save".into(),
+                            format!("{}/EFI/BOOT/BOOTX64.EFI", self.job.layout.esp_mount),
+                        ],
+                        emit,
+                    )?;
+                }
+            }
+            Action::InstallEfiFallback { shim, grub, mok, config } => {
                 let directory = "/boot/efi/EFI/BOOT";
-                let files = ["BOOTX64.EFI", "grubx64.efi", "grub.cfg"];
+                let files = ["BOOTX64.EFI", "grubx64.efi", "mmx64.efi", "grub.cfg"];
                 let existing = files.iter().any(|name| {
                     Path::new(TARGET)
                         .join(directory.trim_start_matches('/'))
@@ -831,7 +857,9 @@ impl Session {
                         .is_ok()
                 });
                 if !existing {
-                    for (source, name) in [(shim, "BOOTX64.EFI"), (grub, "grubx64.efi")] {
+                    for (source, name) in
+                        [(shim, "BOOTX64.EFI"), (grub, "grubx64.efi"), (mok, "mmx64.efi")]
+                    {
                         let source = self.target_path(source)?;
                         let path = self.target_path(&format!("{directory}/{name}"))?;
                         let mut file = io(OpenOptions::new()
@@ -1477,7 +1505,13 @@ impl Session {
             return Err(err("The live environment is missing mkfs.ext4."));
         }
         if matches!(self.job.plan.disk, borea_core::DiskPlan::Alongside { .. }) {
-            for tool in ["/usr/sbin/ntfsresize", "/usr/sbin/parted"] {
+            for tool in [
+                "/usr/sbin/ntfsresize",
+                "/usr/sbin/parted",
+                "/usr/bin/ntfsinfo",
+                "/usr/bin/ntfsls",
+                "/usr/bin/ntfscat",
+            ] {
                 borea_platform::live_program(tool)?;
             }
         }
@@ -1815,8 +1849,36 @@ impl Session {
         }
         Ok(())
     }
+    fn restore_efi(&mut self) -> Result<(), Hint> {
+        if let Some(files) = &self.preserved_efi {
+            for (relative, contents) in files {
+                let destination =
+                    format!("{}/EFI/BOOT/{}", self.job.layout.esp_mount, relative.display());
+                let parent = Path::new(&destination)
+                    .parent()
+                    .and_then(Path::to_str)
+                    .ok_or_else(|| err("Invalid EFI backup path."))?;
+                self.directory(parent, 0o700)?;
+                let path = self.target_path(&destination)?;
+                let mut file = io(OpenOptions::new()
+                    .create(true)
+                    .truncate(true)
+                    .write(true)
+                    .mode(0o600)
+                    .custom_flags(nix::libc::O_NOFOLLOW)
+                    .open(path))?;
+                io(file.write_all(contents))?;
+                io(file.sync_all())?;
+            }
+            self.preserved_efi = None;
+        }
+        Ok(())
+    }
     pub fn cleanup(&mut self) -> Result<(), Hint> {
         let mut errors = Vec::new();
+        if let Err(error) = self.restore_efi() {
+            errors.push(error.message);
+        }
         if let Err(error) = self.restore_network() {
             errors.push(error.message);
         }

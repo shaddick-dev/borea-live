@@ -79,8 +79,8 @@ chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--non-interactive' 'info' 
 chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--root' '/mnt' '--gpg-auto-import-keys' '--non-interactive' 'install' '--auto-agree-with-licenses' '--type' 'pattern' 'minimal_base'
 chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--root' '/mnt' '--non-interactive' 'install' '--auto-agree-with-licenses' 'NetworkManager' 'btrfsprogs' 'cryptsetup' 'dracut' 'glibc-locale' 'kbd' 'kernel-default' 'kernel-firmware-all' 'nano' 'nvidia-open-driver-G07-signed-kmp-meta' 'sdbootutil' 'shim' 'snapper' 'sudo' 'systemd' 'systemd-boot' 'ucode-intel' 'zram-generator'
 'mount' '-t' 'proc' '-o' 'nosuid,nodev,noexec' 'proc' '/run/borea/target/proc'
-'mount' '-t' 'bind' '-o' 'rbind,ro' '/sys' '/run/borea/target/sys'
-'mount' '-t' 'bind' '-o' 'rbind' '/dev' '/run/borea/target/dev'
+'mount' '-o' 'rbind,ro' '/sys' '/run/borea/target/sys'
+'mount' '-o' 'rbind' '/dev' '/run/borea/target/dev'
 'mount' '-t' 'tmpfs' '-o' 'mode=0755,nosuid,nodev' 'tmpfs' '/run/borea/target/run'
 # Copy only the active NetworkManager profile identified by its UUID, root-owned mode 0600; preserve credentials verbatim. Copy DNS configuration for the native chroot.
 
@@ -161,5 +161,6 @@ chroot /run/borea/target '/usr/bin/sdbootutil' '--esp-path' '/boot' '--arch' 'x6
 # Restore the target's native DNS file/symlink and refresh the selected Wi-Fi profile before unmounting.
 '/usr/bin/sync' 
 
-# Cleanup: unmount owned paths in reverse order, stop private GPG agents,
-# and close only this job's encrypted mapping. Preserve the redacted install log.
+# Cleanup: stop child processes only in the job-owned private namespace,
+# unmount owned trees deepest first and close only this job's encrypted mapping.
+# Restore saved EFI/DNS configuration and preserve the redacted install log.

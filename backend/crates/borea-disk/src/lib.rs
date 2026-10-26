@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 //! Read-only device discovery and pure UEFI partition layout calculation.
+mod journal;
+mod ntfs;
 use borea_core::{DiskId, DiskPlan, Distribution as Distro, GIB, Hint, hint};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -23,6 +25,22 @@ pub struct Partition {
     pub ntfs_hibernated: bool,
     pub ntfs_dirty: bool,
     pub ntfs_min_size: Option<u64>,
+}
+impl Partition {
+    /// Space available for Linux after retaining the verified NTFS minimum and
+    /// 30 GiB of additional Windows space, rounded down to a MiB boundary.
+    pub fn max_linux_size(&self) -> Option<u64> {
+        if self.fs != "ntfs"
+            || !self.ntfs_checked
+            || self.ntfs_dirty
+            || self.ntfs_hibernated
+            || self.bitlocker
+        {
+            return None;
+        }
+        let available = self.size.checked_sub(self.ntfs_min_size?.checked_add(30 * GIB)?)?;
+        Some(available / (1024 * 1024) * (1024 * 1024))
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Disk {
@@ -179,36 +197,7 @@ pub fn probe() -> Result<DiskFacts, Hint> {
                 }
             }
             if part.fs == "ntfs" && !part.bitlocker {
-                if let Ok(status) = Command::new(
-                    borea_platform::live_program("/usr/bin/ntfs-3g.probe")
-                        .unwrap_or_else(|_| "/usr/bin/ntfs-3g.probe".into()),
-                )
-                .arg("--readwrite")
-                .arg(&part.path)
-                .status()
-                {
-                    part.ntfs_checked = true;
-                    part.ntfs_hibernated = status.code() == Some(14);
-                    part.ntfs_dirty = !status.success() && !part.ntfs_hibernated;
-                }
-                if let Ok(out) = Command::new(
-                    borea_platform::live_program("/usr/sbin/ntfsresize")
-                        .unwrap_or_else(|_| "/usr/sbin/ntfsresize".into()),
-                )
-                .args(["--info", "--no-progress-bar"])
-                .arg(&part.path)
-                .env("LC_ALL", "C")
-                .output()
-                {
-                    if out.status.success() {
-                        part.ntfs_min_size =
-                            String::from_utf8_lossy(&out.stdout).lines().find_map(|line| {
-                                line.strip_prefix("You might resize at ")
-                                    .and_then(|s| s.split_whitespace().next())
-                                    .and_then(|s| s.parse().ok())
-                            });
-                    }
-                }
+                ntfs::inspect(part);
             }
         }
     }

@@ -80,6 +80,7 @@ fn alongside_preserves_windows_and_refuses_unsafe_ntfs() {
         ntfs_min_size: Some(10 * GIB),
     };
     let mut esp = w.clone();
+    assert_eq!(w.max_linux_size(), Some(50 * GIB));
     esp.path = "/dev/vda1".into();
     esp.number = 1;
     esp.efi = true;
@@ -95,6 +96,18 @@ fn alongside_preserves_windows_and_refuses_unsafe_ntfs() {
     let l = layout(&p.disk, &f, p.distro, true).unwrap();
     assert!(!l.changes.iter().any(|c| matches!(c, Change::Wipe)));
     assert!(l.changes.iter().any(|c| matches!(c, Change::ResizeNtfs { number: 3, .. })));
+    let mut small_esp = f.clone();
+    small_esp.disks[0].parts[0].free = Some(50 * 1024 * 1024);
+    for distro in [Distribution::Arch, Distribution::OpenSuse] {
+        let layout = layout(&p.disk, &small_esp, distro, true).unwrap();
+        assert_eq!(layout.boot_fs, "vfat");
+        assert_eq!(layout.esp_mount, "/efi");
+        assert!(layout.changes.iter().any(
+            |change| matches!(change, Change::Create { type_code, .. } if type_code == "ea00")
+        ));
+    }
+    small_esp.disks[0].parts[0].free = Some(31 * 1024 * 1024);
+    assert!(layout(&p.disk, &small_esp, p.distro, true).is_err());
     for flag in 0..3 {
         let mut f = f.clone();
         match flag {
@@ -103,6 +116,7 @@ fn alongside_preserves_windows_and_refuses_unsafe_ntfs() {
             _ => f.disks[0].parts[1].ntfs_checked = false,
         }
         assert!(layout(&p.disk, &f, p.distro, true).is_err());
+        assert_eq!(f.disks[0].parts[1].max_linux_size(), None);
     }
 }
 #[test]

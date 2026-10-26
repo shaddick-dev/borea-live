@@ -188,7 +188,9 @@ pub const APPS: &[App] = &[
             n(OpenSuse, "MozillaThunderbird", OO),
         ],
         aur: None,
-        flatpak: Some("org.mozilla.Thunderbird"),
+        // Flathub's live metadata marks org.mozilla.Thunderbird end-of-life.
+        // Native packages remain available on all four distributions.
+        flatpak: None,
         appimage: None,
     },
     App {

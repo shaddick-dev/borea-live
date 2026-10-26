@@ -47,14 +47,15 @@ chroot '/run/borea/tools/fedora' '/usr/bin/dnf' 'environment' 'info' 'kde-deskto
 'mount' '-t' 'btrfs' '-o' 'subvol=home,compress=zstd:1,noatime' '/dev/mapper/${MAPPER_NAME}' '/run/borea/target/home'
 'mount' '-t' 'ext4' '-o' 'defaults' '/dev/vda4' '/run/borea/target/boot'
 'mount' '-t' 'vfat' '-o' 'umask=0077' '/dev/vda1' '/run/borea/target/boot/efi'
+# Keep existing EFI/BOOT files in bounded RAM before native package/bootloader actions; reject symlinks and oversized trees.
 '/usr/sbin/blkid' '-s' 'UUID' '-o' 'value' '/dev/vda5'
 '/usr/sbin/blkid' '-s' 'UUID' '-o' 'value' '/dev/mapper/${MAPPER_NAME}'
 
 # Installing Fedora.
 chroot '/run/borea/tools/fedora' '/usr/bin/dnf' '--installroot=/mnt' '--releasever=43' '--use-host-config' 'install' '-y' '@core' '@kde-desktop-environment' 'NetworkManager' 'alsa-sof-firmware' 'bluez' 'btrfs-progs' 'cryptsetup' 'cups' 'dracut' 'efibootmgr' 'firewalld' 'fprintd' 'fprintd-pam' 'glibc-langpack-en' 'grub2-efi-x64' 'grub2-tools' 'grubby' 'kbd' 'kernel' 'kernel-core' 'kernel-modules' 'libva-intel-media-driver' 'linux-firmware' 'mesa-dri-drivers' 'mesa-vulkan-drivers' 'microcode_ctl' 'nano' 'os-prober' 'pipewire' 'policycoreutils' 'sddm' 'selinux-policy-targeted' 'shim-x64' 'sudo' 'systemd' 'tuned-ppd' 'zram-generator'
 'mount' '-t' 'proc' '-o' 'nosuid,nodev,noexec' 'proc' '/run/borea/target/proc'
-'mount' '-t' 'bind' '-o' 'rbind,ro' '/sys' '/run/borea/target/sys'
-'mount' '-t' 'bind' '-o' 'rbind' '/dev' '/run/borea/target/dev'
+'mount' '-o' 'rbind,ro' '/sys' '/run/borea/target/sys'
+'mount' '-o' 'rbind' '/dev' '/run/borea/target/dev'
 'mount' '-t' 'tmpfs' '-o' 'mode=0755,nosuid,nodev' 'tmpfs' '/run/borea/target/run'
 # Copy only the active NetworkManager profile identified by its UUID, root-owned mode 0600; preserve credentials verbatim. Copy DNS configuration for the native chroot.
 
@@ -122,8 +123,10 @@ chroot /run/borea/target '/usr/sbin/grub2-mkconfig' '-o' '/boot/grub2/grub.cfg'
 # -F
 # 
 '/usr/sbin/efibootmgr' '--create' '--disk' '/dev/vda' '--part' '1' '--label' 'Fedora' '--loader' '\EFI\fedora\shimx64.efi'
+# Restore every existing EFI/BOOT file verbatim before unmounting, also on failure.
 # Restore the target's native DNS file/symlink and refresh the selected Wi-Fi profile before unmounting.
 '/usr/bin/sync' 
 
-# Cleanup: unmount owned paths in reverse order, stop private GPG agents,
-# and close only this job's encrypted mapping. Preserve the redacted install log.
+# Cleanup: stop child processes only in the job-owned private namespace,
+# unmount owned trees deepest first and close only this job's encrypted mapping.
+# Restore saved EFI/DNS configuration and preserve the redacted install log.

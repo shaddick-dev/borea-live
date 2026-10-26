@@ -23,20 +23,14 @@ fn note(out: &mut String, text: &str) {
 }
 pub(crate) fn helper(job: &Job, action: &Action, out: &mut String) {
     match action {
-        Action::Mount { source, path, fs, options } => command(
-            out,
-            job,
-            Root::Live,
-            "mount",
-            vec![
-                "-t".into(),
-                fs.as_deref().unwrap_or("bind").into(),
-                "-o".into(),
-                options.clone(),
-                source.clone(),
-                path.clone(),
-            ],
-        ),
+        Action::Mount { source, path, fs, options } => {
+            let mut args = Vec::new();
+            if let Some(fs) = fs {
+                args.extend(["-t".into(), fs.clone()]);
+            }
+            args.extend(["-o".into(), options.clone(), source.clone(), path.clone()]);
+            command(out, job, Root::Live, "mount", args);
+        }
         Action::Unmount { path } => command(out, job, Root::Live, "umount", vec![path.clone()]),
         Action::AcquireToolRoot { artifact } => {
             let root = format!("/run/borea/tools/{}", job.plan.distro.key());
@@ -56,18 +50,17 @@ pub(crate) fn helper(job: &Job, action: &Action, out: &mut String) {
                         proof.url, proof.filename
                     ),
                 );
-                command(
-                    out,
-                    job,
-                    Root::Live,
-                    "/usr/bin/gpgv",
-                    vec![
-                        "--keyring".into(),
-                        artifact.keyring.clone(),
-                        format!("{root}.sig"),
+                let mut args = vec!["--keyring".into(), artifact.keyring.clone()];
+                if proof.url == artifact.signature_url {
+                    args.extend([
+                        "--output".into(),
+                        format!("{root}.verified-checksums"),
                         format!("{root}.checksums"),
-                    ],
-                );
+                    ]);
+                } else {
+                    args.extend([format!("{root}.sig"), format!("{root}.checksums")]);
+                }
+                command(out, job, Root::Live, "/usr/bin/gpgv", args);
             } else {
                 command(
                     out,
@@ -583,12 +576,37 @@ pub(crate) fn helper(job: &Job, action: &Action, out: &mut String) {
             out,
             "Install the static Rust first-boot/updater helper, an empty root-owned queue, and its systemd units.",
         ),
-        Action::InstallEfiFallback { shim, grub, .. } => note(
+        Action::InstallEfiFallback { shim, grub, mok, .. } => note(
             out,
             &format!(
-                "Only when EFI/BOOT contains none of BOOTX64.EFI, grubx64.efi or grub.cfg: copy {shim}, {grub} and the UUID-based loader configuration. Preserve existing fallback files."
+                "Only when EFI/BOOT contains none of BOOTX64.EFI, grubx64.efi, mmx64.efi or grub.cfg: copy {shim}, {grub}, {mok} and the UUID-based loader configuration. Preserve existing fallback files."
             ),
         ),
+        Action::PreserveEfiFallback => note(
+            out,
+            "Keep existing EFI/BOOT files in bounded RAM before native package/bootloader actions; reject symlinks and oversized trees.",
+        ),
+        Action::RestoreEfiFallback => note(
+            out,
+            "Restore every existing EFI/BOOT file verbatim before unmounting, also on failure.",
+        ),
+        Action::SignEfiFallback => {
+            note(
+                out,
+                "Only when no pre-existing fallback BOOTX64.EFI was saved: sign and track the newly installed Arch fallback. Existing fallback binaries are never signed or tracked.",
+            );
+            command(
+                out,
+                job,
+                Root::Target,
+                "/usr/bin/sbctl",
+                vec![
+                    "sign".into(),
+                    "--save".into(),
+                    format!("{}/EFI/BOOT/BOOTX64.EFI", job.layout.esp_mount),
+                ],
+            );
+        }
         Action::Note { message } => note(out, message),
         Action::Run(_) | Action::WriteFile { .. } => {}
     }

@@ -6,6 +6,7 @@ use std::{
     fs,
     path::Path,
 };
+mod fixture;
 fn run() -> Result<(), Hint> {
     let marker = "/sys/firmware/qemu_fw_cfg/by_name/opt/borea/autotest/raw";
     if !Path::new(marker).is_file()
@@ -17,13 +18,33 @@ fn run() -> Result<(), Hint> {
             "This test binary only runs in an explicitly marked disposable QEMU guest.",
         ));
     }
-    let facts = borea_disk::probe()?;
+    let mut facts = borea_disk::probe()?;
     println!("BOREA_DISK_INVENTORY {facts:?}");
     let disk = facts
         .disks
         .iter()
         .find(|d| d.id.serial.as_deref() == Some("BOREA-TEST-TARGET"))
-        .ok_or_else(|| hint("vm", "The disposable target disk was not found."))?;
+        .ok_or_else(|| hint("vm", "The disposable target disk was not found."))?
+        .clone();
+    let alongside = fs::read_to_string("/sys/firmware/qemu_fw_cfg/by_name/opt/borea/layout/raw")
+        .ok()
+        .as_deref()
+        == Some("alongside");
+    if alongside {
+        fixture::prepare(&disk)?;
+        facts = borea_disk::probe()?;
+    }
+    let disk = facts
+        .disks
+        .iter()
+        .find(|d| d.id == disk.id)
+        .ok_or_else(|| hint("vm", "The test disk changed during fixture preparation."))?;
+    let (preserved, disk_plan) = if alongside {
+        let (fixture, plan) = fixture::Preserved::select(disk)?;
+        (Some(fixture), plan)
+    } else {
+        (None, DiskPlan::Whole { disk: disk.id.clone() })
+    };
     let distro = match fs::read_to_string("/sys/firmware/qemu_fw_cfg/by_name/opt/borea/distro/raw")
         .unwrap_or_else(|_| "debian".into())
         .as_str()
@@ -63,7 +84,7 @@ fn run() -> Result<(), Hint> {
         apps: BTreeSet::new(),
         prefer: SourcePreference::Native,
         sources: BTreeMap::new(),
-        disk: DiskPlan::Whole { disk: disk.id.clone() },
+        disk: disk_plan,
         user: Identity {
             full_name: "Disposable VM Test".into(),
             username: "boreatest".into(),
@@ -72,6 +93,17 @@ fn run() -> Result<(), Hint> {
         },
     };
     let hw = borea_catalog::probe::probe().map_err(|e| hint("vm", e.to_string()))?;
+    if fs::read_to_string("/sys/firmware/qemu_fw_cfg/by_name/opt/borea/secure-boot/raw")
+        .ok()
+        .as_deref()
+        == Some("1")
+        && !hw.secure_boot
+    {
+        return Err(hint(
+            "vm",
+            "The Secure Boot test must start with firmware enforcement enabled.",
+        ));
+    }
     borea_net::check_mirror(borea_backend::mirror(distro))?;
     let bootstrap = borea_backend::bootstrap::resolve(&plan)?;
     let mut job = borea_job::compile(&plan, &hw, &facts, &bootstrap)?;
@@ -90,7 +122,11 @@ fn run() -> Result<(), Hint> {
         borea_exec::Event::Failed { fault } => println!("BOREA_FAILED {}", fault.title),
         borea_exec::Event::Finished => println!("BOREA_INSTALL_COMPLETE"),
         _ => {}
-    })
+    })?;
+    if let Some(preserved) = preserved {
+        preserved.verify(&borea_disk::probe()?)?;
+    }
+    Ok(())
 }
 fn main() -> std::process::ExitCode {
     match run() {

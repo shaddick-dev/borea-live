@@ -86,6 +86,24 @@ fn secrets_are_redacted_and_separate_admin_required() {
     assert!(secrets.validate(&id).is_err());
     assert!(!format!("{secrets:?}").contains("correct horse"));
 }
+#[test]
+fn passphrase_limits_match_interactive_disk_unlock_bytes() {
+    let identity = common::plan(Distribution::Arch, false).user;
+    for value in ["x".repeat(512), "💨".repeat(128)] {
+        assert!(
+            Secrets { wifi: None, passphrase: Secret::new(value), admin: None }
+                .validate(&identity)
+                .is_ok()
+        );
+    }
+    for value in ["x".repeat(513), "💨".repeat(129)] {
+        assert!(
+            Secrets { wifi: None, passphrase: Secret::new(value), admin: None }
+                .validate(&identity)
+                .is_err()
+        );
+    }
+}
 
 #[test]
 fn arch_signed_boot_requires_an_explicit_choice_and_setup_mode() {
