@@ -1,0 +1,163 @@
+{
+  "v": 3,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-10-25T16:40:00Z"
+  },
+  "title": "Boreal Live ISO",
+  "launch": {
+    "view": "canvas"
+  },
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "01 \u00b7 Visual language"
+    },
+    "Flow.dc.html": {
+      "x": 1520,
+      "y": 0,
+      "w": 1440,
+      "h": 900,
+      "title": "02 \u00b7 Flow & state machine"
+    },
+    "Prototype.dc.html": {
+      "x": 3040,
+      "y": 0,
+      "w": 1280,
+      "h": 800,
+      "title": "\u25b6 Prototype \u00b7 click through, watch the wind",
+      "is_interactive": true
+    },
+    "Network.dc.html": {
+      "x": 0,
+      "y": 1300,
+      "w": 1280,
+      "h": 800,
+      "title": "01 \u00b7 Online",
+      "is_interactive": true
+    },
+    "Welcome.dc.html": {
+      "x": 1360,
+      "y": 1300,
+      "w": 1280,
+      "h": 800,
+      "title": "02 \u00b7 Language & region",
+      "is_interactive": true
+    },
+    "Compose.dc.html": {
+      "x": 2720,
+      "y": 1300,
+      "w": 1280,
+      "h": 800,
+      "title": "03 \u00b7 Distro",
+      "is_interactive": true
+    },
+    "Packs.dc.html": {
+      "x": 5440,
+      "y": 1300,
+      "w": 1280,
+      "h": 800,
+      "title": "05 \u00b7 Apps \u00b7 profiles & customization",
+      "is_interactive": true
+    },
+    "Disk.dc.html": {
+      "x": 6800,
+      "y": 1300,
+      "w": 1280,
+      "h": 800,
+      "title": "06 \u00b7 Disk",
+      "is_interactive": true
+    },
+    "You.dc.html": {
+      "x": 8160,
+      "y": 1300,
+      "w": 1280,
+      "h": 800,
+      "title": "07 \u00b7 You",
+      "is_interactive": true
+    },
+    "Review.dc.html": {
+      "x": 9520,
+      "y": 1300,
+      "w": 1280,
+      "h": 800,
+      "title": "08 \u00b7 Review",
+      "is_interactive": true
+    },
+    "Install.dc.html": {
+      "x": 10880,
+      "y": 1300,
+      "w": 1280,
+      "h": 800,
+      "title": "09 \u00b7 Install",
+      "is_interactive": true
+    },
+    "Done.dc.html": {
+      "x": 12240,
+      "y": 1300,
+      "w": 1280,
+      "h": 800,
+      "title": "10 \u00b7 Done",
+      "is_interactive": true
+    },
+    "Logic.dc.html": {
+      "x": 0,
+      "y": 2440,
+      "w": 1440,
+      "h": 1300,
+      "title": "03 \u00b7 Rust architecture"
+    },
+    "Desktop.dc.html": {
+      "x": 4080,
+      "y": 1300,
+      "w": 1280,
+      "h": 800,
+      "title": "04 \u00b7 Desktop",
+      "is_interactive": true
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Flow.dc.html",
+    "Prototype.dc.html",
+    "Network.dc.html",
+    "Welcome.dc.html",
+    "Compose.dc.html",
+    "Desktop.dc.html",
+    "Packs.dc.html",
+    "Disk.dc.html",
+    "You.dc.html",
+    "Review.dc.html",
+    "Install.dc.html",
+    "Done.dc.html",
+    "Logic.dc.html"
+  ],
+  "notes": {
+    "t1": {
+      "x": 0,
+      "y": -300,
+      "text": "Borea \u2014 language, flow, prototype",
+      "kind": "title1",
+      "maxW": 4320
+    },
+    "t2": {
+      "x": 0,
+      "y": 1020,
+      "text": "Screens \u2014 icy Nord, bold, wind between every slide",
+      "kind": "title1",
+      "maxW": 13520
+    },
+    "t3": {
+      "x": 0,
+      "y": 2180,
+      "text": "Logic \u2014 Rust core",
+      "kind": "title1",
+      "maxW": 1440
+    }
+  },
+  "designSystems": []
+}

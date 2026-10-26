@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Borea visual language</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#1F2B2A}
+a{color:#E8B35E}a:hover{color:#ECE6D9}
+@keyframes bw-drift{from{transform:translateX(0)}to{transform:translateX(-2000px)}}
+.bw-wind{position:absolute;height:1px;background:#7E918C;opacity:.6;animation:bw-drift linear infinite}
+@media (prefers-reduced-motion: reduce){.bw-wind{display:none}}
+</style>
+</helmet>
+<div style="position: relative; width: 1440px; height: 900px; overflow: hidden; box-sizing: border-box; padding: 80px 120px; background: #1F2B2A; color: #ECE6D9; font-family: 'JetBrains Mono', ui-monospace, monospace; display: flex; gap: 120px">
+  <div class="bw-wind" style="top: 120px; left: 1460px; width: 300px; animation-duration: 18s; animation-delay: -5s" aria-hidden="true"></div>
+  <div class="bw-wind" style="top: 430px; left: 1460px; width: 140px; animation-duration: 12s; animation-delay: -2s" aria-hidden="true"></div>
+  <div class="bw-wind" style="top: 760px; left: 1460px; width: 240px; animation-duration: 15s; animation-delay: -10s" aria-hidden="true"></div>
+
+  <div style="width: 480px; flex-shrink: 0; display: flex; flex-direction: column">
+    <span style="font-size: 14px; color: #ECE6D9">how borea looks and moves</span>
+    <span style="margin-top: 36px; font-size: 120px; font-weight: 700; letter-spacing: -0.06em; line-height: 0.9">borea<span style="color: #E8B35E; font-weight: 400">∼</span></span>
+    <p style="margin: 40px 0 0; font-size: 20px; font-weight: 700; line-height: 1.5">Bare, bold, keyboard first. Taiga dusk: spruce, lichen and birch, one warm cloudberry glow, and frost on the wind.</p>
+    <div style="margin-top: auto; display: flex; flex-direction: column; gap: 12px; font-size: 14px">
+      <span><b style="color: #1F2B2A; -webkit-text-stroke: 1px #ECE6D9">●</b>  spruce night  <span style="color: #B5C2B6">#1F2B2A · ground</span></span>
+      <span><b style="color: #283836; -webkit-text-stroke: 1px #7E918C">●</b>  lichen  <span style="color: #B5C2B6">#283836 · cards</span></span>
+      <span><b style="color: #46595A">●</b>  stone  <span style="color: #B5C2B6">#46595A · edges</span></span>
+      <span><b style="color: #ECE6D9">●</b>  birch  <span style="color: #B5C2B6">#ECE6D9 · text</span></span>
+      <span><b style="color: #E8B35E">●</b>  cloudberry  <span style="color: #B5C2B6">#E8B35E · chosen, glow</span></span>
+      <span><b style="color: #DDE8E2">●</b>  frost  <span style="color: #B5C2B6">#DDE8E2 · wind</span></span>
+      <span><b style="color: #E89A86">●</b>  rosehip  <span style="color: #B5C2B6">#E89A86 · broken</span></span>
+    </div>
+  </div>
+
+  <div style="flex: 1; display: flex; flex-direction: column; gap: 34px; padding-top: 4px; font-size: 15px; line-height: 1.7; color: #ECE6D9">
+    <div><b style="color: #ECE6D9; font-size: 18px">No boxes.</b><br>Type and space do the work. The only lines on screen are the wind and an underline under what you can change.</div>
+    <div><b style="color: #ECE6D9; font-size: 18px">Big question, bold.</b><br>58px, weight 700, tight tracking, left aligned. Answers sit underneath at 22px; the chosen one goes bold with a frost arrow →.</div>
+    <div><b style="color: #ECE6D9; font-size: 18px">Wind on screen.</b><br>Three faint hairlines drift right to left, 38–52 s each. Slow enough to notice, never enough to follow.</div>
+    <div><b style="color: #ECE6D9; font-size: 18px">Wind between slides.</b><br>The old slide fades 16px left in 280 ms; the new one fades in from 20px right in 550 ms. One faint gust crosses, slowly. No blur, no bounce.</div>
+    <div><b style="color: #ECE6D9; font-size: 18px">Progress is wind.</b><br>A row of ∼ fills as the install runs, and the wind picks up with it: more streaks, longer, faster, until one last gust at 100%. The number is always written too, so colour is never the only clue.</div>
+    <div><b style="color: #ECE6D9; font-size: 18px">Stillness on request.</b><br>“motion off” in the footer, borea.motion=0 at boot, or the system's reduced-motion setting: wind lines vanish, slides switch instantly, nothing else changes.</div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

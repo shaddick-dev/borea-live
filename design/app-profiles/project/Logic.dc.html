@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Borea Rust architecture</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#1F2B2A}
+a{color:#E8B35E}a:hover{color:#ECE6D9}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1300px; box-sizing: border-box; padding: 64px; background: #1F2B2A; color: #ECE6D9; font-family: 'JetBrains Mono', ui-monospace, monospace; display: flex; flex-direction: column; gap: 28px">
+
+  <div style="display: flex; justify-content: space-between; align-items: flex-end">
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <span style="font-size: 13px; font-style: italic; color: #ECE6D9">logic · elm loop in rust</span>
+      <span style="font-size: 32px; font-weight: 700">Model → view → Msg → update → Cmd. Only Cmd touches the world.</span>
+    </div>
+    <span style="font-size: 13px; color: #ECE6D9">ratatui · crossterm · tokio · serde</span>
+  </div>
+
+  <div style="flex: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; min-height: 0">
+
+    <div style="display: flex; flex-direction: column; gap: 24px; min-height: 0">
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span style="font-size: 13px; font-style: italic; color: #ECE6D9">workspace</span>
+        <pre style="margin: 0; padding: 18px 20px; border: 1px solid #46595A; background: #3B4C4B; font-family: inherit; font-size: 12px; line-height: 1.75; color: #ECE6D9; white-space: pre">borea/
+├─ crates/
+│  ├─ <span style="color: #E8B35E">borea-core</span>    Plan, Step, Msg, update()        <span style="color: #ECE6D9">pure · no io</span>
+│  ├─ <span style="color: #E8B35E">borea-render</span>  Plan → borea.toml, Steps         <span style="color: #ECE6D9">pure · snapshot-tests</span>
+│  ├─ <span style="color: #E8B35E">borea-probe</span>   hw, disks, net, existing OSes    <span style="color: #ECE6D9">read-only io</span>
+│  ├─ <span style="color: #E8B35E">borea-exec</span>    partition, bootstrap, distrobox  <span style="color: #ECE6D9">the only writer</span>
+│  ├─ borea-backend trait Backend + arch, fedora, debian, opensuse
+│  ├─ borea-tui     view(), theme, keymap, i18n
+│  └─ borea-gui     optional shell, same theme tokens
+└─ iso/
+   └─ live image    minimal Linux, autostarts borea-tui on tty1</pre>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span style="font-size: 13px; font-style: italic; color: #ECE6D9">borea-core · the plan</span>
+        <pre style="margin: 0; padding: 18px 20px; border: 1px solid #46595A; background: #3B4C4B; font-family: inherit; font-size: 12px; line-height: 1.75; color: #ECE6D9; white-space: pre"><span style="color: #ECE6D9">/// Everything the user decided. Serialisable = replayable.</span>
+#[derive(Clone, Serialize, Deserialize)]
+pub struct <span style="color: #E8B35E">Plan</span> {
+    pub locale:  Locale,
+    pub base:    Distro,               <span style="color: #ECE6D9">// any supported backend</span>
+    pub desktop: Desktop,              <span style="color: #ECE6D9">// Gnome | Plasma | Hyprland | None</span>
+    pub sources: BTreeSet&lt;Source&gt;,
+    pub packs:   BTreeSet&lt;Pack&gt;,
+    pub disk:    DiskPlan,             <span style="color: #ECE6D9">// Erase | Alongside{size} | Manual</span>
+    pub user:    Identity,
+}
+
+pub enum <span style="color: #E8B35E">Source</span> { Native, Flathub, Lane(Distro) }
+pub enum <span style="color: #E8B35E">Distro</span> { Arch, Debian, Fedora, OpenSuse }
+
+<span style="color: #ECE6D9">/// One per base. Lanes reuse the same trait inside distrobox.</span>
+pub trait <span style="color: #E8B35E">Backend</span> {
+    fn bootstrap(&amp;self, root: &amp;Path) -&gt; Steps;   <span style="color: #ECE6D9">// pacstrap, dnf, debootstrap, zypper</span>
+    fn install(&amp;self, pkgs: &amp;[Pkg]) -&gt; Steps;
+    fn bootloader(&amp;self, disk: &amp;DiskPlan) -&gt; Steps;
+}
+
+impl Plan {
+    <span style="color: #ECE6D9">/// Gate for Enter. Err carries a human sentence + the field.</span>
+    pub fn validate(&amp;self, at: Step) -&gt; Result&lt;(), Hint&gt; { … }
+}</pre>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span style="font-size: 13px; font-style: italic; color: #ECE6D9">borea.toml · saved plan, headless replay</span>
+        <pre style="margin: 0; padding: 18px 20px; border: 1px solid #46595A; background: #3B4C4B; font-family: inherit; font-size: 12px; line-height: 1.75; color: #ECE6D9; white-space: pre">base    = <span style="color: #E8B35E">"stable"</span>
+desktop = <span style="color: #E8B35E">"plasma"</span>
+sources = [<span style="color: #E8B35E">"flathub"</span>, { lane = <span style="color: #E8B35E">"arch"</span> }]
+packs   = [<span style="color: #E8B35E">"dev"</span>]
+[disk]
+target = <span style="color: #E8B35E">"nvme0n1"</span>   mode = <span style="color: #E8B35E">"alongside"</span>   size = <span style="color: #E8B35E">"540G"</span>
+fs     = <span style="color: #E8B35E">"btrfs"</span>     luks = true</pre>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 24px; min-height: 0">
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span style="font-size: 13px; font-style: italic; color: #ECE6D9">borea-core · update</span>
+        <pre style="margin: 0; padding: 18px 20px; border: 1px solid #46595A; background: #3B4C4B; font-family: inherit; font-size: 12px; line-height: 1.75; color: #ECE6D9; white-space: pre">#[derive(Clone, Copy, PartialEq)]
+pub enum <span style="color: #E8B35E">Step</span> { Network, Locale, Compose, Disk, Identity,
+                Review, Install, Done, Recover }
+
+pub enum <span style="color: #E8B35E">Msg</span>  { Key(Key), Probed(Probe), Net(NetState),
+                Progress(JobEvent), Failed(Fault), Tick }
+
+pub enum <span style="color: #E8B35E">Cmd</span>  { None, Probe, JoinWifi(Creds), Run(Job), Reboot }
+
+pub fn update(m: &amp;mut Model, msg: Msg) -&gt; Cmd {
+    use {Msg::*, Step::*};
+    match (m.step, msg) {
+        (Review, Key(Key::HoldEnter)) =&gt; {
+            let job = Job::from(render::all(&amp;m.plan));  <span style="color: #ECE6D9">// pure</span>
+            m.step = Install;
+            Cmd::Run(job)                                <span style="color: #ECE6D9">// first write</span>
+        }
+        (Install, Progress(ev)) =&gt; { m.job.apply(ev); Cmd::None }
+        (Install, Failed(f))    =&gt; { m.fault = Some(f); m.step = Recover; Cmd::None }
+        (Install, Key(Key::Esc)) =&gt; Cmd::None,         <span style="color: #ECE6D9">// locked</span>
+        (s, Key(Key::Esc)) =&gt; { m.step = s.prev(); Cmd::None }
+        (s, Key(Key::Enter)) =&gt; match m.plan.validate(s) {
+            Ok(())    =&gt; { m.step = s.next(); Cmd::None }
+            Err(hint) =&gt; { m.hint = Some(hint); Cmd::None }
+        },
+        (s, Key(k)) =&gt; { screens::handle(s, k, &amp;mut m.plan); Cmd::None }
+        (_, Probed(p)) =&gt; { m.probe = p; m.plan.suggest(&amp;m.probe); Cmd::None }
+        (_, Tick) =&gt; { m.anim.step(); Cmd::None }    <span style="color: #ECE6D9">// 80 ms clock</span>
+        _ =&gt; Cmd::None,
+    }
+}</pre>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span style="font-size: 13px; font-style: italic; color: #ECE6D9">borea-tui · theme is data</span>
+        <pre style="margin: 0; padding: 18px 20px; border: 1px solid #46595A; background: #3B4C4B; font-family: inherit; font-size: 12px; line-height: 1.75; color: #ECE6D9; white-space: pre">pub struct <span style="color: #E8B35E">Theme</span> { snow: Color, night: Color, dusk: Color, frost: Color,
+                   breeze: Color, amber: Color, ember: Color }
+pub struct <span style="color: #E8B35E">Motion</span> { on: bool, drift: Range&lt;Dur&gt;, leave: Dur, gust: Dur, enter: Dur }
+
+pub const SNOW:  Theme = Theme { snow: hex(0xE6EDF5), frost: hex(0x5E81AC), … };
+pub const NIGHT: Theme = Theme { snow: hex(0x2E3440), frost: hex(0x88C0D0), … };  <span style="color: #ECE6D9">// tty</span>
+
+pub enum <span style="color: #E8B35E">Mark</span> { On, Off, Focus, Done, Busy, Warn, Fail, Rule }
+impl Mark { pub const fn glyph(self) -&gt; char {
+    match self { On =&gt; '●', Off =&gt; '○', Focus =&gt; '›', Done =&gt; '✓',
+                 Busy =&gt; '∼', Warn =&gt; '!', Fail =&gt; '×', Rule =&gt; '│' } } }</pre>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1300}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
