@@ -1,0 +1,187 @@
+{
+  "distro": "fedora",
+  "release": "43",
+  "environment": "workstation",
+  "desktop": "plasma",
+  "packages": [
+    {
+      "source": "fedora.fedora",
+      "name": "@kde-desktop-environment"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "NetworkManager"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "alsa-sof-firmware"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "bluez"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "btrfs-progs"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "cryptsetup"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "cups"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "dracut"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "efibootmgr"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "firewalld"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "glibc-langpack-en"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "grub2-efi-x64"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "grub2-tools"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "grubby"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "kbd"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "kernel"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "kernel-core"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "kernel-modules"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "libva-intel-media-driver"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "linux-firmware"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "mesa-dri-drivers"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "mesa-vulkan-drivers"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "microcode_ctl"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "mokutil"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "nano"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "os-prober"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "pipewire"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "policycoreutils"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "sddm"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "selinux-policy-targeted"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "shim-x64"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "sudo"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "switcheroo-control"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "systemd"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "tuned-ppd"
+    },
+    {
+      "source": "fedora.fedora",
+      "name": "zram-generator"
+    },
+    {
+      "source": "fedora.rpmfusion-nonfree",
+      "name": "akmod-nvidia"
+    },
+    {
+      "source": "fedora.rpmfusion-nonfree",
+      "name": "xorg-x11-drv-nvidia-cuda"
+    },
+    {
+      "source": "fedora.rpmfusion-nonfree",
+      "name": "xorg-x11-drv-nvidia-power"
+    }
+  ],
+  "apps": [],
+  "estimated_app_mb": 0,
+  "firewall": [],
+  "services": [
+    "NetworkManager.service",
+    "bluetooth.service",
+    "cups.service",
+    "firewalld.service",
+    "nvidia-hibernate.service",
+    "nvidia-powerd.service",
+    "nvidia-resume.service",
+    "nvidia-suspend.service",
+    "sddm.service",
+    "switcheroo-control.service",
+    "tuned-ppd.service",
+    "tuned.service"
+  ],
+  "kernel_args": [],
+  "modprobe": [
+    "options nvidia NVreg_PreserveVideoMemoryAllocations=1"
+  ],
+  "warnings": [],
+  "mok": true
+}

@@ -325,6 +325,86 @@ pub const FIREWALL: &[(&str, &[&str])] = &[
     ("localsend", &["53317/tcp", "53317/udp"]),
 ];
 
+/// Services provided by selected system roles, in Arch/Debian/Fedora/openSUSE order.
+pub const SERVICES: &[(&str, [&[&str]; 4])] = &[
+    (
+        "firewalld",
+        [
+            &["firewalld.service"],
+            &["firewalld.service"],
+            &["firewalld.service"],
+            &["firewalld.service"],
+        ],
+    ),
+    ("openssh", [&["sshd.service"], &["ssh.service"], &["sshd.service"], &["sshd.service"]]),
+    (
+        "cockpit",
+        [&["cockpit.socket"], &["cockpit.socket"], &["cockpit.socket"], &["cockpit.socket"]],
+    ),
+    (
+        "chrony",
+        [&["chronyd.service"], &["chrony.service"], &["chronyd.service"], &["chronyd.service"]],
+    ),
+    ("cups", [&["cups.service"], &["cups.service"], &["cups.service"], &["cups.service"]]),
+    (
+        "bluez",
+        [
+            &["bluetooth.service"],
+            &["bluetooth.service"],
+            &["bluetooth.service"],
+            &["bluetooth.service"],
+        ],
+    ),
+    ("nginx", [&["nginx.service"], &["nginx.service"], &["nginx.service"], &["nginx.service"]]),
+    (
+        "postgresql",
+        [
+            &["postgresql.service"],
+            &["postgresql.service"],
+            &["postgresql.service"],
+            &["postgresql.service"],
+        ],
+    ),
+    (
+        "mariadb",
+        [&["mariadb.service"], &["mariadb.service"], &["mariadb.service"], &["mariadb.service"]],
+    ),
+    (
+        "samba",
+        [
+            &["smb.service", "nmb.service"],
+            &["smbd.service", "nmbd.service"],
+            &["smb.service", "nmb.service"],
+            &["smb.service", "nmb.service"],
+        ],
+    ),
+    (
+        "nfs-server",
+        [
+            &["nfs-server.service"],
+            &["nfs-kernel-server.service"],
+            &["nfs-server.service"],
+            &["nfs-server.service"],
+        ],
+    ),
+    (
+        "libvirt",
+        [
+            &["libvirtd.socket"],
+            &["libvirtd.socket"],
+            &["virtqemud.socket", "virtnetworkd.socket", "virtstoraged.socket"],
+            &["libvirtd.socket"],
+        ],
+    ),
+];
+pub fn role_services(distro: Distro, packages: &[&str]) -> Vec<&'static str> {
+    SERVICES
+        .iter()
+        .filter(|(key, _)| package(key, distro).is_some_and(|name| packages.contains(&name)))
+        .flat_map(|(_, services)| services[idx(distro)].iter().copied())
+        .collect()
+}
+
 /// Which add-on (if any) offers this catalogue app. Such apps aren't listed under Applications.
 pub fn addon_for_app(app_id: &str) -> Option<&'static Group> {
     GROUPS.iter().find(|g| g.apps.contains(&app_id))
@@ -369,6 +449,19 @@ pub const DESKTOPS: &[(&str, [(&str, &str); 4])] = &[
         ],
     ),
 ];
+
+/// Verified upstream omissions: no vendor repository is substituted silently.
+pub const UNAVAILABLE_DESKTOPS: &[(Distro, &str, &str)] = &[(
+    Debian,
+    "cosmic",
+    "COSMIC is not packaged in Debian 13's official repositories; choose another desktop.",
+)];
+pub fn desktop_unavailable(distro: Distro, desktop: &str) -> Option<&'static str> {
+    UNAVAILABLE_DESKTOPS
+        .iter()
+        .find(|(d, id, _)| *d == distro && *id == desktop)
+        .map(|(_, _, reason)| *reason)
+}
 
 fn idx(d: Distro) -> usize {
     match d {
@@ -449,6 +542,7 @@ pub enum GroupError {
     NotAnEnvironment(String),
     NotAnAddOn(String),
     UnknownDesktop(String),
+    UnavailableDesktop(&'static str),
     UnknownGroup(String),
     NotInGroup(String),
     /// Can't untick what the system needs to boot.
@@ -494,6 +588,9 @@ pub fn plan_groups_with(
         );
     }
     let desktop = if e.desktop {
+        if let Some(reason) = desktop_unavailable(d, desktop) {
+            return Err(GroupError::UnavailableDesktop(reason));
+        }
         let (_, per) = DESKTOPS
             .iter()
             .find(|(id, _)| *id == desktop)

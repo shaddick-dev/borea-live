@@ -1,0 +1,56 @@
+name: Upstream backend package audit
+on:
+  schedule:
+    - cron: '23 4 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inventory:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --manifest-path backend/Cargo.toml --locked --release -p borea-backend --bin borea-verify
+      - uses: actions/upload-artifact@v4
+        with:
+          name: borea-verify
+          path: backend/target/release/borea-verify
+  native:
+    needs: inventory
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: arch
+            image: archlinux:base-devel
+          - distro: debian
+            image: debian:trixie
+          - distro: fedora
+            image: fedora:44
+          - distro: opensuse
+            image: opensuse/tumbleweed:latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: borea-verify
+          path: verify-bin
+      - run: chmod 755 verify-bin/borea-verify
+      - name: Query signed upstream package metadata
+        env:
+          BOREA_AUDIT_DISTRO: ${{ matrix.distro }}
+          BOREA_AUDIT_IMAGE: ${{ matrix.image }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --mount type=bind,src="$PWD/verify-bin",dst=/verify,readonly \
+            --mount type=bind,src="$PWD/backend/tests/packages",dst=/audit,readonly \
+            -e BOREA_AUDIT_DISTRO "$BOREA_AUDIT_IMAGE" \
+            /bin/bash /audit/native.sh 2>&1 | tee "package-audit-$BOREA_AUDIT_DISTRO.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-audit-${{ matrix.distro }}
+          path: package-audit-*.log

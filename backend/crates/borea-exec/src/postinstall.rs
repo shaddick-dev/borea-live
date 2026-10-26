@@ -3,8 +3,9 @@ use borea_core::{Hint, hint};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
+    fs::OpenOptions,
     io::Write,
-    os::unix::fs::{MetadataExt, PermissionsExt},
+    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::Path,
     process::Command,
 };
@@ -32,6 +33,28 @@ fn trusted(path: &Path) -> Result<(), Hint> {
     }
     Ok(())
 }
+fn persist(path: &Path, bytes: &[u8], mode: u32) -> Result<(), Hint> {
+    let temporary = path.with_extension(format!("{}.pending", std::process::id()));
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .mode(mode)
+        .custom_flags(nix::libc::O_NOFOLLOW)
+        .open(&temporary)
+        .map_err(|e| err(e.to_string()))?;
+    let result = (|| {
+        file.write_all(bytes).map_err(|e| err(e.to_string()))?;
+        file.sync_all().map_err(|e| err(e.to_string()))?;
+        fs::rename(&temporary, path).map_err(|e| err(e.to_string()))?;
+        fs::File::open(path.parent().ok_or_else(|| err("Missing configuration directory."))?)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|e| err(e.to_string()))
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(temporary);
+    }
+    result
+}
 fn command(program: &str, args: &[String]) -> Result<(), Hint> {
     let status = Command::new(program)
         .args(args)
@@ -42,6 +65,22 @@ fn command(program: &str, args: &[String]) -> Result<(), Hint> {
         return Err(err(format!("{program} failed.")));
     }
     Ok(())
+}
+/// This entry runs in its own helper process as the target user, never as root.
+pub fn extract_image(directory: &str, filename: &str) -> Result<(), Hint> {
+    if nix::unistd::Uid::effective().is_root() {
+        return Err(err("AppImages must be extracted by an unprivileged account."));
+    }
+    if !Path::new(directory).is_absolute() || !borea_backend::external::identifier(filename) {
+        return Err(err("The AppImage extraction path is invalid."));
+    }
+    nix::sys::stat::umask(nix::sys::stat::Mode::from_bits_truncate(0o022));
+    let status = Command::new(Path::new(directory).join(filename))
+        .arg("--appimage-extract")
+        .current_dir(directory)
+        .status()
+        .map_err(|e| err(e.to_string()))?;
+    if status.success() { Ok(()) } else { Err(err("The AppImage could not be extracted.")) }
 }
 pub fn firstboot() -> Result<(), Hint> {
     let path = Path::new("/var/lib/borea/firstboot.json");
@@ -58,7 +97,7 @@ pub fn firstboot() -> Result<(), Hint> {
         command(&action.program, &action.args)?;
         queue.remove(0);
         let bytes = serde_json::to_vec(&queue).map_err(|e| err(e.to_string()))?;
-        fs::write(path, bytes).map_err(|e| err(e.to_string()))?;
+        persist(path, &bytes, 0o600)?;
     }
     if Path::new("/usr/bin/fwupdmgr").is_file() {
         let _ = command("/usr/bin/fwupdmgr", &["refresh".into()]);
@@ -112,6 +151,8 @@ fn update_one(config: &Path) -> Result<(), Hint> {
         return Err(err("An earlier AppImage update needs cleanup."));
     }
     fs::create_dir(&staging).map_err(|e| err(e.to_string()))?;
+    fs::set_permissions(&staging, fs::Permissions::from_mode(0o755))
+        .map_err(|e| err(e.to_string()))?;
     let binary = staging.join(&next.filename);
     crate::download(&next.url, &binary, Some(&next.sha256))?;
     fs::set_permissions(&binary, fs::Permissions::from_mode(0o755))
@@ -126,10 +167,10 @@ fn update_one(config: &Path) -> Result<(), Hint> {
             "-u".into(),
             old.user.clone(),
             "--".into(),
-            "/usr/bin/env".into(),
-            format!("--chdir={}", staging.display()),
-            binary.display().to_string(),
-            "--appimage-extract".into(),
+            "/usr/bin/borea-firstboot".into(),
+            "--extract-appimage".into(),
+            staging.display().to_string(),
+            next.filename.clone(),
         ],
     )?;
     let apprun = staging.join("squashfs-root/AppRun");
@@ -142,9 +183,7 @@ fn update_one(config: &Path) -> Result<(), Hint> {
         return Err(err(e.to_string()));
     }
     let record = ImageRecord { image: next, user: old.user };
-    let mut f = fs::File::create(config).map_err(|e| err(e.to_string()))?;
-    f.write_all(&serde_json::to_vec_pretty(&record).map_err(|e| err(e.to_string()))?)
-        .map_err(|e| err(e.to_string()))?;
+    persist(config, &serde_json::to_vec_pretty(&record).map_err(|e| err(e.to_string()))?, 0o644)?;
     fs::remove_dir_all(backup).map_err(|e| err(e.to_string()))?;
     Ok(())
 }

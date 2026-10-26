@@ -1,0 +1,117 @@
+{
+  "distro": "arch",
+  "release": "rolling",
+  "environment": "minimal",
+  "desktop": null,
+  "packages": [
+    {
+      "source": "arch.core-extra",
+      "name": "base"
+    },
+    {
+      "source": "arch.core-extra",
+      "name": "btrfs-progs"
+    },
+    {
+      "source": "arch.core-extra",
+      "name": "cryptsetup"
+    },
+    {
+      "source": "arch.core-extra",
+      "name": "dosfstools"
+    },
+    {
+      "source": "arch.core-extra",
+      "name": "fprintd"
+    },
+    {
+      "source": "arch.core-extra",
+      "name": "intel-media-driver"
+    },
+    {
+      "source": "arch.core-extra",
+      "name": "intel-ucode"
+    },
+    {
+      "source": "arch.core-extra",
+      "name": "kbd"
+    },
+    {
+      "source": "arch.core-extra",
+      "name": "linux"
+    },
+    {
+      "source": "arch.core-extra",
+      "name": "linux-firmware"
+    },
+    {
+      "source": "arch.core-extra",
+      "name": "mesa"
+    },
+    {
+      "source": "arch.core-extra",
+      "name": "nano"
+    },
+    {
+      "source": "arch.core-extra",
+      "name": "networkmanager"
+    },
+    {
+      "source": "arch.core-extra",
+      "name": "power-profiles-daemon"
+    },
+    {
+      "source": "arch.core-extra",
+      "name": "sbctl"
+    },
+    {
+      "source": "arch.core-extra",
+      "name": "sbsigntools"
+    },
+    {
+      "source": "arch.core-extra",
+      "name": "sof-firmware"
+    },
+    {
+      "source": "arch.core-extra",
+      "name": "sudo"
+    },
+    {
+      "source": "arch.core-extra",
+      "name": "systemd"
+    },
+    {
+      "source": "arch.core-extra",
+      "name": "systemd-ukify"
+    },
+    {
+      "source": "arch.core-extra",
+      "name": "vulkan-intel"
+    },
+    {
+      "source": "arch.core-extra",
+      "name": "zram-generator"
+    },
+    {
+      "source": "arch.multilib",
+      "name": "lib32-mesa"
+    },
+    {
+      "source": "arch.multilib",
+      "name": "lib32-vulkan-intel"
+    }
+  ],
+  "apps": [],
+  "estimated_app_mb": 0,
+  "firewall": [],
+  "services": [
+    "NetworkManager.service",
+    "power-profiles-daemon.service"
+  ],
+  "kernel_args": [],
+  "modprobe": [],
+  "warnings": [
+    "Secure Boot is on. Arch isn't signed for it: Borea sets up sbctl, which needs Secure Boot in Setup Mode (firmware settings)."
+  ],
+  "mok": false
+}

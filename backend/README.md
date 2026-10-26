@@ -18,7 +18,7 @@ Pure libraries compile without root or access to real disks. Tests use generated
 
 ## Live environment integration
 
-Install `borea-installd`, `borea-cli`, `borea-firstboot` and `borea-probe` into `/usr/bin`. Install the service/sysusers/tmpfiles definitions from `dist/`, the public native verification keyrings into `/usr/share/keyrings/borea/`, and `debian-archive-keyring` into its native path. Provide the live `borea` user and NetworkManager system bus. The GUI talks to the restricted Unix socket and never runs as root.
+Install `borea-installd`, `borea-cli`, `borea-firstboot` and `borea-probe` into `/usr/bin`. Build `borea-firstboot` statically with `cargo build --release --target x86_64-unknown-linux-musl -p borea-exec --bin borea-firstboot` (Rust target and musl C toolchain required). Its ELF interpreter check refuses a live-libc-dependent helper before partitioning. Install the service/sysusers/tmpfiles definitions from `dist/`, the public native verification keyrings into `/usr/share/keyrings/borea/`, and `debian-archive-keyring` into its native path. Provide the live `borea` user and NetworkManager system bus. The GUI talks to the restricted Unix socket and never runs as root.
 
 The live image needs a current kernel/firmware plus `debootstrap`, `cryptsetup`, btrfs/ext4/FAT/NTFS tools, `sgdisk`, `parted`, `partprobe`, util-linux, udev, `efibootmgr`, GnuPG, tar/xz/zstd, skopeo/umoci (container tool roots), and trusted HTTPS CA certificates. Native distro tooling runs in a verified temporary root under `/run/borea/tools/`; the live image's own distribution does not choose the installed distribution.
 

@@ -16,6 +16,8 @@ pub struct Plan {
     pub locale: LocaleChoice,
     pub distro: Distro,
     pub release: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secure_boot: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub boot_arguments: Vec<String>,
     pub desktop: Option<Desktop>,
@@ -227,7 +229,8 @@ impl Identity {
                 "Use a computer name containing lowercase letters, digits and interior hyphens.",
             ));
         }
-        if self.full_name.chars().any(|c| c.is_control() || c == ':') {
+        if self.full_name.len() > 256 || self.full_name.chars().any(|c| c.is_control() || c == ':')
+        {
             return Err(hint(
                 "full_name",
                 "The full name cannot contain control characters or a colon.",
@@ -290,11 +293,33 @@ pub fn source(key: &str, d: Distro) -> Result<Source, Hint> {
     }
 }
 impl Plan {
+    pub fn target_secure_boot(&self, hw: &catalog::Hardware) -> bool {
+        self.secure_boot.unwrap_or(hw.secure_boot)
+    }
+    pub fn validate_firmware(&self, hw: &catalog::Hardware) -> Result<(), Hint> {
+        let target = self.target_secure_boot(hw);
+        if !target && hw.secure_boot {
+            return Err(hint(
+                "secure_boot",
+                "Turn off Secure Boot in firmware before requesting an unsigned installation.",
+            ));
+        }
+        if self.distro == Distro::Arch && target && hw.setup_mode != Some(true) {
+            return Err(hint(
+                "secure_boot",
+                "Preparing signed Arch boot requires firmware Setup Mode; reset keys yourself or choose Secure Boot off.",
+            ));
+        }
+        Ok(())
+    }
     pub fn validate_intent(&self) -> Result<(), Hint> {
         if self.version != 1 {
             return Err(hint("version", "This installation plan version is not supported."));
         }
         self.user.validate()?;
+        if self.boot_arguments.len() > 16 || self.boot_arguments.iter().any(|arg| arg.len() > 128) {
+            return Err(hint("boot", "Too many or overly long boot arguments."));
+        }
         for arg in &self.boot_arguments {
             let (key, value) = arg.split_once('=').unwrap_or((arg, ""));
             if !["console", "loglevel", "quiet", "splash"].contains(&key)
@@ -400,6 +425,14 @@ impl SystemChoice {
                     "Package overrides must belong to a selected profile or add-on.",
                 ));
             }
+            if !catalog::group(&p.group)
+                .is_some_and(|group| group.offers(self.desktop.is_some()).any(|key| key == p.key))
+            {
+                return Err(hint(
+                    "picks",
+                    "This package choice requires a desktop or is not in the selected group.",
+                ));
+            }
             picks
                 .set(&p.group, &p.key, p.on)
                 .map_err(|e| hint("picks", format!("Invalid package selection: {e:?}")))?;
@@ -412,7 +445,10 @@ impl SystemChoice {
             self.desktop.map_or("", Desktop::key),
             self.distro,
         )
-        .map_err(|e| hint("env", format!("Invalid profile: {e:?}")))?;
+        .map_err(|e| match e {
+            catalog::GroupError::UnavailableDesktop(reason) => hint("desktop", reason),
+            _ => hint("env", format!("Invalid profile: {e:?}")),
+        })?;
         if !env.allows_apps && !self.apps.is_empty() {
             return Err(hint(
                 "apps",
@@ -454,7 +490,9 @@ pub struct Review {
 /// The job consumes this exact resolved package list; no second resolver exists.
 pub fn review(plan: &Plan, hw: &catalog::Hardware) -> Result<Review, Hint> {
     plan.validate_intent()?;
-    let driver = catalog::plan_drivers(hw, plan.distro);
+    let mut target_hw = hw.clone();
+    target_hw.secure_boot = plan.target_secure_boot(hw);
+    let driver = catalog::plan_drivers(&target_hw, plan.distro);
     let mut sources = Sources::defaults(plan.distro);
     for (key, on) in &plan.sources {
         sources
@@ -518,24 +556,10 @@ pub fn review(plan: &Plan, hw: &catalog::Hardware) -> Result<Review, Hint> {
     if let Some((_, manager)) = groups.desktop {
         services.insert(format!("{manager}.service"));
     }
-    for (key, service) in [
-        ("firewalld", "firewalld.service"),
-        ("openssh", if plan.distro == Distro::Debian { "ssh.service" } else { "sshd.service" }),
-        ("cockpit", "cockpit.socket"),
-        (
-            "chrony",
-            if plan.distro == Distro::Debian { "chrony.service" } else { "chronyd.service" },
-        ),
-        ("cups", "cups.service"),
-        ("bluez", "bluetooth.service"),
-        ("power-profiles-daemon", "power-profiles-daemon.service"),
-    ] {
-        if let Some(pkg) = catalog::package(key, plan.distro) {
-            if packages.iter().any(|(_, name)| name == pkg) {
-                services.insert(service.into());
-            }
-        }
-    }
+    let names = packages.iter().map(|(_, name)| name.as_str()).collect::<Vec<_>>();
+    services
+        .extend(catalog::groups::role_services(plan.distro, &names).into_iter().map(str::to_owned));
+
     Ok(Review {
         distro: plan.distro,
         release: plan.release.clone(),

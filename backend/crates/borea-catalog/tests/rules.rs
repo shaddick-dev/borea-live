@@ -337,3 +337,9 @@ fn minimal_has_no_firewall_to_open() {
     let p = plan_groups("minimal", &["web"], "plasma", Distro::Debian).unwrap();
     assert!(p.firewall.is_empty());
 }
+
+#[test]
+fn verified_missing_debian_cosmic_is_blocked_before_install() {
+    assert!(borea_catalog::groups::desktop_unavailable(Distro::Debian, "cosmic").is_some());
+    assert!(borea_catalog::plan_groups("workstation", &[], "cosmic", Distro::Debian).is_err());
+}

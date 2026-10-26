@@ -47,6 +47,7 @@ fn run() -> Result<(), Hint> {
             timezone: "Europe/London".into(),
         },
         distro,
+        secure_boot: None,
         release: match distro {
             Distribution::Arch => "rolling",
             Distribution::Debian => "trixie",

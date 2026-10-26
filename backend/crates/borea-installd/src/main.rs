@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use std::{
     collections::VecDeque,
     fs,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom, Write},
     os::unix::{
         fs::PermissionsExt,
         net::{UnixListener, UnixStream},
@@ -49,7 +49,17 @@ struct State {
     job_id: Option<String>,
 }
 impl State {
-    fn push(&mut self, event: Event) {
+    fn push(&mut self, mut event: Event) {
+        if let Event::Line { text, .. } = &mut event {
+            if text.len() > 4096 {
+                let mut end = 4096;
+                while !text.is_char_boundary(end) {
+                    end -= 1;
+                }
+                text.truncate(end);
+                text.push_str(" [Full line in install.log]");
+            }
+        }
         if let Event::Failed { fault } = &event {
             self.fault = Some(fault.clone());
         }
@@ -64,10 +74,11 @@ impl State {
         if after > cursor {
             return Err(fail("The event cursor is invalid."));
         }
-        let events =
-            self.events.iter().skip(after.saturating_sub(self.event_base)).collect::<Vec<_>>();
+        let start = after.max(self.event_base);
+        let events = self.events.iter().skip(start - self.event_base).take(256).collect::<Vec<_>>();
+        let next = start + events.len();
         Ok(
-            json!({"events":events,"cursor":cursor,"truncated":after<self.event_base,"busy":self.busy,"job_id":self.job_id}),
+            json!({"events":events,"cursor":next,"more":next<cursor,"truncated":after<self.event_base,"busy":self.busy,"job_id":self.job_id}),
         )
     }
 }
@@ -203,7 +214,7 @@ impl Backend {
                 let hw = borea_catalog::probe::probe().map_err(|e| fail(e.to_string()))?;
                 let cmdline = fs::read_to_string("/proc/cmdline").unwrap_or_default();
                 Ok(
-                    json!({"version":env!("CARGO_PKG_VERSION"),"uefi":Path::new("/sys/firmware/efi").is_dir(),"secure_boot":hw.secure_boot,"motion":!cmdline.split_whitespace().any(|s|s=="borea.motion=0")}),
+                    json!({"version":env!("CARGO_PKG_VERSION"),"architecture":std::env::consts::ARCH,"uefi":Path::new("/sys/firmware/efi").is_dir(),"secure_boot":hw.secure_boot,"motion":!cmdline.split_whitespace().any(|s|s=="borea.motion=0")}),
                 )
             }
             "hardware.get" => {
@@ -425,7 +436,14 @@ impl Backend {
                 Ok(Value::Null)
             }
             "install.log" => {
-                Ok(json!({"log":fs::read_to_string("/run/borea/install.log").unwrap_or_default()}))
+                let mut file = fs::File::open("/run/borea/install.log")
+                    .map_err(|_| fail("No installation log is available yet."))?;
+                let length = file.metadata().map_err(|e| fail(e.to_string()))?.len();
+                let offset = length.saturating_sub(512 * 1024);
+                file.seek(SeekFrom::Start(offset)).map_err(|e| fail(e.to_string()))?;
+                let mut bytes = Vec::new();
+                file.take(512 * 1024).read_to_end(&mut bytes).map_err(|e| fail(e.to_string()))?;
+                Ok(json!({"log":String::from_utf8_lossy(&bytes),"truncated":offset != 0}))
             }
             "system.reboot" => {
                 if self
@@ -473,6 +491,7 @@ impl Backend {
                 batch["cursor"].as_u64().ok_or_else(|| fail("The event cursor is invalid."))?
                     as usize;
             let busy = batch["busy"] == true;
+            let more = batch["more"] == true;
             if next != cursor || !busy {
                 serde_json::to_writer(
                     &mut *stream,
@@ -482,7 +501,7 @@ impl Backend {
                 stream.write_all(b"\n").map_err(|e| fail(e.to_string()))?;
                 cursor = next;
             }
-            if !busy {
+            if !busy && !more {
                 return Ok(());
             }
             thread::sleep(Duration::from_millis(200));
@@ -599,7 +618,8 @@ mod tests {
         }
         assert_eq!(state.events.len(), 4096);
         let all = state.events(0).unwrap_or_else(|_| unreachable!());
-        assert_eq!(all["cursor"], 5000);
+        assert_eq!(all["cursor"], 1160);
+        assert_eq!(all["more"], true);
         assert_eq!(all["truncated"], true);
         let last = state.events(4999).unwrap_or_else(|_| unreachable!());
         assert_eq!(last["events"].as_array().map(Vec::len), Some(1));

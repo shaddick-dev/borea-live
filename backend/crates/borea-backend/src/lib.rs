@@ -59,6 +59,7 @@ pub fn boot_packages(d: Distro) -> &'static [&'static str] {
             "btrfs-progs",
             "dosfstools",
             "zram-generator",
+            "kbd",
         ],
         Distro::Debian => &[
             "linux-image-amd64",
@@ -73,6 +74,8 @@ pub fn boot_packages(d: Distro) -> &'static [&'static str] {
             "efibootmgr",
             "os-prober",
             "console-setup",
+            "console-data",
+            "kbd",
         ],
         Distro::Fedora => &[
             "kernel-core",
@@ -89,6 +92,7 @@ pub fn boot_packages(d: Distro) -> &'static [&'static str] {
             "selinux-policy-targeted",
             "policycoreutils",
             "zram-generator",
+            "kbd",
         ],
         Distro::OpenSuse => &[
             "kernel-default",
@@ -100,6 +104,7 @@ pub fn boot_packages(d: Distro) -> &'static [&'static str] {
             "shim",
             "snapper",
             "zram-generator",
+            "kbd",
         ],
     }
 }

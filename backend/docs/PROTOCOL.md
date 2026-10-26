@@ -22,7 +22,7 @@ JSON-RPC 2.0, one JSON object per line, at `/run/borea/installd.sock`. Socket mo
 | `plan.review` | plan | Review, layout, bootstrap, pinned external sources, approval digest |
 | `plan.render` | plan | review-only script and approval digest |
 | `install.start` | plan, secrets, approval | job_id; revalidates approval and disk before writes |
-| `install.events` | after? (absolute cursor, initially 0) | events, cursor, truncated, busy, job_id |
+| `install.events` | after? (absolute cursor, initially 0) | events (up to 256), cursor, more, truncated, busy, job_id |
 | `install.subscribe` | after? | ack, then install.events notifications until worker ends |
 | `install.retry` | action_id | null; only the current recoverable action is allowed |
 | `install.log` | none | redacted install log |
@@ -34,6 +34,6 @@ Errors use `{code:-32000,message,data:{field}}`; malformed JSON-RPC uses -32600.
 
 Review pins native bootstrap checksums, repository keys, AUR snapshots and AppImage releases. Submit the returned approval digest with the identical Plan; changed upstream metadata requires another Review. Secrets are a separate object (`passphrase`, optional `admin` and `wifi`) and must be sent over the socket, never argv or a plan file.
 
-Event cursors are absolute. The last 4096 events are retained; `truncated:true` means older events were dropped and the client should offer the full log. Subscriptions receive batched `install.events` JSON-RPC notifications with the same result shape as polling. A disconnected subscriber does not cancel the worker. A retryable failure keeps the worker and private mounts alive for `install.retry`. Destructive actions cannot be retried automatically.
+Event cursors are absolute. The last 4096 events are retained; responses contain at most 256 events, and `more:true` requests another batch; `truncated:true` means older events were dropped and the client should offer the full log. Subscriptions receive batched `install.events` JSON-RPC notifications with the same result shape as polling. A disconnected subscriber does not cancel the worker. A retryable failure keeps the worker and private mounts alive for `install.retry`. Destructive actions cannot be retried automatically.
 
 `plan.validate` step values: network, locale, distro, desktop, system, disk, you, review. Network takes `net`; locale takes `locale`; distro takes `distro` and `release`; desktop requires an explicit `desktop` key (null is no desktop); system takes distro, desktop, env, addons, picks, apps and sources; disk takes disk, distro and desktop; you takes user. Review validates the complete Plan.

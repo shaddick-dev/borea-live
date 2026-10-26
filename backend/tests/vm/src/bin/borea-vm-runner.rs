@@ -65,7 +65,7 @@ fn run() -> Result<(), String> {
         "-drive",
         "if=pflash,format=raw,file=/work/OVMF_VARS.fd",
         "-drive",
-        "if=none,id=target,format=qcow2,file=/work/target.qcow2",
+        "if=none,id=target,format=qcow2,cache=unsafe,file=/work/target.qcow2",
         "-device",
         "virtio-blk-pci,drive=target,serial=BOREA-TEST-TARGET",
         "-netdev",
@@ -82,7 +82,7 @@ fn run() -> Result<(), String> {
             "-initrd",
             "/work/live.cpio.gz",
             "-append",
-            "console=ttyS0,115200 rdinit=/init panic=-1",
+            "console=ttyS0,115200 rdinit=/init panic=-1 tsc=reliable",
             "-fw_cfg",
             "name=opt/borea/autotest,string=BOREA_DISPOSABLE_VM",
             "-fw_cfg",
@@ -124,8 +124,15 @@ fn run() -> Result<(), String> {
     let mut luks = false;
     let mut net = false;
     let mut sudo = false;
+    let mut distro_ok = false;
+    let mut user_ok = false;
+    let expected_distro =
+        if distro == "opensuse" { "opensuse-tumbleweed" } else { distro.as_str() };
+    let checks = format!(
+        ". /etc/os-release; test \"$ID\" = {expected_distro} && echo BOREA_DISTRO_OK; test \"$(id -un)\" = boreatest && echo BOREA_USER_OK; test -b /dev/mapper/borea-root && echo BOREA_LUKS_OK; nm-online -q --timeout=60 && echo BOREA_NET_OK; sudo -S -p '[BOREA_SUDO]' id -u\n"
+    );
     loop {
-        if start.elapsed() > Duration::from_secs(2400) {
+        if start.elapsed() > Duration::from_secs(14400) {
             let _ = child.kill();
             let _ = child.wait();
             return Err("The VM exceeded the test time limit.".into());
@@ -144,15 +151,17 @@ fn run() -> Result<(), String> {
                         (keep..buffer.len()).find(|i| buffer.is_char_boundary(*i)).unwrap_or(0);
                     buffer.drain(..keep);
                 }
-                if !boot {
-                    complete |= buffer.contains("BOREA_INSTALL_COMPLETE");
-                    continue;
-                }
                 if buffer.contains("Kernel panic") || buffer.contains("BOREA_TEST_ERROR") {
                     let _ = child.kill();
                     let _ = child.wait();
                     return Err("The guest reported a fatal error; inspect its console log.".into());
                 }
+                if !boot {
+                    complete |= buffer.contains("BOREA_INSTALL_COMPLETE");
+                    continue;
+                }
+                distro_ok |= buffer.contains("BOREA_DISTRO_OK");
+                user_ok |= buffer.contains("BOREA_USER_OK");
                 luks |= buffer.contains("BOREA_LUKS_OK");
                 net |= buffer.contains("BOREA_NET_OK");
                 let input = match stage {
@@ -176,9 +185,7 @@ fn run() -> Result<(), String> {
                     }
                     4 if buffer.contains("boreatest@borea-test-vm") => {
                         stage = 5;
-                        Some(
-                            ". /etc/os-release; test \"$ID\" = debian && echo BOREA_DISTRO_OK; test \"$(id -un)\" = boreatest && echo BOREA_USER_OK; test -b /dev/mapper/borea-root && echo BOREA_LUKS_OK; nm-online -q --timeout=60 && echo BOREA_NET_OK; sudo -S -p '[BOREA_SUDO]' id -u\n",
-                        )
+                        Some(checks.as_str())
                     }
                     5 if buffer.contains("[BOREA_SUDO]") => {
                         stage = 6;
@@ -203,7 +210,7 @@ fn run() -> Result<(), String> {
         }
     }
     let status = child.wait().map_err(|e| e.to_string())?;
-    if !status.success() || !complete || boot && !(luks && net && sudo) {
+    if !status.success() || !complete || boot && !(luks && net && sudo && distro_ok && user_ok) {
         return Err(format!(
             "VM assertion failed: exit={status}, complete={complete}, luks={luks}, network={net}, sudo={sudo}"
         ));

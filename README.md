@@ -6,6 +6,10 @@ Borea is an independent, distro-agnostic online Linux installer. It is not tied 
 
 Windpad, a beautifully minimal landing pad, scans your hardware, connects you to Wi-Fi, and helps you choose your next Linux system. In Borea Live, selecting a family opens a separate distribution and edition page, with no choice preselected. Borea resolves the latest release and prepares the selected system's drivers, firmware, and boot integration.
 
+## Rust installation backend
+
+The independent Rust workspace in [backend/](backend/README.md) contains the privileged service, typed install planner, native distro adapters and disposable VM harness. Its [verification ledger](backend/docs/VERIFIED.md) distinguishes passing checks from installed-system release gates. The preview UI remains guarded while integration is verified.
+
 ## Project status
 
 The priority is one independent Borea Live ISO that installs upstream systems

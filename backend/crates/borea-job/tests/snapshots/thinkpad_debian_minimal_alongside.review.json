@@ -1,0 +1,123 @@
+{
+  "distro": "debian",
+  "release": "trixie",
+  "environment": "minimal",
+  "desktop": null,
+  "packages": [
+    {
+      "source": "debian.main",
+      "name": "btrfs-progs"
+    },
+    {
+      "source": "debian.main",
+      "name": "console-data"
+    },
+    {
+      "source": "debian.main",
+      "name": "console-setup"
+    },
+    {
+      "source": "debian.main",
+      "name": "cryptsetup-initramfs"
+    },
+    {
+      "source": "debian.main",
+      "name": "efibootmgr"
+    },
+    {
+      "source": "debian.main",
+      "name": "fprintd"
+    },
+    {
+      "source": "debian.main",
+      "name": "grub-efi-amd64-signed"
+    },
+    {
+      "source": "debian.main",
+      "name": "initramfs-tools"
+    },
+    {
+      "source": "debian.main",
+      "name": "kbd"
+    },
+    {
+      "source": "debian.main",
+      "name": "libpam-fprintd"
+    },
+    {
+      "source": "debian.main",
+      "name": "linux-image-amd64"
+    },
+    {
+      "source": "debian.main",
+      "name": "locales"
+    },
+    {
+      "source": "debian.main",
+      "name": "mesa-vulkan-drivers"
+    },
+    {
+      "source": "debian.main",
+      "name": "nano"
+    },
+    {
+      "source": "debian.main",
+      "name": "network-manager"
+    },
+    {
+      "source": "debian.main",
+      "name": "os-prober"
+    },
+    {
+      "source": "debian.main",
+      "name": "power-profiles-daemon"
+    },
+    {
+      "source": "debian.main",
+      "name": "shim-signed"
+    },
+    {
+      "source": "debian.main",
+      "name": "sudo"
+    },
+    {
+      "source": "debian.main",
+      "name": "systemd-sysv"
+    },
+    {
+      "source": "debian.main",
+      "name": "systemd-zram-generator"
+    },
+    {
+      "source": "debian.non-free",
+      "name": "intel-media-va-driver-non-free"
+    },
+    {
+      "source": "debian.non-free-firmware",
+      "name": "firmware-intel-graphics"
+    },
+    {
+      "source": "debian.non-free-firmware",
+      "name": "firmware-linux"
+    },
+    {
+      "source": "debian.non-free-firmware",
+      "name": "firmware-sof-signed"
+    },
+    {
+      "source": "debian.non-free-firmware",
+      "name": "intel-microcode"
+    }
+  ],
+  "apps": [],
+  "estimated_app_mb": 0,
+  "firewall": [],
+  "services": [
+    "NetworkManager.service",
+    "power-profiles-daemon.service"
+  ],
+  "kernel_args": [],
+  "modprobe": [],
+  "warnings": [],
+  "mok": false
+}

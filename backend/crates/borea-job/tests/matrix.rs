@@ -8,7 +8,7 @@ use borea_job::*;
 #[test]
 fn every_distro_profile_hardware_path_compiles_and_review_matches_job() {
     let mut n = 0;
-    for (_, hw) in borea_catalog::hardware::samples() {
+    for (fixture, hw) in borea_catalog::hardware::samples() {
         for d in Distribution::ALL {
             for env in ["workstation", "server", "minimal"] {
                 for alongside in [false, true] {
@@ -96,6 +96,30 @@ fn every_distro_profile_hardware_path_compiles_and_review_matches_job() {
                     assert!(script.contains("<redacted secret>"));
                     assert!(!script.contains("--nogpgcheck"));
                     assert!(!script.contains("--allow-unauthenticated"));
+                    let name = format!(
+                        "{}_{}_{}_{}",
+                        fixture,
+                        d.key(),
+                        env,
+                        if alongside { "alongside" } else { "whole" }
+                    );
+                    let directory =
+                        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots");
+                    for (extension, snapshot) in [
+                        ("review.json", serde_json::to_string_pretty(&job.review).unwrap() + "\n"),
+                        ("sh", script),
+                    ] {
+                        let path = directory.join(format!("{name}.{extension}"));
+                        if std::env::var_os("BOREA_UPDATE_SNAPSHOTS").is_some() {
+                            std::fs::create_dir_all(&directory).unwrap();
+                            std::fs::write(&path, &snapshot).unwrap();
+                        }
+                        assert_eq!(
+                            std::fs::read_to_string(&path).unwrap(),
+                            snapshot,
+                            "Snapshot changed: {name}.{extension}"
+                        );
+                    }
                     n += 1;
                 }
             }
@@ -106,4 +130,45 @@ fn every_distro_profile_hardware_path_compiles_and_review_matches_job() {
 #[test]
 fn render_escapes_shell_metacharacters() {
     assert_eq!(quote("x'$(touch /tmp/x)"), "'x'\\''$(touch /tmp/x)'");
+}
+
+#[test]
+fn review_script_cannot_execute_without_the_privileged_service() {
+    let p = common::plan(Distribution::Debian, false);
+    let (_, hw) = borea_catalog::hardware::samples().remove(0);
+    let facts = DiskFacts {
+        uefi: true,
+        disks: vec![Disk {
+            id: p.disk.disk().clone(),
+            readonly: false,
+            in_use: false,
+            live: false,
+            removable: false,
+            transport: "virtio".into(),
+            parts: vec![],
+        }],
+    };
+    let bootstrap = Bootstrap { distro: p.distro, release: p.release.clone(), artifact: None };
+    let mut job = compile(&p, &hw, &facts, &bootstrap).unwrap();
+    let marker =
+        std::env::temp_dir().join(format!("borea-review-execution-{}", std::process::id()));
+    job.stages = vec![Stage {
+        title: "Execution guard fixture".into(),
+        weight: 100,
+        actions: vec![Action::Run(CommandSpec {
+            program: "/usr/bin/touch".into(),
+            args: vec![marker.display().to_string()],
+            root: Root::Live,
+            stdin: None,
+            capture: None,
+            timeout: 5,
+            retry: false,
+        })],
+    }];
+    let status = std::process::Command::new("/bin/bash")
+        .args(["-c", &job.render_script()])
+        .status()
+        .unwrap();
+    assert_eq!(status.code(), Some(64));
+    assert!(!marker.exists());
 }

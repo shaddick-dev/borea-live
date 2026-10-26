@@ -10,6 +10,7 @@ pub fn plan(d: Distribution, desktop: bool) -> Plan {
             timezone: "Europe/London".into(),
         },
         distro: d,
+        secure_boot: None,
         boot_arguments: Vec::new(),
         release: match d {
             Distribution::Arch => "rolling",

@@ -33,3 +33,6 @@ sha2 = "0.10.9"
 ureq = { version = "3.5", default-features = false, features = ["rustls"] }
 nix = { version = "0.31", features = ["user", "socket", "mount", "sched", "fs", "signal"] }
 borea-http = { path = "crates/borea-http" }
+
+borea-platform = { path = "crates/borea-platform" }
+rustix = { version = "1.1", features = ["process"] }

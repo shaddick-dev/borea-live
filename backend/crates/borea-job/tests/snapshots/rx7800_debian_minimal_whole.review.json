@@ -1,0 +1,106 @@
+{
+  "distro": "debian",
+  "release": "trixie",
+  "environment": "minimal",
+  "desktop": null,
+  "packages": [
+    {
+      "source": "debian.main",
+      "name": "btrfs-progs"
+    },
+    {
+      "source": "debian.main",
+      "name": "console-data"
+    },
+    {
+      "source": "debian.main",
+      "name": "console-setup"
+    },
+    {
+      "source": "debian.main",
+      "name": "cryptsetup-initramfs"
+    },
+    {
+      "source": "debian.main",
+      "name": "efibootmgr"
+    },
+    {
+      "source": "debian.main",
+      "name": "grub-efi-amd64-signed"
+    },
+    {
+      "source": "debian.main",
+      "name": "initramfs-tools"
+    },
+    {
+      "source": "debian.main",
+      "name": "kbd"
+    },
+    {
+      "source": "debian.main",
+      "name": "linux-image-amd64"
+    },
+    {
+      "source": "debian.main",
+      "name": "locales"
+    },
+    {
+      "source": "debian.main",
+      "name": "mesa-va-drivers"
+    },
+    {
+      "source": "debian.main",
+      "name": "mesa-vulkan-drivers"
+    },
+    {
+      "source": "debian.main",
+      "name": "nano"
+    },
+    {
+      "source": "debian.main",
+      "name": "network-manager"
+    },
+    {
+      "source": "debian.main",
+      "name": "os-prober"
+    },
+    {
+      "source": "debian.main",
+      "name": "shim-signed"
+    },
+    {
+      "source": "debian.main",
+      "name": "sudo"
+    },
+    {
+      "source": "debian.main",
+      "name": "systemd-sysv"
+    },
+    {
+      "source": "debian.main",
+      "name": "systemd-zram-generator"
+    },
+    {
+      "source": "debian.non-free-firmware",
+      "name": "amd64-microcode"
+    },
+    {
+      "source": "debian.non-free-firmware",
+      "name": "firmware-amd-graphics"
+    },
+    {
+      "source": "debian.non-free-firmware",
+      "name": "firmware-linux"
+    }
+  ],
+  "apps": [],
+  "estimated_app_mb": 0,
+  "firewall": [],
+  "services": [
+    "NetworkManager.service"
+  ],
+  "kernel_args": [],
+  "modprobe": [],
+  "warnings": [],
+  "mok": false
+}

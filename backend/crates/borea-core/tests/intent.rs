@@ -86,3 +86,20 @@ fn secrets_are_redacted_and_separate_admin_required() {
     assert!(secrets.validate(&id).is_err());
     assert!(!format!("{secrets:?}").contains("correct horse"));
 }
+
+#[test]
+fn arch_signed_boot_requires_an_explicit_choice_and_setup_mode() {
+    let mut plan = common::plan(Distribution::Arch, false);
+    let (_, mut hw) = borea_catalog::hardware::samples().remove(0);
+    hw.secure_boot = false;
+    hw.setup_mode = Some(true);
+    assert!(!plan.target_secure_boot(&hw));
+    plan.secure_boot = Some(true);
+    assert!(plan.target_secure_boot(&hw));
+    assert!(plan.validate_firmware(&hw).is_ok());
+    hw.setup_mode = Some(false);
+    assert!(plan.validate_firmware(&hw).is_err());
+    plan.secure_boot = Some(false);
+    hw.secure_boot = true;
+    assert!(plan.validate_firmware(&hw).is_err());
+}

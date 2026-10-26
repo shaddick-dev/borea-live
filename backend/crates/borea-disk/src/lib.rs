@@ -88,10 +88,16 @@ fn mounted(v: &serde_json::Value) -> bool {
         .is_some_and(|a| a.iter().any(|s| s.as_str().is_some_and(|p| !p.is_empty())))
         || v["children"].as_array().is_some_and(|a| a.iter().any(mounted))
 }
+fn active_mapping(v: &serde_json::Value) -> bool {
+    v["children"].as_array().is_some_and(|children| {
+        children.iter().any(|child| txt(child, "type") != "part" || active_mapping(child))
+    })
+}
 fn live(v: &serde_json::Value) -> bool {
     v["mountpoints"].as_array().is_some_and(|a| {
         a.iter().filter_map(|p| p.as_str()).any(|p| {
             p == "/"
+                || p.starts_with("/run/borea")
                 || p.starts_with("/run/archiso")
                 || p.starts_with("/run/live")
                 || p.starts_with("/cdrom")
@@ -143,7 +149,7 @@ pub fn parse_lsblk(text: &str, uefi: bool) -> Result<DiskFacts, Hint> {
         disks.push(Disk {
             id,
             readonly: flag(v, "ro"),
-            in_use: mounted(v),
+            in_use: mounted(v) || active_mapping(v),
             live: live(v),
             removable: flag(v, "rm"),
             transport: txt(v, "tran"),
@@ -153,7 +159,7 @@ pub fn parse_lsblk(text: &str, uefi: bool) -> Result<DiskFacts, Hint> {
     Ok(DiskFacts { uefi, disks })
 }
 pub fn probe() -> Result<DiskFacts, Hint> {
-    let out=Command::new("/usr/bin/lsblk").args(["--json","--bytes","--output","NAME,PATH,SIZE,TYPE,FSTYPE,PARTTYPE,PARTLABEL,LABEL,UUID,SERIAL,MODEL,RM,RO,MOUNTPOINTS,TRAN,PARTN,START,LOG-SEC"]).env("LC_ALL","C").output().map_err(|e|hint("disk",format!("Disk discovery failed: {e}")))?;
+    let out=Command::new(borea_platform::live_program("/usr/bin/lsblk")?).args(["--json","--bytes","--output","NAME,PATH,SIZE,TYPE,FSTYPE,PARTTYPE,PARTLABEL,LABEL,UUID,SERIAL,MODEL,RM,RO,MOUNTPOINTS,TRAN,PARTN,START,LOG-SEC"]).env("LC_ALL","C").output().map_err(|e|hint("disk",format!("Disk discovery failed: {e}")))?;
     if !out.status.success() {
         return Err(hint("disk", "lsblk could not inspect the disks."));
     }
@@ -173,20 +179,26 @@ pub fn probe() -> Result<DiskFacts, Hint> {
                 }
             }
             if part.fs == "ntfs" && !part.bitlocker {
-                if let Ok(status) = Command::new("/usr/bin/ntfs-3g.probe")
-                    .arg("--readwrite")
-                    .arg(&part.path)
-                    .status()
+                if let Ok(status) = Command::new(
+                    borea_platform::live_program("/usr/bin/ntfs-3g.probe")
+                        .unwrap_or_else(|_| "/usr/bin/ntfs-3g.probe".into()),
+                )
+                .arg("--readwrite")
+                .arg(&part.path)
+                .status()
                 {
                     part.ntfs_checked = true;
                     part.ntfs_hibernated = status.code() == Some(14);
                     part.ntfs_dirty = !status.success() && !part.ntfs_hibernated;
                 }
-                if let Ok(out) = Command::new("/usr/sbin/ntfsresize")
-                    .args(["--info", "--no-progress-bar"])
-                    .arg(&part.path)
-                    .env("LC_ALL", "C")
-                    .output()
+                if let Ok(out) = Command::new(
+                    borea_platform::live_program("/usr/sbin/ntfsresize")
+                        .unwrap_or_else(|_| "/usr/sbin/ntfsresize".into()),
+                )
+                .args(["--info", "--no-progress-bar"])
+                .arg(&part.path)
+                .env("LC_ALL", "C")
+                .output()
                 {
                     if out.status.success() {
                         part.ntfs_min_size =

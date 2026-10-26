@@ -246,6 +246,7 @@ name = "borea-disk"
 version = "0.1.0"
 dependencies = [
  "borea-core",
+ "borea-platform",
  "serde",
  "serde_json",
  "thiserror",
@@ -262,7 +263,9 @@ dependencies = [
  "borea-http",
  "borea-job",
  "borea-net",
+ "borea-platform",
  "nix 0.31.3",
+ "rustix",
  "serde",
  "serde_json",
  "sha2",
@@ -335,6 +338,13 @@ dependencies = [
  "ureq",
  "zbus",
  "zeroize",
+]
+
+[[package]]
+name = "borea-platform"
+version = "0.1.0"
+dependencies = [
+ "borea-core",
 ]
 
 [[package]]

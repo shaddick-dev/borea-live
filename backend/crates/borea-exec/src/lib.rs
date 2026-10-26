@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 //! Privileged execution. Only a freshly validated, approved Job may reach Session::start.
+pub mod runtime;
 use borea_core::{Hint, Secrets, hint};
 use borea_job::{Action, CommandSpec, Job, Root, SecretRef, TARGET};
 use nix::{
@@ -77,6 +78,26 @@ fn err(message: impl Into<String>) -> Hint {
 fn io<T>(r: std::io::Result<T>) -> Result<T, Hint> {
     r.map_err(|e| err(e.to_string()))
 }
+fn mount_options(options: &str) -> (MsFlags, String) {
+    let mut flags = MsFlags::empty();
+    let mut data = Vec::new();
+    for option in options.split(',').filter(|s| !s.is_empty()) {
+        match option {
+            "defaults" => {}
+            "ro" => flags |= MsFlags::MS_RDONLY,
+            "nosuid" => flags |= MsFlags::MS_NOSUID,
+            "nodev" => flags |= MsFlags::MS_NODEV,
+            "noexec" => flags |= MsFlags::MS_NOEXEC,
+            "noatime" => flags |= MsFlags::MS_NOATIME,
+            "nodiratime" => flags |= MsFlags::MS_NODIRATIME,
+            "relatime" => flags |= MsFlags::MS_RELATIME,
+            "bind" => flags |= MsFlags::MS_BIND,
+            "rbind" => flags |= MsFlags::MS_BIND | MsFlags::MS_REC,
+            value => data.push(value),
+        }
+    }
+    (flags, data.join(","))
+}
 /// Reap the entire command group even when stdin, logging or output handling fails.
 struct ChildGuard(Child);
 impl std::ops::Deref for ChildGuard {
@@ -98,6 +119,11 @@ impl Drop for ChildGuard {
         }
     }
 }
+enum ResolvState {
+    Missing,
+    Symlink(PathBuf),
+    File { contents: Zeroizing<Vec<u8>>, mode: u32 },
+}
 /// This session must remain on its owning thread (namespace and mounted state).
 pub struct Session {
     pub job: Job,
@@ -113,6 +139,13 @@ pub struct Session {
     finished: bool,
     deferred: Vec<postinstall::Deferred>,
     opened_luks: bool,
+    tools_owned: bool,
+    external_owned: bool,
+    initramfs_deferred: bool,
+    wifi_profile: Option<(String, Zeroizing<String>)>,
+    resolv_state: Option<ResolvState>,
+    _install_lock: nix::fcntl::Flock<File>,
+    namespace: runtime::PrivateNamespace,
     command_failure: Option<(Option<i32>, Vec<String>)>,
     _thread_bound: std::marker::PhantomData<std::rc::Rc<()>>,
 }
@@ -126,6 +159,23 @@ impl Session {
         if !Uid::effective().is_root() {
             return Err(err("Installation requires the privileged service."));
         }
+        if std::env::consts::ARCH != "x86_64" {
+            return Err(err("This release installs UEFI x86-64 systems only."));
+        }
+        io(fs::create_dir_all("/run/borea"))?;
+        let lock_file = io(OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .custom_flags(nix::libc::O_NOFOLLOW)
+            .open("/run/borea/install.lock"))?;
+        let install_lock =
+            nix::fcntl::Flock::lock(lock_file, nix::fcntl::FlockArg::LockExclusiveNonblock)
+                .map_err(|_| {
+                    err("Another installer session already owns the installation lock.")
+                })?;
         if job.digest()? != approved {
             return Err(err("The installation plan changed after Review."));
         }
@@ -135,17 +185,10 @@ impl Session {
             ));
         }
         let hw = borea_catalog::probe::probe().map_err(|e| err(e.to_string()))?;
-        if hw.secure_boot != job.secure_boot || hw.setup_mode != job.setup_mode {
+        if hw.secure_boot != job.firmware_secure_boot || hw.setup_mode != job.setup_mode {
             return Err(err("Firmware trust state changed after Review."));
         }
-        if job.plan.distro == borea_core::Distribution::Arch
-            && hw.secure_boot
-            && hw.setup_mode != Some(true)
-        {
-            return Err(err(
-                "Arch Secure Boot enrollment requires firmware Setup Mode; enter Setup Mode or disable Secure Boot before installing.",
-            ));
-        }
+        job.plan.validate_firmware(&hw)?;
         let mut regenerated = borea_job::compile(&job.plan, &hw, facts, &job.bootstrap)?;
         borea_job::apply_external(&mut regenerated, job.external.clone());
         if regenerated.digest()? != approved {
@@ -154,9 +197,17 @@ impl Session {
             ));
         }
         secrets.validate(&job.plan.user)?;
+        if job.review.mok && secrets.passphrase.expose().len() > 256 {
+            return Err(hint(
+                "passphrase",
+                "This driver's MOK enrollment supports passphrases up to 256 bytes.",
+            ));
+        }
         borea_disk::validate(&job.plan.disk, facts, job.plan.desktop.is_some())?;
+        let previous_namespace = io(fs::read_link("/proc/thread-self/ns/mnt"))?;
         unshare(CloneFlags::CLONE_NEWNS)
             .map_err(|e| err(format!("Cannot isolate installation mounts: {e}")))?;
+        let namespace = runtime::PrivateNamespace::capture(&previous_namespace)?;
         mount(None::<&str>, "/", None::<&str>, MsFlags::MS_REC | MsFlags::MS_PRIVATE, None::<&str>)
             .map_err(|e| err(e.to_string()))?;
         io(fs::create_dir_all("/run/borea"))?;
@@ -181,6 +232,13 @@ impl Session {
             finished: false,
             deferred: Vec::new(),
             opened_luks: false,
+            tools_owned: false,
+            external_owned: false,
+            initramfs_deferred: false,
+            wifi_profile: None,
+            resolv_state: None,
+            _install_lock: install_lock,
+            namespace,
             command_failure: None,
             _thread_bound: std::marker::PhantomData,
         })
@@ -301,10 +359,60 @@ impl Session {
         }
         Ok(target)
     }
+    fn directory(&self, path: &str, mode: u32) -> Result<PathBuf, Hint> {
+        let destination = self.target_path(path)?;
+        let relative =
+            destination.strip_prefix(TARGET).map_err(|_| err("Directory escapes target."))?;
+        let mut current = PathBuf::from(TARGET);
+        for part in relative.components() {
+            current.push(part);
+            match fs::symlink_metadata(&current) {
+                Ok(metadata) if metadata.is_dir() && !metadata.is_symlink() => {}
+                Ok(_) => return Err(err("A target directory is not an ordinary directory.")),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    io(fs::create_dir(&current))?;
+                    let permissions = if current == destination { mode } else { 0o755 };
+                    io(fs::set_permissions(&current, fs::Permissions::from_mode(permissions)))?;
+                }
+                Err(error) => return Err(err(error.to_string())),
+            }
+        }
+        Ok(destination)
+    }
     fn write(&self, path: &str, contents: &str, mode: u32) -> Result<(), Hint> {
-        let path = self.target_path(path)?;
+        let expanded = Zeroizing::new(self.expand(contents)?);
+        self.write_raw(path, &expanded, mode)
+    }
+    fn write_raw(&self, path: &str, contents: &str, mode: u32) -> Result<(), Hint> {
+        let requested = Path::new(path);
+        let parent = requested
+            .parent()
+            .and_then(Path::to_str)
+            .ok_or_else(|| err("Target file has no directory."))?;
+        let name = requested.file_name().ok_or_else(|| err("Target file has no filename."))?;
+        // Native packages sometimes install generated configuration as a final
+        // symlink. Replace that link; never follow it outside the target.
+        let checked_parent = self.target_path(parent)?;
+        let path = checked_parent.join(name);
+        if let Ok(metadata) = fs::symlink_metadata(&path) {
+            if metadata.is_symlink() {
+                io(fs::remove_file(&path))?;
+            } else if !metadata.is_file() {
+                return Err(err("A configuration destination is not a regular file."));
+            }
+        }
         let parent = path.parent().ok_or_else(|| err("Target file has no directory."))?;
-        io(fs::create_dir_all(parent))?;
+        let relative =
+            parent.strip_prefix(TARGET).map_err(|_| err("File directory escapes target."))?;
+        let relative = format!("/{}", relative.display());
+        self.directory(
+            &relative,
+            if relative.starts_with("/etc/NetworkManager/system-connections") {
+                0o700
+            } else {
+                0o755
+            },
+        )?;
         let mut f = io(OpenOptions::new()
             .create(true)
             .truncate(true)
@@ -313,7 +421,7 @@ impl Session {
             .custom_flags(nix::libc::O_NOFOLLOW)
             .open(&path))?;
         io(f.set_permissions(fs::Permissions::from_mode(mode)))?;
-        io(f.write_all(self.expand(contents)?.as_bytes()))?;
+        io(f.write_all(contents.as_bytes()))?;
         io(f.sync_all())
     }
     fn cmd(&mut self, c: &CommandSpec, emit: &mut impl FnMut(Event)) -> Result<String, Hint> {
@@ -347,31 +455,51 @@ impl Session {
                 Root::Live => PathBuf::from("/"),
             };
             io(fs::create_dir_all(root.join("run/borea")))?;
-            let bundle = std::env::var_os("SSL_CERT_FILE")
-                .map(PathBuf::from)
-                .unwrap_or_else(|| PathBuf::from("/etc/ssl/certs/ca-certificates.crt"));
+            io(fs::set_permissions(root.join("run/borea"), fs::Permissions::from_mode(0o755)))?;
+            let bundle = borea_http::system_bundle()?;
             io(fs::copy(bundle, root.join("run/borea/session-ca.pem")))?;
+            io(fs::set_permissions(
+                root.join("run/borea/session-ca.pem"),
+                fs::Permissions::from_mode(0o644),
+            ))?;
             Some("/run/borea/session-ca.pem")
         } else {
             None
         };
         if let Some(ca) = ca {
             if c.program == "/usr/bin/apt-get" {
-                args.splice(0..0, ["-o".into(), format!("Acquire::https::CaInfo={ca}")]);
+                args.splice(
+                    0..0,
+                    [
+                        "-o".into(),
+                        format!("Acquire::https::CaInfo={ca}"),
+                        "-o".into(),
+                        "Dpkg::Options::=--force-confold".into(),
+                    ],
+                );
             } else if c.program == "/usr/bin/dnf" {
                 args.insert(0, format!("--setopt=sslcacert={ca}"));
             }
         }
+        let root_path = match c.root {
+            Root::Live => PathBuf::from("/"),
+            Root::Target => PathBuf::from(TARGET),
+            Root::Tools => {
+                PathBuf::from(format!("/run/borea/tools/{}", self.job.plan.distro.key()))
+            }
+        };
+        let executable = borea_platform::program(&root_path, &c.program)?;
         let mut command = match c.root {
-            Root::Live => Command::new(&c.program),
+            Root::Live => Command::new(&executable),
             Root::Target => {
-                let mut cmd = Command::new("/usr/sbin/chroot");
-                cmd.arg(TARGET).arg(&c.program);
+                let mut cmd = Command::new(borea_platform::live_program("/usr/sbin/chroot")?);
+                cmd.arg(TARGET).arg(&executable);
                 cmd
             }
             Root::Tools => {
-                let mut cmd = Command::new("/usr/sbin/chroot");
-                cmd.arg(format!("/run/borea/tools/{}", self.job.plan.distro.key())).arg(&c.program);
+                let mut cmd = Command::new(borea_platform::live_program("/usr/sbin/chroot")?);
+                cmd.arg(format!("/run/borea/tools/{}", self.job.plan.distro.key()))
+                    .arg(&executable);
                 cmd
             }
         };
@@ -406,7 +534,7 @@ impl Session {
         }
         let line = self.redactor.redact(&format!(
             "$ {} {}",
-            c.program,
+            executable,
             args.iter().map(|s| borea_job::quote(s)).collect::<Vec<_>>().join(" ")
         ));
         io(writeln!(self.log, "{line}"))?;
@@ -416,6 +544,12 @@ impl Session {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn())?);
+        if c.root == Root::Live
+            && c.program == "/usr/sbin/cryptsetup"
+            && c.args.first().is_some_and(|arg| arg == "open")
+        {
+            self.opened_luks = true;
+        }
         if let Some(which) = &c.stdin {
             let input = match which {
                 SecretRef::Luks => Zeroizing::new(self.secrets.passphrase.expose().to_owned()),
@@ -640,14 +774,37 @@ impl Session {
                 }
                 io(fs::create_dir_all(path))?;
                 let source = self.expand(source)?;
-                let flags = if options.contains("rbind") {
-                    MsFlags::MS_BIND | MsFlags::MS_REC
+                let (flags, data) = mount_options(options);
+                let initial_flags = if flags.contains(MsFlags::MS_BIND) {
+                    flags & !MsFlags::MS_RDONLY
                 } else {
-                    MsFlags::empty()
+                    flags
                 };
-                let data = if flags.is_empty() { Some(options.as_str()) } else { None };
-                mount(Some(source.as_str()), path.as_str(), fs.as_deref(), flags, data)
-                    .map_err(|e| err(format!("Mounting {path} failed: {e}")))?;
+                mount(
+                    Some(source.as_str()),
+                    path.as_str(),
+                    fs.as_deref(),
+                    initial_flags,
+                    if data.is_empty() { None } else { Some(data.as_str()) },
+                )
+                .map_err(|e| err(format!("Mounting {path} failed: {e}")))?;
+                if flags.contains(MsFlags::MS_BIND | MsFlags::MS_RDONLY) {
+                    if let Err(error) = mount(
+                        None::<&str>,
+                        path.as_str(),
+                        None::<&str>,
+                        MsFlags::MS_BIND
+                            | MsFlags::MS_REMOUNT
+                            | MsFlags::MS_RDONLY
+                            | MsFlags::MS_NOSUID
+                            | MsFlags::MS_NODEV
+                            | MsFlags::MS_NOEXEC,
+                        None::<&str>,
+                    ) {
+                        let _ = umount2(path.as_str(), MntFlags::empty());
+                        return Err(err(format!("Making {path} read-only failed: {error}")));
+                    }
+                }
                 self.mounted.push(path.into());
                 mount(
                     None::<&str>,
@@ -663,8 +820,103 @@ impl Session {
                 self.mounted.retain(|p| p != Path::new(path));
             }
             Action::AcquireToolRoot { artifact } => self.acquire(artifact, emit)?,
+            Action::InstallEfiFallback { shim, grub, config } => {
+                let directory = "/boot/efi/EFI/BOOT";
+                let files = ["BOOTX64.EFI", "grubx64.efi", "grub.cfg"];
+                let existing = files.iter().any(|name| {
+                    Path::new(TARGET)
+                        .join(directory.trim_start_matches('/'))
+                        .join(name)
+                        .symlink_metadata()
+                        .is_ok()
+                });
+                if !existing {
+                    for (source, name) in [(shim, "BOOTX64.EFI"), (grub, "grubx64.efi")] {
+                        let source = self.target_path(source)?;
+                        let path = self.target_path(&format!("{directory}/{name}"))?;
+                        let mut file = io(OpenOptions::new()
+                            .write(true)
+                            .create_new(true)
+                            .mode(0o644)
+                            .custom_flags(nix::libc::O_NOFOLLOW)
+                            .open(path))?;
+                        io(std::io::copy(&mut io(File::open(source))?, &mut file))?;
+                        io(file.sync_all())?;
+                    }
+                    self.write(&format!("{directory}/grub.cfg"), config, 0o644)?;
+                }
+            }
             Action::PrepareExternal => self.prepare_external()?,
             Action::PreflightNative => self.preflight_native(emit)?,
+            Action::DeferInitramfs => {
+                self.command(
+                    Root::Target,
+                    "/usr/bin/dpkg-divert",
+                    [
+                        "--add",
+                        "--rename",
+                        "--divert",
+                        "/usr/sbin/update-initramfs.borea-real",
+                        "/usr/sbin/update-initramfs",
+                    ]
+                    .map(String::from)
+                    .to_vec(),
+                    emit,
+                )?;
+                self.initramfs_deferred = true;
+                let path = self.target_path("/usr/sbin/update-initramfs")?;
+                io(fs::copy("/usr/bin/borea-firstboot", &path))?;
+                io(fs::set_permissions(path, fs::Permissions::from_mode(0o755)))?;
+            }
+            Action::RestoreInitramfs => self.restore_initramfs(emit)?,
+            Action::EnrollMok => {
+                use borea_core::Distribution as D;
+                let paths = match self.job.plan.distro {
+                    D::Fedora => vec!["/etc/pki/akmods/certs/public_key.der".into()],
+                    D::Debian => vec!["/var/lib/dkms/mok.pub".into()],
+                    D::OpenSuse => {
+                        let mut certificates = Vec::new();
+                        for directory in ["/usr/share/nvidia-pubkeys", "/var/lib/nvidia-pubkeys"] {
+                            let directory_path =
+                                Path::new(TARGET).join(directory.trim_start_matches('/'));
+                            if let Ok(entries) = fs::read_dir(directory_path) {
+                                for entry in entries {
+                                    let entry = io(entry)?;
+                                    let name = entry.file_name().to_string_lossy().into_owned();
+                                    if io(entry.file_type())?.is_file()
+                                        && name.starts_with("MOK-nvidia")
+                                        && name.ends_with(".der")
+                                        && borea_backend::external::identifier(&name)
+                                    {
+                                        certificates.push(format!("{directory}/{name}"));
+                                    }
+                                }
+                            }
+                        }
+                        certificates.sort();
+                        certificates.dedup();
+                        if certificates.is_empty() {
+                            return Err(err(
+                                "The NVIDIA package did not install its MOK certificate; inspect its native package log.",
+                            ));
+                        }
+                        certificates
+                    }
+                    D::Arch => {
+                        return Err(err("Arch uses the separately reviewed sbctl trust path."));
+                    }
+                };
+                let command = CommandSpec {
+                    program: "/usr/bin/mokutil".into(),
+                    args: std::iter::once("--import".into()).chain(paths).collect(),
+                    root: Root::Target,
+                    stdin: Some(SecretRef::Mok),
+                    capture: None,
+                    timeout: 120,
+                    retry: false,
+                };
+                self.cmd(&command, emit)?;
+            }
             Action::CopyNativeRepositories => {
                 let root =
                     PathBuf::from(format!("/run/borea/tools/{}", self.job.plan.distro.key()));
@@ -697,6 +949,7 @@ impl Session {
             Action::InstallHelpers => self.install_helpers()?,
             Action::ConfigureFstab => self.fstab(emit)?,
             Action::CopyNetwork => self.copy_network()?,
+            Action::RestoreNetwork => self.restore_network()?,
             Action::BuildAur { packages } => self.aur(packages, emit)?,
             Action::InstallAppImages { releases } => self.appimages(releases, emit)?,
             Action::Note { message } => emit(Event::Line { stderr: false, text: message.clone() }),
@@ -715,6 +968,7 @@ impl Session {
             ));
         }
         io(fs::create_dir_all(&dir))?;
+        self.tools_owned = true;
         io(fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)))?;
         let archive = dir.with_extension("tar");
         let signature = dir.with_extension("sig");
@@ -1003,7 +1257,7 @@ impl Session {
                     "/usr/bin/dnf",
                     vec!["repoquery".into(), "--available".into(), "--queryformat=%{name}".into()]
                         .into_iter()
-                        .chain(packages.iter().cloned())
+                        .chain(packages.iter().filter(|name| !name.starts_with('@')).cloned())
                         .collect(),
                     emit,
                 )?;
@@ -1088,60 +1342,121 @@ impl Session {
         self.write(
             "/etc/crypttab",
             &format!(
-                "borea-root UUID={} none luks,discard\n",
-                self.vars.get("LUKS_UUID").ok_or_else(|| err("The LUKS UUID is unavailable."))?
+                "borea-root UUID={} none luks,discard{}\n",
+                self.vars.get("LUKS_UUID").ok_or_else(|| err("The LUKS UUID is unavailable."))?,
+                if self.job.plan.distro == borea_core::Distribution::Debian {
+                    ",initramfs"
+                } else {
+                    ""
+                }
             ),
             0o600,
         )
     }
-    fn copy_network(&self) -> Result<(), Hint> {
-        let selected = match &self.job.plan.net {
-            borea_core::NetChoice::Ethernet => None,
-            borea_core::NetChoice::Wifi { ssid } | borea_core::NetChoice::Hidden { ssid } => {
-                Some(ssid)
-            }
+    fn read_wifi_profile(&self) -> Result<Option<(String, Zeroizing<String>)>, Hint> {
+        let ssid = match &self.job.plan.net {
+            borea_core::NetChoice::Ethernet => return Ok(None),
+            borea_core::NetChoice::Wifi { ssid } | borea_core::NetChoice::Hidden { ssid } => ssid,
         };
-        if let Some(ssid) = selected {
-            let wifi = borea_net::nm::Wifi::system().map_err(|e| err(e.to_string()))?;
-            let uuid = wifi
-                .connected_uuid(ssid)
-                .map_err(|e| err(e.to_string()))?
-                .ok_or_else(|| err("The selected Wi-Fi network is no longer connected."))?;
-            let entries = io(fs::read_dir("/etc/NetworkManager/system-connections"))?;
-            let mut copied = false;
-            for entry in entries {
-                let entry = io(entry)?;
-                if !io(entry.file_type())?.is_file() {
-                    continue;
+        let wifi = borea_net::nm::Wifi::system().map_err(|e| err(e.to_string()))?;
+        let uuid = wifi
+            .connected_uuid(ssid)
+            .map_err(|e| err(e.to_string()))?
+            .ok_or_else(|| err("The selected Wi-Fi network is no longer connected."))?;
+        if !borea_backend::external::identifier(&uuid) {
+            return Err(err("The active network profile identifier is invalid."));
+        }
+        for directory in
+            ["/run/NetworkManager/system-connections", "/etc/NetworkManager/system-connections"]
+        {
+            if let Ok(entries) = fs::read_dir(directory) {
+                for entry in entries {
+                    let entry = io(entry)?;
+                    if !io(entry.file_type())?.is_file() {
+                        continue;
+                    }
+                    let content = Zeroizing::new(io(fs::read_to_string(entry.path()))?);
+                    if content.lines().any(|line| line.strip_prefix("uuid=") == Some(uuid.as_str()))
+                    {
+                        return Ok(Some((format!("{uuid}.nmconnection"), content)));
+                    }
                 }
-                let content = Zeroizing::new(io(fs::read_to_string(entry.path()))?);
-                if content.lines().any(|l| l.strip_prefix("uuid=") == Some(uuid.as_str())) {
-                    self.write(
-                        &format!(
-                            "/etc/NetworkManager/system-connections/{}",
-                            entry.file_name().to_string_lossy()
-                        ),
-                        &content,
-                        0o600,
-                    )?;
-                    copied = true;
-                }
-            }
-            if !copied {
-                return Err(err(
-                    "The selected Wi-Fi connection could not be carried into the target.",
-                ));
             }
         }
-        // DNS resolution inside native chroots, without following a target symlink.
-        let content = io(fs::read_to_string("/etc/resolv.conf"))?;
+        Err(err(
+            "Save the active Wi-Fi connection in NetworkManager before installing so it can be carried into the new system.",
+        ))
+    }
+    fn write_wifi_profile(&self) -> Result<(), Hint> {
+        if let Some((filename, content)) = &self.wifi_profile {
+            self.write_raw(
+                &format!("/etc/NetworkManager/system-connections/{filename}"),
+                content,
+                0o600,
+            )?;
+        }
+        Ok(())
+    }
+    fn copy_network(&mut self) -> Result<(), Hint> {
+        if let Ok(profile) = self.read_wifi_profile() {
+            self.wifi_profile = profile;
+        }
+        self.write_wifi_profile()?;
         let path = Path::new(TARGET).join("etc/resolv.conf");
+        let original = match fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.is_symlink() => {
+                ResolvState::Symlink(io(fs::read_link(&path))?)
+            }
+            Ok(metadata) if metadata.is_file() => ResolvState::File {
+                contents: Zeroizing::new(io(fs::read(&path))?),
+                mode: metadata.permissions().mode() & 0o777,
+            },
+            Ok(_) => {
+                return Err(err("The target DNS configuration is not a regular file or symlink."));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => ResolvState::Missing,
+            Err(error) => return Err(err(error.to_string())),
+        };
+        self.resolv_state = Some(original);
         if path.is_symlink() {
             io(fs::remove_file(&path))?;
         }
-        self.write("/etc/resolv.conf", &content, 0o644)
+        let content = io(fs::read_to_string("/etc/resolv.conf"))?;
+        self.write_raw("/etc/resolv.conf", &content, 0o644)
     }
-    fn prepare_external(&self) -> Result<(), Hint> {
+    fn restore_network(&mut self) -> Result<(), Hint> {
+        if self.resolv_state.is_none() {
+            return Ok(());
+        }
+        if let Ok(profile) = self.read_wifi_profile() {
+            self.wifi_profile = profile;
+        }
+        self.write_wifi_profile()?;
+        let path = Path::new(TARGET).join("etc/resolv.conf");
+        if fs::symlink_metadata(&path).is_ok() {
+            io(fs::remove_file(&path))?;
+        }
+        if let Some(original) = self.resolv_state.as_ref() {
+            match original {
+                ResolvState::Missing => {}
+                ResolvState::Symlink(link) => io(std::os::unix::fs::symlink(link, &path))?,
+                ResolvState::File { contents, mode } => {
+                    let mut file = io(OpenOptions::new()
+                        .create_new(true)
+                        .write(true)
+                        .mode(*mode)
+                        .custom_flags(nix::libc::O_NOFOLLOW)
+                        .open(&path))?;
+                    io(file.set_permissions(fs::Permissions::from_mode(*mode)))?;
+                    io(file.write_all(contents))?;
+                    io(file.sync_all())?;
+                }
+            }
+        }
+        self.resolv_state = None;
+        Ok(())
+    }
+    fn prepare_external(&mut self) -> Result<(), Hint> {
         for tool in [
             "/usr/sbin/sgdisk",
             "/usr/sbin/partprobe",
@@ -1153,28 +1468,28 @@ impl Session {
             "/usr/bin/btrfs",
             "/usr/sbin/chroot",
         ] {
-            if !Path::new(tool).is_file() {
-                return Err(err(format!("The live environment is missing {tool}.")));
-            }
+            borea_platform::live_program(tool)?;
         }
         if self.job.layout.boot.is_some()
             && self.job.layout.boot_fs == "ext4"
-            && !Path::new("/usr/sbin/mkfs.ext4").is_file()
+            && borea_platform::live_program("/usr/sbin/mkfs.ext4").is_err()
         {
             return Err(err("The live environment is missing mkfs.ext4."));
         }
         if matches!(self.job.plan.disk, borea_core::DiskPlan::Alongside { .. }) {
             for tool in ["/usr/sbin/ntfsresize", "/usr/sbin/parted"] {
-                if !Path::new(tool).is_file() {
-                    return Err(err(format!("The live environment is missing {tool}.")));
-                }
+                borea_platform::live_program(tool)?;
             }
         }
 
         if !Path::new("/usr/bin/borea-firstboot").is_file() {
             return Err(err("The live environment is missing the target first-boot helper."));
         }
-        io(fs::create_dir_all("/run/borea/external"))?;
+        runtime::static_helper(Path::new("/usr/bin/borea-firstboot"))?;
+        self.wifi_profile = self.read_wifi_profile()?;
+        let _ = io(fs::read_to_string("/etc/resolv.conf"))?;
+        io(fs::create_dir("/run/borea/external"))?;
+        self.external_owned = true;
         io(fs::set_permissions("/run/borea/external", fs::Permissions::from_mode(0o700)))?;
         for key in &self.job.external.repository_keys {
             if !borea_backend::external::identifier(&key.source) {
@@ -1359,6 +1674,23 @@ impl Session {
         }
         self.command(
             Root::Target,
+            "/usr/sbin/runuser",
+            [
+                "-u",
+                "borea-build",
+                "--",
+                "/usr/bin/gpgconf",
+                "--homedir",
+                "/var/lib/borea-build/.gnupg",
+                "--kill",
+                "all",
+            ]
+            .map(String::from)
+            .to_vec(),
+            emit,
+        )?;
+        self.command(
+            Root::Target,
             "/usr/bin/userdel",
             vec!["--remove".into(), "borea-build".into()],
             emit,
@@ -1370,8 +1702,7 @@ impl Session {
         for image in images.iter().filter(|i| releases.contains(&i.repository)) {
             let id = image.repository.replace('/', "-");
             let dir = format!("/opt/borea/appimages/{id}");
-            let destination = self.target_path(&dir)?;
-            io(fs::create_dir_all(&destination))?;
+            let destination = self.directory(&dir, 0o755)?;
             let binary = destination.join(&image.filename);
             io(fs::copy(Path::new("/run/borea/external").join(&image.filename), &binary))?;
             io(fs::set_permissions(&binary, fs::Permissions::from_mode(0o755)))?;
@@ -1389,15 +1720,26 @@ impl Session {
                     "-u".into(),
                     user,
                     "--".into(),
-                    "/usr/bin/env".into(),
-                    format!("--chdir={dir}"),
-                    format!("{dir}/{}", image.filename),
-                    "--appimage-extract".into(),
+                    "/usr/bin/borea-firstboot".into(),
+                    "--extract-appimage".into(),
+                    dir.clone(),
+                    image.filename.clone(),
                 ],
                 emit,
             )?;
+            let extracted = destination.join("squashfs-root");
+            if !extracted.join("AppRun").exists() {
+                return Err(err("The AppImage has no AppRun entry point."));
+            }
+            // The desktop reads its icon as the normal user. Root must never follow
+            // paths supplied by an unprivileged AppImage extraction.
+            let icon_line = if extracted.join(".DirIcon").symlink_metadata().is_ok() {
+                format!("Icon={dir}/squashfs-root/.DirIcon\n")
+            } else {
+                String::new()
+            };
             let desktop = format!(
-                "[Desktop Entry]\nType=Application\nName={}\nExec={dir}/squashfs-root/AppRun %U\nTerminal=false\nCategories=Utility;\n",
+                "[Desktop Entry]\nType=Application\nName={}\nExec={dir}/squashfs-root/AppRun %U\n{icon_line}Terminal=false\nCategories=Utility;\n",
                 image.repository.split('/').next_back().unwrap_or("Application")
             );
             self.write(&format!("/usr/local/share/applications/{id}.desktop"), &desktop, 0o644)?;
@@ -1449,27 +1791,112 @@ impl Session {
         io(fs::copy("/run/borea/install.log", &path))?;
         io(fs::set_permissions(path, fs::Permissions::from_mode(0o600)))
     }
+    fn restore_initramfs(&mut self, emit: &mut impl FnMut(Event)) -> Result<(), Hint> {
+        if self.initramfs_deferred {
+            let path = self.target_path("/usr/sbin/update-initramfs")?;
+            if path.exists() {
+                io(fs::remove_file(path))?;
+            }
+            self.command(
+                Root::Target,
+                "/usr/bin/dpkg-divert",
+                [
+                    "--remove",
+                    "--rename",
+                    "--divert",
+                    "/usr/sbin/update-initramfs.borea-real",
+                    "/usr/sbin/update-initramfs",
+                ]
+                .map(String::from)
+                .to_vec(),
+                emit,
+            )?;
+            self.initramfs_deferred = false;
+        }
+        Ok(())
+    }
     pub fn cleanup(&mut self) -> Result<(), Hint> {
         let mut errors = Vec::new();
+        if let Err(error) = self.restore_network() {
+            errors.push(error.message);
+        }
+        if let Err(error) = self.restore_initramfs(&mut |_| {}) {
+            errors.push(error.message);
+        }
+        if let Err(error) = self.namespace.stop_children() {
+            errors.push(error.message);
+        }
+        let mut retained = Vec::new();
         while let Some(path) = self.mounted.pop() {
-            if let Err(e) = umount2(&path, MntFlags::empty()) {
-                errors.push(format!("{}: {e}", path.display()));
+            let mut remaining = Vec::new();
+            for _ in 0..16 {
+                let info = io(fs::read_to_string("/proc/thread-self/mountinfo"))?;
+                let children = runtime::mountpoints(&info, &path);
+                if children.is_empty() {
+                    remaining.clear();
+                    break;
+                }
+                let mut progress = false;
+                remaining.clear();
+                for child in children {
+                    match umount2(&child, MntFlags::empty()) {
+                        Ok(()) => progress = true,
+                        Err(error) => remaining.push(format!("{}: {error}", child.display())),
+                    }
+                }
+                if !progress {
+                    break;
+                }
+            }
+            if !remaining.is_empty() {
+                errors.extend(remaining);
+                retained.push(path);
             }
         }
+        retained.reverse();
+        self.mounted = retained;
         if self.opened_luks {
-            match Command::new("/usr/sbin/cryptsetup")
-                .args([
-                    "close",
-                    self.vars.get("MAPPER_NAME").map(String::as_str).unwrap_or("invalid-mapping"),
-                ])
-                .status()
-            {
-                Ok(s) if s.success() => {}
-                Ok(_) => errors.push("Cannot close the encrypted root.".into()),
-                Err(e) => errors.push(e.to_string()),
+            let name =
+                self.vars.get("MAPPER_NAME").map(String::as_str).unwrap_or("invalid-mapping");
+            if Path::new("/dev/mapper").join(name).exists() {
+                match Command::new(borea_platform::live_program("/usr/sbin/cryptsetup")?)
+                    .args(["close", name])
+                    .status()
+                {
+                    Ok(s) if s.success() => self.opened_luks = false,
+                    Ok(_) => errors.push("Cannot close the encrypted root.".into()),
+                    Err(e) => errors.push(e.to_string()),
+                }
+            } else {
+                self.opened_luks = false;
             }
         }
-        if errors.is_empty() { Ok(()) } else { Err(err(errors.join("; "))) }
+        if errors.is_empty() {
+            if self.tools_owned {
+                io(fs::remove_dir_all(format!("/run/borea/tools/{}", self.job.plan.distro.key())))?;
+                let root =
+                    PathBuf::from(format!("/run/borea/tools/{}", self.job.plan.distro.key()));
+                for extension in ["tar", "sig", "checksums", "verified-checksums", "oci", "bundle"]
+                {
+                    let path = root.with_extension(extension);
+                    if let Ok(metadata) = path.symlink_metadata() {
+                        if metadata.is_dir() {
+                            io(fs::remove_dir_all(path))?;
+                        } else {
+                            io(fs::remove_file(path))?;
+                        }
+                    }
+                }
+                self.tools_owned = false;
+            }
+            if self.external_owned {
+                io(fs::remove_dir_all("/run/borea/external"))?;
+                self.external_owned = false;
+            }
+            Ok(())
+        } else {
+            Err(err(errors.join("; ")))
+        }
     }
 }
 impl Drop for Session {
@@ -1510,3 +1937,17 @@ pub fn download(url: &str, path: &Path, expected: Option<&str>) -> Result<(), Hi
     Ok(())
 }
 pub mod postinstall;
+
+#[cfg(test)]
+mod mount_tests {
+    use super::*;
+    #[test]
+    fn vfs_flags_never_reach_btrfs_option_parser() {
+        let (flags, data) = mount_options("subvol=@,compress=zstd:1,noatime,nosuid,nodev");
+        assert!(flags.contains(MsFlags::MS_NOATIME | MsFlags::MS_NOSUID | MsFlags::MS_NODEV));
+        assert_eq!(data, "subvol=@,compress=zstd:1");
+        let (flags, data) = mount_options("rbind,ro");
+        assert!(flags.contains(MsFlags::MS_BIND | MsFlags::MS_REC | MsFlags::MS_RDONLY));
+        assert!(data.is_empty());
+    }
+}

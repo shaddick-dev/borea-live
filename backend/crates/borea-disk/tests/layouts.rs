@@ -111,3 +111,9 @@ fn null_lsblk_fields_do_not_invent_identity() {
     assert_eq!(f.disks[0].id.serial, None);
     assert!(!f.disks[0].in_use);
 }
+
+#[test]
+fn active_unmounted_mappings_are_not_free_disks() {
+    let facts=parse_lsblk(r#"{"blockdevices":[{"type":"disk","path":"/dev/vda","size":99999,"serial":"test","mountpoints":[null],"children":[{"type":"part","path":"/dev/vda1","mountpoints":[null],"children":[{"type":"crypt","path":"/dev/mapper/open-volume","mountpoints":[null]}]}]}]}"#,true).unwrap();
+    assert!(facts.disks[0].in_use);
+}

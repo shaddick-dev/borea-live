@@ -221,7 +221,6 @@ pub const APPS: &[App] = &[
         mb: 150,
         native: &[
             n(Arch, "telegram-desktop", AE),
-            n(Debian, "telegram-desktop", DM),
             n(Fedora, "telegram-desktop", RF),
             n(OpenSuse, "telegram-desktop", OO),
         ],

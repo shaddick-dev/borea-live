@@ -25,3 +25,6 @@ borea-http.workspace = true
 borea-catalog.workspace = true
 
 borea-net.workspace = true
+
+borea-platform.workspace = true
+rustix.workspace = true

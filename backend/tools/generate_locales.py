@@ -1,7 +1,6 @@
 """Build-time only; emits Rust tables from glibc, xkeyboard-config, tzdata and Babel/CLDR."""
 import sys,json,xml.etree.ElementTree as ET,hashlib
 from pathlib import Path
-sys.path.insert(0,'/workspace/backend-build-tools')
 from babel import Locale
 from babel.core import get_global
 r=Path(__file__).resolve().parents[1];out=r/'crates/borea-locale/src/generated.rs'
@@ -28,7 +27,7 @@ for layout in xml.findall('./layoutList/layout'):
 zone=Path('/usr/share/zoneinfo');zones=[]
 for p in zone.rglob('*'):
  rel=p.relative_to(zone).as_posix()
- if p.is_file() and not rel.startswith(('posix/','right/')):
+ if p.is_file() and rel not in ('localtime','posixrules') and not rel.startswith(('posix/','right/')):
   try:
    if p.read_bytes().startswith(b'TZif'):zones.append(rel)
   except OSError:pass
@@ -39,13 +38,22 @@ for line in (zone/'zone1970.tab').read_text().splitlines():
  countries,_,tz,*_=line.split('\t')
  for c in countries.split(','):countryZones.setdefault(c,tz)
 console={'us':'us','gb':'uk','de':'de-latin1','fr':'fr','es':'es','it':'it','ru':'ru','br':'br-abnt2','pt':'pt-latin1','se':'sv-latin1','no':'no','dk':'dk-latin1','fi':'fi','jp':'jp106','kr':'us','cn':'us','tw':'us','in':'us'}
+console_map={}
+for line in (r/'crates/borea-locale/data/kbd-model-map').read_text().splitlines():
+ if line.startswith('#'):continue
+ fields=line.split()
+ if len(fields)>=4 and fields[2] not in console_map:
+  console_map[fields[2]]=fields[0]
+known_console={line.split()[0] for line in (r/'crates/borea-locale/data/kbd-model-map').read_text().splitlines() if line.strip() and not line.startswith('#')}
 locSet={x[0] for x in locales};layoutSet={x[0] for x in keyboards}
 for c,tz in sorted(countryZones.items()):
  tag=likely.get('und_'+c,'en_Latn_US').split('_');lang=tag[0];loc=lang+'_'+c+'.UTF-8'
  if loc not in locSet:loc=next((x[0] for x in locales if x[0].startswith(lang+'_')), 'en_US.UTF-8')
  kb=c.lower()
  if kb not in layoutSet:kb='us'
- defaults.append((c,loc,kb,console.get(kb,kb),tz))
+ keymap=console.get(kb,console_map.get(kb,'us'))
+ if keymap not in known_console:keymap=console_map.get(kb,'us')
+ defaults.append((c,loc,kb,keymap,tz))
 assert len(locales)>300, 'glibc input was not parsed completely'
 text='// Generated from glibc SUPPORTED, xkeyboard-config evdev.xml, tzdata and CLDR.\n'
 text+='pub const LOCALES: &[Locale] = &[\n'+''.join('Locale {id:'+q(a)+',english:'+q(b)+',native:'+q(c)+'},\n' for a,b,c in sorted(set(locales)))+'];\n'

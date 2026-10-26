@@ -100,8 +100,15 @@ pub fn json() -> String {
         })
         .collect();
 
+    let unavailable = crate::groups::UNAVAILABLE_DESKTOPS
+        .iter()
+        .map(|(d, id, reason)| {
+            format!("{{\"distro\":{},\"desktop\":{},\"reason\":{}}}", s(d.key()), s(id), s(reason))
+        })
+        .collect::<Vec<_>>()
+        .join(",");
     format!(
-        "{{\"repos\":[{}],\"categories\":[{}],\"apps\":[{}],\"presets\":[{}],\"groups\":[{}],\"pkgs\":{{{}}},\"desktops\":{{{}}},\"drivers\":{{{}}},\"required\":[{}],\"sections\":[{}],\"firewall\":{{{}}}}}",
+        "{{\"repos\":[{}],\"categories\":[{}],\"apps\":[{}],\"presets\":[{}],\"groups\":[{}],\"pkgs\":{{{}}},\"desktops\":{{{}}},\"drivers\":{{{}}},\"required\":[{}],\"sections\":[{}],\"firewall\":{{{}}},\"unavailableDesktops\":[{}]}}",
         repos.join(","),
         cats.join(","),
         apps.join(","),
@@ -116,6 +123,7 @@ pub fn json() -> String {
             .iter()
             .map(|(k, r)| format!("{}:[{}]", s(k), list(r)))
             .collect::<Vec<_>>()
-            .join(",")
+            .join(","),
+        unavailable
     )
 }

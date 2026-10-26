@@ -1,0 +1,129 @@
+{
+  "distro": "open-suse",
+  "release": "tumbleweed",
+  "environment": "server",
+  "desktop": null,
+  "packages": [
+    {
+      "source": "opensuse.oss",
+      "name": "Mesa-dri"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "NetworkManager"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "btrfsprogs"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "chrony"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "cockpit"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "cryptsetup"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "dracut"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "fail2ban"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "firewalld"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "glibc-locale"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "kbd"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "kernel-default"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "kernel-firmware-all"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "libvulkan_radeon"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "nano"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "openssh-server"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "rsync"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "sdbootutil"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "shim"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "snapper"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "sudo"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "systemd"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "systemd-boot"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "tmux"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "ucode-amd"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "zram-generator"
+    }
+  ],
+  "apps": [],
+  "estimated_app_mb": 0,
+  "firewall": [
+    "ssh",
+    "cockpit"
+  ],
+  "services": [
+    "NetworkManager.service",
+    "chronyd.service",
+    "cockpit.socket",
+    "firewalld.service",
+    "sshd.service"
+  ],
+  "kernel_args": [],
+  "modprobe": [],
+  "warnings": [],
+  "mok": false
+}

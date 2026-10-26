@@ -34,3 +34,25 @@ fn touched_keyboard_and_timezone_survive_language_change() {
     assert_eq!(s.layout, "fr");
     assert_eq!(s.timezone, "Europe/Paris");
 }
+
+#[test]
+fn every_country_suggestion_is_selectable() {
+    for d in DEFAULTS {
+        let choice = borea_core::LocaleChoice {
+            lang: d.locale.into(),
+            keyboard: borea_core::Keyboard {
+                layout: d.layout.into(),
+                variant: String::new(),
+                console: d.console.into(),
+            },
+            timezone: d.timezone.into(),
+        };
+        assert!(validate(&choice).is_ok(), "Invalid country default: {d:?}");
+    }
+}
+
+#[test]
+fn host_specific_zone_pointers_are_not_installation_choices() {
+    assert!(!TIMEZONES.contains(&"localtime"));
+    assert!(!TIMEZONES.contains(&"posixrules"));
+}

@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 //! A reviewable, deterministic sequence. This crate never invokes a process or writes a file.
+mod render;
 use borea_backend::{Artifact, Bootstrap};
 use borea_core::{DiskPlan, Distribution as Distro, Hint, Plan, Review, hint};
 use borea_disk::{Change, DiskFacts, Layout};
@@ -43,10 +44,15 @@ pub enum Action {
     PrepareExternal,
     ImportRepositoryKeys,
     PreflightNative,
+    DeferInitramfs,
+    RestoreInitramfs,
+    EnrollMok,
     CopyNativeRepositories,
+    InstallEfiFallback { shim: String, grub: String, config: String },
     InstallHelpers,
     ConfigureFstab,
     CopyNetwork,
+    RestoreNetwork,
     BuildAur { packages: Vec<String> },
     InstallAppImages { releases: Vec<String> },
     Note { message: String },
@@ -60,6 +66,7 @@ pub struct Stage {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Job {
     pub secure_boot: bool,
+    pub firmware_secure_boot: bool,
     pub setup_mode: Option<bool>,
     pub external: borea_backend::external::ExternalSources,
     pub version: u32,
@@ -76,7 +83,7 @@ impl Job {
     }
     pub fn render_script(&self) -> String {
         let mut out = String::from(
-            "#!/usr/bin/env bash\n# REVIEW ONLY: secrets and runtime identifiers are placeholders.\nset -euo pipefail\n",
+            "#!/usr/bin/env bash\n# REVIEW ONLY: secrets and runtime identifiers are placeholders.\n# Execution is exclusively through the approved privileged service.\nexit 64\n\nset -euo pipefail\n",
         );
         for stage in &self.stages {
             out.push_str(&format!("\n# {}\n", stage.title));
@@ -89,9 +96,12 @@ impl Job {
                         out.push_str(&format!(
                             "{}{} {}\n",
                             match c.root {
-                                Root::Live => "",
-                                Root::Target => "chroot /run/borea/target ",
-                                Root::Tools => "chroot <verified-tool-root> ",
+                                Root::Live => String::new(),
+                                Root::Target => "chroot /run/borea/target ".into(),
+                                Root::Tools => format!(
+                                    "chroot {} ",
+                                    quote(&format!("/run/borea/tools/{}", self.plan.distro.key()))
+                                ),
                             },
                             quote(&c.program),
                             c.args.iter().map(|s| quote(s)).collect::<Vec<_>>().join(" ")
@@ -103,10 +113,11 @@ impl Job {
                         mode,
                         contents.replace('\n', "\n# ")
                     )),
-                    _ => out.push_str(&format!("# {action:?}\n")),
+                    _ => render::helper(self, action, &mut out),
                 }
             }
         }
+        out.push_str("\n# Cleanup: unmount owned paths in reverse order, stop private GPG agents,\n# and close only this job's encrypted mapping. Preserve the redacted install log.\n");
         out
     }
 }
@@ -120,7 +131,7 @@ fn run(root: Root, program: &str, args: impl IntoIterator<Item = impl Into<Strin
         root,
         stdin: None,
         capture: None,
-        timeout: 3600,
+        timeout: if program == "/usr/sbin/debootstrap" { 14400 } else { 3600 },
         retry: true,
     })
 }
@@ -163,6 +174,11 @@ pub fn compile(
         ));
     }
     let mut review = borea_core::review(plan, hw)?;
+    let secure_boot = plan.target_secure_boot(hw);
+    if secure_boot && !hw.secure_boot {
+        review.warnings.push("Signed boot is being prepared; enable Secure Boot in firmware after installation if it remains off.".into());
+    }
+
     let layout = borea_disk::layout(&plan.disk, facts, plan.distro, plan.desktop.is_some())?;
     let base = borea_catalog::repos_for(plan.distro)
         .find(|r| r.base)
@@ -173,8 +189,8 @@ pub fn compile(
             review.packages.push(borea_core::Package { source: base.into(), name: (*p).into() });
         }
     }
-    if hw.secure_boot && plan.distro == Distro::Arch {
-        for name in ["sbctl", "sbsigntools"] {
+    if secure_boot && plan.distro == Distro::Arch {
+        for name in ["sbctl", "sbsigntools", "systemd-ukify"] {
             if !review.packages.iter().any(|p| p.name == name) {
                 review
                     .packages
@@ -189,6 +205,17 @@ pub fn compile(
                     .packages
                     .push(borea_core::Package { source: base.into(), name: name.into() });
             }
+        }
+    }
+    for name in [
+        review.packages.iter().any(|p| p.source == "flathub").then_some("flatpak"),
+        (review.mok && plan.distro != Distro::Arch).then_some("mokutil"),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !review.packages.iter().any(|p| p.name == name) {
+            review.packages.push(borea_core::Package { source: base.into(), name: name.into() });
         }
     }
     let locale_package = match plan.distro {
@@ -372,6 +399,29 @@ pub fn compile(
             "/usr/bin/btrfs",
             ["subvolume".into(), "create".into(), format!("{TARGET}/{sub}")],
         ));
+        let mountpoint = layout
+            .subvolumes
+            .iter()
+            .find(|(name, _)| name == sub)
+            .map(|(_, path)| path.as_str())
+            .unwrap_or("/");
+        let mode =
+            if mountpoint == "/root" || mountpoint == "/.snapshots" { "0700" } else { "0755" };
+        locking.push(run(Root::Live, "/usr/bin/chmod", [mode.into(), format!("{TARGET}/{sub}")]));
+        locking.push(run(Root::Live, "/usr/bin/chown", ["0:0".into(), format!("{TARGET}/{sub}")]));
+    }
+    if plan.distro == Distro::OpenSuse {
+        locking.push(capture(
+            Root::Live,
+            "/usr/bin/btrfs",
+            &["inspect-internal", "rootid", &format!("{TARGET}/{}", layout.root_subvol)],
+            "ROOT_SUBVOL_ID",
+        ));
+        locking.push(run(
+            Root::Live,
+            "/usr/bin/btrfs",
+            ["subvolume", "set-default", "${ROOT_SUBVOL_ID}", TARGET],
+        ));
     }
     locking.push(Action::Unmount { path: TARGET.into() });
     for (sub, path) in &layout.subvolumes {
@@ -422,12 +472,12 @@ pub fn compile(
             Root::Live,
             "/usr/sbin/debootstrap",
             [
-                "--variant=minbase".into(),
-                "--keyring=/usr/share/keyrings/debian-archive-keyring.gpg".into(),
-                format!("--include={}", native.join(",")),
-                "trixie".into(),
-                TARGET.into(),
-                "https://deb.debian.org/debian".into(),
+                "--variant=minbase",
+                "--keyring=/usr/share/keyrings/debian-archive-keyring.gpg",
+                "--include=ca-certificates",
+                "trixie",
+                TARGET,
+                "https://deb.debian.org/debian",
             ],
         )],
         Distro::Arch => vec![run(
@@ -534,6 +584,25 @@ pub fn compile(
                 0o644,
             ));
             repos.push(target("/usr/bin/apt-get", ["update"]));
+            repos.push(Action::DeferInitramfs);
+            // Generate initramfs once, after UUIDs, encryption and keyboard are configured.
+            repos.push(write(
+                "/etc/initramfs-tools/update-initramfs.conf",
+                "update_initramfs=no\nbackup_initramfs=no\n".into(),
+                0o644,
+            ));
+            repos.push(target(
+                "/usr/bin/apt-get",
+                [
+                    "-o".into(),
+                    "Dpkg::Options::=--force-confold".into(),
+                    "install".into(),
+                    "-y".into(),
+                    "--no-install-recommends".into(),
+                ]
+                .into_iter()
+                .chain(native.clone()),
+            ));
         }
         Distro::Fedora => {
             for (id, release) in
@@ -587,7 +656,19 @@ pub fn compile(
         target("/usr/bin/systemctl", ["enable", "borea-firstboot.service"]),
         write("/etc/hostname", format!("{}\n", plan.user.hostname), 0o644),
         write("/etc/locale.conf", format!("LANG={}\n", plan.locale.lang), 0o644),
-        write("/etc/vconsole.conf", format!("KEYMAP={}\n", plan.locale.keyboard.console), 0o644),
+        write(
+            if plan.distro == Distro::Debian {
+                "/etc/default/locale"
+            } else {
+                "/etc/vconsole.conf"
+            },
+            if plan.distro == Distro::Debian {
+                format!("LANG={}\n", plan.locale.lang)
+            } else {
+                format!("KEYMAP={}\n", plan.locale.keyboard.console)
+            },
+            0o644,
+        ),
         write(
             "/etc/X11/xorg.conf.d/00-keyboard.conf",
             format!(
@@ -625,6 +706,40 @@ pub fn compile(
     if matches!(plan.distro, Distro::Arch | Distro::Debian) {
         config.push(write("/etc/locale.gen", format!("{} UTF-8\n", plan.locale.lang), 0o644));
         config.push(target("/usr/bin/locale-gen", Vec::<String>::new()));
+    }
+    if review.services.iter().any(|service| service == "ssh.service" || service == "sshd.service") {
+        config.push(write(
+            "/etc/ssh/sshd_config.d/90-borea-root.conf",
+            "PermitRootLogin no\n".into(),
+            0o644,
+        ));
+    }
+    if plan.distro == Distro::Arch {
+        if review.services.iter().any(|service| service == "postgresql.service") {
+            config.push(target(
+                "/usr/sbin/runuser",
+                ["-u", "postgres", "--", "/usr/bin/initdb", "-D", "/var/lib/postgres/data"],
+            ));
+        }
+        if review.services.iter().any(|service| service == "mariadb.service") {
+            config.push(target(
+                "/usr/bin/mariadb-install-db",
+                ["--user=mysql", "--basedir=/usr", "--datadir=/var/lib/mysql"],
+            ));
+        }
+    }
+    if plan.distro == Distro::Fedora
+        && review.services.iter().any(|service| service == "postgresql.service")
+    {
+        config.push(target("/usr/bin/postgresql-setup", ["--initdb", "--unit", "postgresql"]));
+    }
+    if plan.distro == Distro::OpenSuse {
+        config.push(write("/etc/snapper/configs/root", "SUBVOLUME=\"/\"\nFSTYPE=\"btrfs\"\nTIMELINE_CREATE=\"yes\"\nTIMELINE_CLEANUP=\"yes\"\nNUMBER_CLEANUP=\"yes\"\nNUMBER_LIMIT=\"50\"\n".into(),0o640));
+        config.push(write("/etc/sysconfig/snapper", "SNAPPER_CONFIGS=\"root\"\n".into(), 0o644));
+        config.push(target(
+            "/usr/bin/systemctl",
+            ["enable", "snapper-timeline.timer", "snapper-cleanup.timer"],
+        ));
     }
     let admin = borea_backend::admin_group(plan.distro);
     config.push(target(
@@ -747,7 +862,13 @@ pub fn compile(
         }
         Distro::Debian => {
             boot.push(write("/etc/default/grub",format!("GRUB_DEFAULT=0\nGRUB_TIMEOUT=4\nGRUB_CMDLINE_LINUX=\"root=/dev/mapper/borea-root rootflags=subvol={} {}\"\nGRUB_DISABLE_OS_PROBER=false\n",layout.root_subvol,review.kernel_args.join(" ")),0o644));
-            boot.push(target("/usr/sbin/update-initramfs", ["-u", "-k", "all"]));
+            boot.push(Action::RestoreInitramfs);
+            boot.push(write(
+                "/etc/initramfs-tools/update-initramfs.conf",
+                "update_initramfs=yes\nbackup_initramfs=no\n".into(),
+                0o644,
+            ));
+            boot.push(target("/usr/sbin/update-initramfs", ["-c", "-k", "all"]));
             boot.push(target(
                 "/usr/bin/mkdir",
                 ["-p", "/boot/efi/EFI/debian", "/boot/efi/EFI/BOOT"],
@@ -758,29 +879,21 @@ pub fn compile(
             ));
             boot.push(target(
                 "/usr/bin/cp",
+                ["/usr/lib/shim/mmx64.efi.signed", "/boot/efi/EFI/debian/mmx64.efi"],
+            ));
+            boot.push(target(
+                "/usr/bin/cp",
                 [
                     "/usr/lib/grub/x86_64-efi-signed/grubx64.efi.signed",
                     "/boot/efi/EFI/debian/grubx64.efi",
                 ],
             ));
             boot.push(write("/boot/efi/EFI/debian/grub.cfg","search --no-floppy --fs-uuid --set=root ${BOOT_UUID}\nset prefix=($root)/grub\nconfigfile $prefix/grub.cfg\n".into(),0o644));
-            boot.push(target(
-                "/usr/bin/cp",
-                [
-                    "--no-clobber",
-                    "/usr/lib/shim/shimx64.efi.signed",
-                    "/boot/efi/EFI/BOOT/BOOTX64.EFI",
-                ],
-            ));
-            boot.push(target(
-                "/usr/bin/cp",
-                [
-                    "--no-clobber",
-                    "/usr/lib/grub/x86_64-efi-signed/grubx64.efi.signed",
-                    "/boot/efi/EFI/BOOT/grubx64.efi",
-                ],
-            ));
-            boot.push(write("/boot/efi/EFI/BOOT/grub.cfg","search --no-floppy --fs-uuid --set=root ${BOOT_UUID}\nset prefix=($root)/grub\nconfigfile $prefix/grub.cfg\n".into(),0o644));
+            boot.push(Action::InstallEfiFallback {
+                shim: "/boot/efi/EFI/debian/shimx64.efi".into(),
+                grub: "/boot/efi/EFI/debian/grubx64.efi".into(),
+                config: "search --no-floppy --fs-uuid --set=root ${BOOT_UUID}\nset prefix=($root)/grub\nconfigfile $prefix/grub.cfg\n".into(),
+            });
             boot.push(run(
                 Root::Live,
                 "/usr/sbin/efibootmgr",
@@ -832,11 +945,28 @@ pub fn compile(
         }
         Distro::OpenSuse => {
             boot.push(target("/usr/bin/dracut", ["--regenerate-all", "--force"]));
-            boot.push(target("/usr/bin/sdbootutil", ["install"]));
-            boot.push(target("/usr/bin/sdbootutil", ["add-all-kernels"]));
+            boot.push(write(
+                "/etc/sysconfig/bootloader",
+                format!(
+                    "LOADER_TYPE=\"systemd-boot\"\nSECURE_BOOT=\"{}\"\nUPDATE_NVRAM=\"yes\"\n",
+                    if secure_boot { "yes" } else { "no" }
+                ),
+                0o644,
+            ));
+            let mut install =
+                vec!["--esp-path".into(), layout.esp_mount.clone(), "--arch".into(), "x64".into()];
+            if secure_boot {
+                install.push("--secure-boot".into());
+            }
+            install.push("install".into());
+            boot.push(target("/usr/bin/sdbootutil", install));
+            boot.push(target(
+                "/usr/bin/sdbootutil",
+                ["--esp-path", layout.esp_mount.as_str(), "--arch", "x64", "add-all-kernels"],
+            ));
         }
     }
-    if hw.secure_boot && plan.distro == Distro::Arch {
+    if secure_boot && plan.distro == Distro::Arch {
         boot.push(install(plan.distro, vec!["sbctl".into(), "sbsigntools".into()]));
         boot.push(target("/usr/bin/sbctl", ["create-keys"]));
         boot.push(write("/etc/mkinitcpio.d/linux.preset","ALL_config=\"/etc/mkinitcpio.conf\"\nALL_kver=\"/boot/vmlinuz-linux\"\nPRESETS=('default')\ndefault_uki=\"/boot/EFI/Linux/arch-linux.efi\"\n".into(),0o644));
@@ -863,7 +993,7 @@ pub fn compile(
         boot.push(capture(
             Root::Target,
             "/usr/bin/find",
-            &["/usr/lib/modules", "-mindepth", "1", "-maxdepth", "1", "-printf", "%f"],
+            &["/usr/lib/modules", "-mindepth", "1", "-maxdepth", "1", "-printf", "%f\n"],
             "KERNEL_VERSION",
         ));
         boot.push(target("/usr/sbin/akmods", ["--force", "--kernels", "${KERNEL_VERSION}"]));
@@ -871,22 +1001,14 @@ pub fn compile(
     }
     if review.mok && plan.distro != Distro::Arch {
         boot.push(install(plan.distro, vec!["mokutil".into()]));
-        let cert = if plan.distro == Distro::Fedora {
-            "/etc/pki/akmods/certs/public_key.der"
-        } else {
-            "/var/lib/dkms/mok.pub"
-        };
-        let mut import = target("/usr/bin/mokutil", ["--import", cert]);
-        if let Action::Run(c) = &mut import {
-            c.stdin = Some(SecretRef::Mok);
-            c.retry = false;
-        }
-        boot.push(import);
+        boot.push(Action::EnrollMok);
     }
+    boot.push(Action::RestoreNetwork);
     boot.push(run(Root::Live, "/usr/bin/sync", Vec::<String>::new()));
     stages.push(Stage { title: "Finishing up.".into(), weight: 7, actions: boot });
     Ok(Job {
-        secure_boot: hw.secure_boot,
+        secure_boot,
+        firmware_secure_boot: hw.secure_boot,
         setup_mode: hw.setup_mode,
         external: borea_backend::external::ExternalSources::default(),
         version: 1,
@@ -904,6 +1026,18 @@ pub fn apply_external(job: &mut Job, resolved: borea_backend::external::External
         if !image.published_checksum {
             job.review.warnings.push(format!("{} {}: upstream supplies no published checksum; downloaded bytes are pinned but provenance is unverified.",image.repository,image.tag));
         }
+    }
+    if let Some(base) = borea_catalog::repos_for(job.plan.distro).find(|repo| repo.base) {
+        for recipe in &resolved.aur {
+            for name in &recipe.dependencies {
+                if !job.review.packages.iter().any(|p| p.name == *name && p.source == base.id) {
+                    job.review
+                        .packages
+                        .push(borea_core::Package { source: base.id.into(), name: name.clone() });
+                }
+            }
+        }
+        job.review.packages.sort_by(|a, b| (&a.source, &a.name).cmp(&(&b.source, &b.name)));
     }
     job.external = resolved;
 }

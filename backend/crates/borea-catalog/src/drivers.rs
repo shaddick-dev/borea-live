@@ -345,7 +345,12 @@ pub fn plan_drivers(hw: &Hardware, d: Distro) -> DriverPlan {
         p.say("MUX switch", how);
     }
     if laptop {
-        p.add(base, &[if d == Fedora { "tuned-ppd" } else { "power-profiles-daemon" }]); // verify openSUSE default
+        p.add(base, &[if d == Fedora { "tuned-ppd" } else { "power-profiles-daemon" }]);
+        if d == Fedora {
+            p.services.extend(["tuned.service", "tuned-ppd.service"]);
+        } else {
+            p.services.push("power-profiles-daemon.service");
+        } // verify openSUSE default
     }
 
     // ---- CPU, audio, wireless, fingerprint

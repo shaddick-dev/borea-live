@@ -1,0 +1,132 @@
+{
+  "distro": "debian",
+  "release": "trixie",
+  "environment": "workstation",
+  "desktop": "plasma",
+  "packages": [
+    {
+      "source": "debian.main",
+      "name": "bluez"
+    },
+    {
+      "source": "debian.main",
+      "name": "btrfs-progs"
+    },
+    {
+      "source": "debian.main",
+      "name": "console-data"
+    },
+    {
+      "source": "debian.main",
+      "name": "console-setup"
+    },
+    {
+      "source": "debian.main",
+      "name": "cryptsetup-initramfs"
+    },
+    {
+      "source": "debian.main",
+      "name": "cups"
+    },
+    {
+      "source": "debian.main",
+      "name": "efibootmgr"
+    },
+    {
+      "source": "debian.main",
+      "name": "firewalld"
+    },
+    {
+      "source": "debian.main",
+      "name": "grub-efi-amd64-signed"
+    },
+    {
+      "source": "debian.main",
+      "name": "initramfs-tools"
+    },
+    {
+      "source": "debian.main",
+      "name": "kbd"
+    },
+    {
+      "source": "debian.main",
+      "name": "linux-image-amd64"
+    },
+    {
+      "source": "debian.main",
+      "name": "locales"
+    },
+    {
+      "source": "debian.main",
+      "name": "mesa-vulkan-drivers"
+    },
+    {
+      "source": "debian.main",
+      "name": "nano"
+    },
+    {
+      "source": "debian.main",
+      "name": "network-manager"
+    },
+    {
+      "source": "debian.main",
+      "name": "os-prober"
+    },
+    {
+      "source": "debian.main",
+      "name": "pipewire-audio"
+    },
+    {
+      "source": "debian.main",
+      "name": "sddm"
+    },
+    {
+      "source": "debian.main",
+      "name": "shim-signed"
+    },
+    {
+      "source": "debian.main",
+      "name": "sudo"
+    },
+    {
+      "source": "debian.main",
+      "name": "systemd-sysv"
+    },
+    {
+      "source": "debian.main",
+      "name": "systemd-zram-generator"
+    },
+    {
+      "source": "debian.main",
+      "name": "task-kde-desktop"
+    },
+    {
+      "source": "debian.non-free-firmware",
+      "name": "firmware-linux"
+    },
+    {
+      "source": "debian.non-free-firmware",
+      "name": "firmware-misc-nonfree"
+    },
+    {
+      "source": "debian.non-free-firmware",
+      "name": "intel-microcode"
+    }
+  ],
+  "apps": [],
+  "estimated_app_mb": 0,
+  "firewall": [],
+  "services": [
+    "NetworkManager.service",
+    "bluetooth.service",
+    "cups.service",
+    "firewalld.service",
+    "sddm.service"
+  ],
+  "kernel_args": [],
+  "modprobe": [],
+  "warnings": [
+    "Debian 13's NVIDIA driver is too old for the GeForce RTX 5070: it runs on nouveau, without full speed. Arch, Fedora and openSUSE support it fully."
+  ],
+  "mok": false
+}
