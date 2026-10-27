@@ -217,3 +217,49 @@ fn renders_light_and_dark() {
         h.render().unwrap().save(format!("{dir}/windpad-{name}-shell.png")).unwrap();
     }
 }
+
+// ── Parity with Borea Live (tests/live.rs checks the same things there) ─────
+
+#[test]
+fn firmware_setup_works_as_in_borea_live() {
+    let mut h = harness(false);
+    press(&mut h, "UEFI setup");
+    assert_eq!(app(&h).dialog(), Some(Dialog::Firmware));
+    assert!(h.query_by_label("Restart into UEFI setup?").is_some());
+    press(&mut h, "Cancel");
+    assert_eq!(app(&h).dialog(), None);
+    press(&mut h, "UEFI setup");
+    press(&mut h, "Restart into firmware");
+    assert!(h.query_by_label_contains("Firmware restart is unavailable in this preview").is_some());
+    press(&mut h, "Close");
+    assert_eq!(app(&h).dialog(), None);
+}
+
+#[test]
+fn legacy_bios_cannot_request_a_firmware_restart() {
+    let mut hardware = machine();
+    hardware.firmware = borea_live_core::Fact::Known(borea_live_core::FirmwareMode::Bios);
+    let ctx_hardware = hardware.clone();
+    let mut h = Harness::builder().with_size(egui::vec2(1200.0, 1500.0)).build_ui_state(
+        move |ui, app: &mut Option<Windpad>| {
+            let ctx = ui.ctx().clone();
+            let app = app
+                .get_or_insert_with(|| Windpad::with_hardware(&ctx, ctx_hardware.clone(), false));
+            for action in app.frame(ui) {
+                app.apply(&ctx, action);
+            }
+        },
+        None,
+    );
+    h.run();
+    press(&mut h, "UEFI setup");
+    assert_eq!(app(&h).dialog(), None);
+}
+
+#[test]
+fn hardware_drawer_reads_like_borea_live_machine_step() {
+    let mut h = harness(false);
+    press(&mut h, "Hardware");
+    assert!(h.query_by_label_contains("Available to choose later").is_some());
+    assert!(h.query_by_label_contains("Installation medium").is_some());
+}

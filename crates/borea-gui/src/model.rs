@@ -346,6 +346,21 @@ impl Selection {
             Err(error) => error.to_string(),
         }
     }
+
+    /// What "No desktop" installs, extras included, in both windows' words.
+    pub fn bare_summary(&self, catalog: &Catalog, family: Family) -> String {
+        let ticked: Vec<_> =
+            self.ticked(catalog, family).iter().map(|o| o.extra.name.clone()).collect();
+        let extra = match ticked.as_slice() {
+            [] => ", nothing extra".to_owned(),
+            names => format!(" plus {}", names.join(", ")),
+        };
+        format!(
+            "Installs {} {} as shipped: a console login{extra}. You can add a desktop any time later.",
+            self.distro(catalog, family).name,
+            self.edition(catalog, family).name
+        )
+    }
 }
 
 /// What composing offers on a distribution, in a line: "Hyprland, niri, MangoWC ·
@@ -382,6 +397,91 @@ pub fn device_name(hw: &borea_hardware::HardwareSnapshot) -> String {
 pub fn capitalize(text: &str) -> String {
     let mut chars = text.chars();
     chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default()
+}
+
+/// Each family's one line, the same on Windpad's cards and Borea Live's Family step.
+pub fn family_line(family: Family) -> &'static str {
+    match family {
+        Family::Arch => "A system shaped by you.",
+        Family::Fedora => "A fresh perspective.",
+        Family::Debian => "A foundation to settle into.",
+        Family::Opensuse => "Ready for your next adventure.",
+    }
+}
+
+/// Decimal gigabytes, the unit used for memory and disks alike.
+pub fn gigabytes(bytes: u64) -> String {
+    format!("{:.0} GB", bytes as f64 / 1e9)
+}
+
+/// One machine fact: what it is, its value, and a quieter detail (possibly empty).
+pub type HardwareFact = (&'static str, String, String);
+
+/// Everything read from the machine, in one order and wording for both windows:
+/// Windpad's Hardware drawer lists these as rows, Borea Live's Machine step as cards.
+pub fn hardware_facts(hw: &borea_hardware::HardwareSnapshot) -> Vec<HardwareFact> {
+    use borea_hardware::DiskUsage;
+    use borea_live_core::Fact;
+    let mut facts = Vec::new();
+    match &hw.cpu {
+        Fact::Known(cpu) => {
+            let level = cpu.x86_level.map(|l| format!(" · {l}")).unwrap_or_default();
+            facts.push((
+                "Processor",
+                cpu.model.clone().unwrap_or_else(|| "Unknown model".into()),
+                format!("{} threads{level}", cpu.logical_cores),
+            ));
+        }
+        Fact::Unknown { reason } => facts.push(("Processor", "Unknown".into(), reason.clone())),
+    }
+    for gpu in &hw.gpus {
+        let driver = gpu.host_driver.clone().unwrap_or_else(|| "no driver in this session".into());
+        facts.push(("Graphics", gpu.label(), driver));
+    }
+    let memory = hw.memory_bytes.known().map_or("Unknown".into(), |b| gigabytes(*b));
+    facts.push(("Memory", memory, String::new()));
+    let secure = match hw.secure_boot {
+        Fact::Known(true) => "Secure Boot on",
+        Fact::Known(false) => "Secure Boot off",
+        Fact::Unknown { .. } => "Secure Boot unknown",
+    };
+    facts.push(("Firmware", hw.firmware.to_string(), secure.into()));
+    let detail = match (&hw.device_class, hw.battery) {
+        (Fact::Unknown { reason }, _) => capitalize(reason),
+        (Fact::Known(_), true) => "battery".into(),
+        (Fact::Known(_), false) => String::new(),
+    };
+    facts.push(("Device", device_name(hw), detail));
+    for display in &hw.displays {
+        let place = if display.internal { "Built-in" } else { "External" };
+        facts.push((
+            "Display",
+            format!("{place} · {}", display.connector),
+            display.mode.clone().unwrap_or_default(),
+        ));
+    }
+    for disk in &hw.disks {
+        let usage = match &disk.usage {
+            DiskUsage::Free => "Available to choose later".to_owned(),
+            other => capitalize(&other.to_string()),
+        };
+        facts.push(("Disk", format!("{} · {}", disk.name, gigabytes(disk.size_bytes)), usage));
+    }
+    for nic in &hw.network {
+        let kind = if nic.wireless { "Wi-Fi" } else { "Wired" };
+        facts.push((
+            "Network",
+            format!("{kind} · {}", nic.interface),
+            nic.host_driver.clone().unwrap_or_default(),
+        ));
+    }
+    if !hw.bluetooth.is_empty() {
+        facts.push(("Bluetooth", hw.bluetooth.join(", "), String::new()));
+    }
+    for input in &hw.inputs {
+        facts.push(("Input", input.name.clone(), capitalize(&input.kind.to_string())));
+    }
+    facts
 }
 
 #[cfg(test)]

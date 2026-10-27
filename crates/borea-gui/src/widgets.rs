@@ -1,4 +1,5 @@
-//! Small building blocks Windpad repeats: cards you can choose, badges, buttons.
+//! Small building blocks Windpad and Borea Live share: cards you can choose, badges,
+//! buttons, dialogs. Anything both windows draw comes from here, so they read as one design.
 
 use borea_live_catalog::{Catalog, Distro, Source};
 use eframe::egui::{
@@ -260,10 +261,82 @@ pub fn segmented<T: PartialEq + Copy>(
 pub fn notice(ui: &mut Ui, p: &Palette, text: &str) {
     Frame::new()
         .fill(p.wash)
-        .corner_radius(CornerRadius::same(8))
+        .corner_radius(CornerRadius::same(RADIUS))
         .inner_margin(Margin::same(12))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.label(caption(text, p));
         });
+}
+
+/// A modal dialog in the house style. `id` keeps dialogs apart.
+pub fn dialog<R>(
+    ctx: &egui::Context,
+    id: &str,
+    p: &Palette,
+    width: f32,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> egui::ModalResponse<R> {
+    let frame = Frame::new()
+        .fill(p.paper)
+        .stroke(Stroke::new(1.0, p.line))
+        .corner_radius(CornerRadius::same(RADIUS + 2))
+        .inner_margin(Margin::same(26));
+    egui::Modal::new(egui::Id::unique(("borea-dialog", id))).frame(frame).show(ctx, |ui| {
+        ui.set_width(width.min(ctx.content_rect().width() - 32.0));
+        add(ui)
+    })
+}
+
+/// A dialog's title with its Close button. Returns whether Close was pressed.
+pub fn dialog_head(ui: &mut Ui, p: &Palette, title: &str) -> bool {
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(title).size(size::TITLE));
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let close = ui.add(
+                Button::new(RichText::new(icon::CLOSE).size(size::HEADING).color(p.sub))
+                    .frame(false),
+            );
+            close.widget_info(|| WidgetInfo::labeled(Role::Button, true, "Close"));
+            close.clicked()
+        })
+        .inner
+    })
+    .inner
+}
+
+/// The icon for a machine fact's label (see `model::hardware_facts`).
+pub fn fact_icon(label: &str) -> &'static str {
+    match label {
+        "Processor" => icon::CPU,
+        "Graphics" => icon::GPU,
+        "Memory" => icon::MEMORY,
+        "Firmware" => icon::SHIELD,
+        "Device" => icon::LAPTOP,
+        "Display" => icon::MONITOR,
+        "Disk" => icon::DISK,
+        "Network" => icon::ETHERNET,
+        "Bluetooth" => icon::BLUETOOTH,
+        "Input" => icon::KEYBOARD,
+        _ => icon::CHIP,
+    }
+}
+
+/// "What Borea will do" for this machine: microcode, hybrid graphics, blockers.
+pub fn findings(ui: &mut Ui, p: &Palette, hw: &borea_hardware::HardwareSnapshot) {
+    let findings = borea_distro::machine_findings(hw);
+    if findings.is_empty() {
+        return;
+    }
+    ui.add_space(14.0);
+    ui.label(eyebrow("What Borea will do", p.sub));
+    ui.add_space(6.0);
+    for finding in findings {
+        let (mark, text) = match finding {
+            borea_distro::Finding::Recommend(text) => (icon::NEXT, text),
+            borea_distro::Finding::Unknown(text) => ("?", text),
+            borea_distro::Finding::Blocker(text) => (icon::CLOSE, text),
+        };
+        ui.label(RichText::new(format!("{mark}  {text}")).size(size::SMALL));
+    }
 }

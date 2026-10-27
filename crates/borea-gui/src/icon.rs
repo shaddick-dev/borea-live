@@ -27,6 +27,8 @@ pub const WIFI: &str = "\u{f05a9}";
 pub const WIFI_OFF: &str = "\u{f05aa}";
 pub const ETHERNET: &str = "\u{f0200}";
 pub const SHIELD: &str = "\u{f0565}";
+pub const BLUETOOTH: &str = "\u{f00af}";
+pub const KEYBOARD: &str = "\u{f030c}";
 
 // Desktop and extras.
 pub const WINDOW: &str = "\u{f10ac}";
@@ -108,9 +110,9 @@ pub fn plain(text: &str) -> String {
 #[cfg(test)]
 pub const ALL: &[&str] = &[
     ARCH, CACHYOS, FEDORA, NOBARA, DEBIAN, OPENSUSE, TUMBLEWEED, TUX, HYPRLAND, FLATHUB, CPU, GPU,
-    MEMORY, CHIP, DISK, MONITOR, LAPTOP, WIFI, WIFI_OFF, ETHERNET, SHIELD, WINDOW, DASHBOARD,
-    CONSOLE, GAMEPAD, FILM, PRINTER, PACKAGE, CHECK, CLOSE, NEXT, BACK, OPEN, CHEVRON, STAR, DOT,
-    RING, THEME, WIND, ONE, TWO,
+    MEMORY, CHIP, DISK, MONITOR, LAPTOP, WIFI, WIFI_OFF, ETHERNET, SHIELD, BLUETOOTH, KEYBOARD,
+    WINDOW, DASHBOARD, CONSOLE, GAMEPAD, FILM, PRINTER, PACKAGE, CHECK, CLOSE, NEXT, BACK, OPEN,
+    CHEVRON, STAR, DOT, RING, THEME, WIND, ONE, TWO,
 ];
 
 #[cfg(test)]
