@@ -151,6 +151,23 @@ pub fn run(args: &[&str]) -> Result {
         ));
     }
     println!("All Buildroot {BUILDROOT_VERSION} options accepted.");
+
+    // Buildroot never rebuilds a package whose options changed (a new sub-option
+    // like gnupg2's gpgv would never appear). Configuring kept the previous
+    // configuration as .config.old, so rebuild exactly those packages.
+    if let (Ok(old), Ok(new)) = (
+        fs::read_to_string(output_dir.join(".config.old")),
+        fs::read_to_string(output_dir.join(".config")),
+    ) {
+        let known = package_names(&[buildroot.join("package"), external.join("package")]);
+        let changed = changed_packages(&old, &new, |name| known.contains(name));
+        if !changed.is_empty() {
+            step(&format!("Options changed for {}: rebuilding them", changed.join(", ")));
+            let targets: Vec<String> = changed.iter().map(|p| format!("{p}-dirclean")).collect();
+            make(&targets.iter().map(String::as_str).collect::<Vec<_>>(), false)?;
+        }
+    }
+
     if options.configure_only {
         step(&format!("Configured: {}", output_dir.join(".config").display()));
         return Ok(());
@@ -193,6 +210,71 @@ pub fn run(args: &[&str]) -> Result {
         "Write it: borea-flash   (finds the newest build itself; install it once with `cargo run --release -p borea-flash -- --install`)"
     );
     Ok(())
+}
+
+/// Every package Buildroot (and the Borea external tree) can build, by name:
+/// each `<name>/<name>.mk`, however deep in `package/`.
+fn package_names(roots: &[PathBuf]) -> std::collections::HashSet<String> {
+    fn walk(dir: &Path, found: &mut std::collections::HashSet<String>) {
+        let Ok(entries) = fs::read_dir(dir) else { return };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                    && path.join(format!("{name}.mk")).is_file()
+                {
+                    found.insert(name.to_owned());
+                }
+                walk(&path, found);
+            }
+        }
+    }
+    let mut found = std::collections::HashSet::new();
+    for root in roots {
+        walk(root, &mut found);
+    }
+    found
+}
+
+/// Buildroot packages whose `BR2_PACKAGE_*` options differ between two
+/// configurations, as make target names (`gnupg2`, `host-lld`). Each changed
+/// symbol belongs to the longest package name it starts with.
+fn changed_packages(old: &str, new: &str, exists: impl Fn(&str) -> bool) -> Vec<String> {
+    fn symbols(config: &str) -> std::collections::BTreeMap<&str, &str> {
+        config
+            .lines()
+            .filter_map(|line| {
+                if let Some(rest) =
+                    line.strip_prefix("# ").and_then(|l| l.strip_suffix(" is not set"))
+                {
+                    return Some((rest, "n"));
+                }
+                line.split_once('=')
+            })
+            .filter(|(symbol, _)| symbol.starts_with("BR2_PACKAGE_"))
+            .collect()
+    }
+    let (old, new) = (symbols(old), symbols(new));
+    let mut changed = std::collections::BTreeSet::new();
+    for symbol in old.keys().chain(new.keys()) {
+        if old.get(symbol).unwrap_or(&"n") == new.get(symbol).unwrap_or(&"n") {
+            continue;
+        }
+        let rest = &symbol["BR2_PACKAGE_".len()..];
+        let (host, rest) = match rest.strip_prefix("HOST_") {
+            Some(rest) => (true, rest),
+            None => (false, rest),
+        };
+        let words: Vec<&str> = rest.split('_').collect();
+        for n in (1..=words.len()).rev() {
+            let name = words[..n].join("-").to_lowercase();
+            if exists(&name) {
+                changed.insert(if host { format!("host-{name}") } else { name });
+                break;
+            }
+        }
+    }
+    changed.into_iter().collect()
 }
 
 /// The defconfig lines that need a clean build when they change.
@@ -416,6 +498,16 @@ mod tests {
         let defconfig = "# comment\nBR2_PACKAGE_CAGE=y\nBR2_PACKAGE_GONE=y\nBR2_TARGET_GENERIC_HOSTNAME=\"borea-live\"\n";
         let config = "BR2_PACKAGE_CAGE=y\n# BR2_PACKAGE_GONE is not set\nBR2_TARGET_GENERIC_HOSTNAME=\"x\"\n";
         assert_eq!(dropped_options(defconfig, config), ["BR2_PACKAGE_GONE=y"]);
+    }
+
+    #[test]
+    fn packages_whose_options_changed_are_found() {
+        let old = "BR2_PACKAGE_GNUPG2=y\n# BR2_PACKAGE_GNUPG2_GPGV is not set\nBR2_PACKAGE_IW=y\n# BR2_PACKAGE_HOST_LLD is not set\nBR2_PACKAGE_LINUX_FIRMWARE=y\n";
+        let new = "BR2_PACKAGE_GNUPG2=y\nBR2_PACKAGE_GNUPG2_GPGV=y\nBR2_PACKAGE_IW=y\nBR2_PACKAGE_HOST_LLD=y\nBR2_PACKAGE_LINUX_FIRMWARE=y\nBR2_PACKAGE_LINUX_FIRMWARE_IWLWIFI_7=y\nBR2_TOOLCHAIN_EXTERNAL=y\n";
+        let known = ["gnupg2", "iw", "lld", "linux-firmware", "linux"];
+        let changed = changed_packages(old, new, |name| known.contains(&name));
+        assert_eq!(changed, ["gnupg2", "host-lld", "linux-firmware"]);
+        assert!(changed_packages(new, new, |_| true).is_empty());
     }
 
     #[test]

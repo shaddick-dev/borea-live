@@ -64,8 +64,7 @@ One Cargo workspace (`Cargo.toml`, one `Cargo.lock`), every crate under `crates/
 - `/tmp` here is a 7.7 GB tmpfs. Put VM disks under `target/vm`.
 - Under OVMF, direct kernel boot doesn't detect QEMU's emulated CD drive.
   Attach the ISO as a read-only virtio disk instead.
-- Package options changed in this change set (`borea_live_defconfig`): run
-  `make <pkg>-dirclean` for any rebuilt package. Buildroot doesn't rebuild a
-  package when its options change.
+- Buildroot doesn't rebuild a package when its options change; `borea-build`
+  does it for you, comparing `.config.old` with `.config` after configuring.
 - `target/` holds Buildroot's build cache. Keep it: it's what makes rebuilds
   incremental.
