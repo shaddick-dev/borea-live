@@ -110,7 +110,7 @@ BR2_PACKAGE_CA_CERTIFICATES=y
 # Disks
 BR2_PACKAGE_UDISKS=y
 BR2_PACKAGE_UTIL_LINUX_BINARIES=y
-# borea-worker runs in a private mount namespace
+# borea-installd runs native tools in a private mount namespace
 BR2_PACKAGE_UTIL_LINUX_UNSHARE=y
 BR2_PACKAGE_E2FSPROGS=y
 BR2_PACKAGE_DOSFSTOOLS=y

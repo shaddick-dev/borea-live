@@ -47,8 +47,15 @@ pub fn newest_image(repo: &Path) -> Option<PathBuf> {
 /// made from changed after the newest one.
 pub fn needs_build(repo: &Path, image: Option<&Path>) -> bool {
     let Some(built) = image.and_then(|i| i.metadata().ok()?.modified().ok()) else { return true };
-    let sources =
-        [repo.join("crates"), repo.join("live"), repo.join("Cargo.lock"), repo.join("Cargo.toml")];
+    // backend/dist holds the installer's service files and signing keys, which
+    // go into the image; the rest of backend/ (docs, VM tests) does not.
+    let sources = [
+        repo.join("crates"),
+        repo.join("live"),
+        repo.join("backend/dist"),
+        repo.join("Cargo.lock"),
+        repo.join("Cargo.toml"),
+    ];
     sources.iter().any(|source| {
         // Build output and documentation never change the image.
         newest(source, &|p| {
@@ -277,6 +284,32 @@ pub fn log_tail(path: &Path, limit: u64) -> Option<String> {
 fn clock(elapsed: Duration) -> String {
     let s = elapsed.as_secs();
     format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
+}
+
+#[cfg(test)]
+mod rebuild_tests {
+    use super::needs_build;
+    use std::time::{Duration, SystemTime};
+
+    fn touch(path: &std::path::Path, age: Duration) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, b"x").unwrap();
+        let when = SystemTime::now() - age;
+        std::fs::File::options().write(true).open(path).unwrap().set_modified(when).unwrap();
+    }
+
+    #[test]
+    fn installer_service_files_and_keys_count_but_backend_docs_do_not() {
+        let repo = crate::image::tests::temp_dir("rebuild");
+        let iso = repo.join("target/live/out/borea-live-0.1.0.iso");
+        touch(&repo.join("crates/a.rs"), Duration::from_secs(300));
+        touch(&iso, Duration::from_secs(200));
+        assert!(!needs_build(&repo, Some(&iso)));
+        touch(&repo.join("backend/docs/verification/run.txt"), Duration::from_secs(100));
+        assert!(!needs_build(&repo, Some(&iso)), "verification logs don't change the image");
+        touch(&repo.join("backend/dist/keys/arch.gpg"), Duration::from_secs(100));
+        assert!(needs_build(&repo, Some(&iso)), "a new signing key does");
+    }
 }
 
 #[cfg(test)]

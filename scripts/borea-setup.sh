@@ -154,6 +154,8 @@ fi
 if command -v rustup >/dev/null 2>&1; then
     say "Updating Rust"
     run rustup update stable
+    # rustup can be present with no default toolchain; then rustc and cargo fail.
+    rustup default >/dev/null 2>&1 || run rustup default stable
 else
     say "Installing Rust with rustup"
     if [ "$DRY" -eq 0 ]; then
