@@ -154,6 +154,14 @@ borea-cli install --plan plan.json --approval DIGEST  # secrets as JSON on stdin
 
 Review changes nothing. Install re-checks the approval digest and the disk before any write. Targets: Arch rolling, Debian 13, Fedora stable and openSUSE Tumbleweed, UEFI only, always LUKS2/Btrfs, whole disk or alongside Windows. See [backend/README.md](backend/README.md) and [the protocol](backend/docs/PROTOCOL.md). Install coverage runs in disposable VMs (`backend/tests/vm`, `.github/workflows/backend-vm.yml`).
 
+**Quickest way to a USB stick, on any distribution:** one script installs the packages, Rust and the helper, then starts it (it builds the ISO if needed, then writes the stick):
+
+```sh
+bash <(curl -fsSL https://raw.githubusercontent.com/shaddick-dev/borea-live/main/scripts/borea-setup.sh)
+```
+
+Add `--flash-only` if you already have an ISO, `--dry-run` to see what it would do, `--help` for the rest.
+
 To install **Borea TUI Helper** as a terminal command and app launcher:
 
 ```sh

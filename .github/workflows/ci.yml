@@ -29,6 +29,8 @@ jobs:
       - run: cargo test --locked --workspace
       - name: VM harness unit tests
         run: python3 -m unittest discover -s tests/vm -v
+      - name: Setup script (shellcheck)
+        run: shellcheck -S warning scripts/*.sh
 
   backend-msrv:
     name: backend on Rust 1.85
