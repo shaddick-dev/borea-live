@@ -388,6 +388,10 @@ pub(crate) fn helper(job: &Job, action: &Action, out: &mut String) {
                 "Write fstab and crypttab from discovered filesystem/LUKS UUIDs and the reviewed btrfs layout.",
             );
         }
+        Action::RestoreTransportTrust => note(
+            out,
+            "Unmount the temporary hashed transport CA directory and regenerate the installed system's native certificate cache. Session proxy trust is never persisted.",
+        ),
         Action::RestoreNetwork => note(
             out,
             "Restore the target's native DNS file/symlink and refresh the selected Wi-Fi profile before unmounting.",

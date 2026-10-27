@@ -33,21 +33,20 @@ fn find_hash(text: &str, name: &str) -> Option<String> {
 fn suse_archive(listing: &str) -> Result<String, Hint> {
     let mut names = listing
         .split(['\"', '\''])
+        .map(|name| name.strip_prefix("./").unwrap_or(name))
         .filter(|name| {
-            name.starts_with("openSUSE-Tumbleweed-")
-                && name.contains("Container")
-                && name.contains("Base")
-                && name.contains("x86_64")
-                && [".tar.xz", ".tar.zst", ".tar.gz"].iter().any(|suffix| name.ends_with(suffix))
+            name.starts_with("opensuse-tumbleweed-image.x86_64-")
+                && name.contains("networkd")
+                && name.ends_with(".tar.xz")
                 && crate::external::identifier(name)
         })
         .collect::<Vec<_>>();
-    names.sort_by_key(|name| (!name.contains("latest"), *name));
+    names.sort_by_key(|name| (name.split_once("Snapshot").map_or("", |(_, date)| date), *name));
     names.dedup();
     names.last().map(|name| (*name).to_owned()).ok_or_else(|| {
         hint(
             "bootstrap",
-            "The official Tumbleweed appliance listing contains no x86-64 Container Base archive.",
+            "The official Tumbleweed appliance listing contains no x86-64 native networkd root archive.",
         )
     })
 }
@@ -169,9 +168,9 @@ mod tests {
     }
     #[test]
     fn tumbleweed_discovers_dated_native_archives_without_inventing_a_filename() {
-        let dated = "openSUSE-Tumbleweed-Container-Base.x86_64-20261024.tar.xz";
+        let dated = "opensuse-tumbleweed-image.x86_64-1.0.0-networkd-Snapshot20261024.tar.xz";
         let listing = format!(
-            "<a href=\"openSUSE-Tumbleweed-Container-Base.latest.x86_64.tar.xz\">latest</a><a href='{dated}'>dated</a><a href=\"../openSUSE-Tumbleweed-Container-Base.x86_64.tar.xz\">escape</a><a href=\"openSUSE-Tumbleweed-Container-Base.aarch64.tar.xz\">other</a>"
+            "<a href=\"./opensuse-tumbleweed-image.x86_64-networkd.tar.xz\">alias</a><a href='./{dated}'>dated</a><a href=\"../{dated}\">escape</a><a href=\"opensuse-tumbleweed-image.aarch64-networkd.tar.xz\">other</a>"
         );
         assert_eq!(suse_archive(&listing).ok().as_deref(), Some(dated));
         assert!(suse_archive("<a href=\"unrelated.tar.xz\">wrong</a>").is_err());

@@ -245,9 +245,9 @@ impl Session {
             _thread_bound: std::marker::PhantomData,
         })
     }
-    pub fn run(&mut self, emit: &mut impl FnMut(Event)) -> Result<(), Hint> {
+    fn advance(&mut self, end: usize, emit: &mut impl FnMut(Event)) -> Result<(), Hint> {
         self.fault = None;
-        while self.stage < self.job.stages.len() {
+        while self.stage < end {
             let stage = self.job.stages[self.stage].clone();
             emit(Event::StageStarted { stage: self.stage, title: stage.title.clone() });
             while self.action < stage.actions.len() {
@@ -311,6 +311,13 @@ impl Session {
             self.stage += 1;
             self.action = 0;
         }
+        Ok(())
+    }
+    pub fn run(&mut self, emit: &mut impl FnMut(Event)) -> Result<(), Hint> {
+        if self.finished {
+            return Err(err("This installation session has already finished."));
+        }
+        self.advance(self.job.stages.len(), emit)?;
         self.copy_log()?;
         self.cleanup()?;
         self.finished = true;
@@ -464,6 +471,9 @@ impl Session {
                 root.join("run/borea/session-ca.pem"),
                 fs::Permissions::from_mode(0o644),
             ))?;
+            if c.program == "/usr/bin/zypper" {
+                self.mount_transport_ca(&root, emit)?;
+            }
             Some("/run/borea/session-ca.pem")
         } else {
             None
@@ -978,6 +988,7 @@ impl Session {
             Action::ConfigureFstab => self.fstab(emit)?,
             Action::CopyNetwork => self.copy_network()?,
             Action::RestoreNetwork => self.restore_network()?,
+            Action::RestoreTransportTrust => self.restore_transport_ca(emit)?,
             Action::BuildAur { packages } => self.aur(packages, emit)?,
             Action::InstallAppImages { releases } => self.appimages(releases, emit)?,
             Action::Note { message } => emit(Event::Line { stderr: false, text: message.clone() }),
@@ -1119,6 +1130,16 @@ impl Session {
                 ],
                 emit,
             )?;
+        }
+        if self.job.plan.distro == borea_core::Distribution::OpenSuse {
+            for entry in io(fs::read_dir(dir.join("etc/zypp/repos.d")))? {
+                let entry = io(entry)?;
+                if io(entry.file_type())?.is_file() {
+                    let content =
+                        io(fs::read_to_string(entry.path()))?.replace("http://", "https://");
+                    io(fs::write(entry.path(), content))?;
+                }
+            }
         }
         for name in ["proc", "sys", "dev"] {
             let target = dir.join(name);
@@ -1274,8 +1295,27 @@ impl Session {
             D::Arch => {
                 self.command(
                     Root::Tools,
+                    "/usr/bin/mkdir",
+                    vec!["-p".into(), "/run/borea/query-db/local".into()],
+                    emit,
+                )?;
+                self.command(
+                    Root::Tools,
+                    "/usr/bin/cp",
+                    vec![
+                        "-a".into(),
+                        "/var/lib/pacman/sync".into(),
+                        "/run/borea/query-db/sync".into(),
+                    ],
+                    emit,
+                )?;
+                self.command(
+                    Root::Tools,
                     "/usr/bin/pacman",
-                    vec!["-Sp".into(), "--noconfirm".into()].into_iter().chain(packages).collect(),
+                    vec!["--dbpath=/run/borea/query-db".into(), "-Sp".into(), "--noconfirm".into()]
+                        .into_iter()
+                        .chain(packages)
+                        .collect(),
                     emit,
                 )?;
             }
@@ -1874,8 +1914,64 @@ impl Session {
         }
         Ok(())
     }
+    fn mount_transport_ca(
+        &mut self,
+        root: &Path,
+        emit: &mut impl FnMut(Event),
+    ) -> Result<(), Hint> {
+        let destination = root.join("etc/ssl/certs");
+        if self.mounted.contains(&destination) {
+            return Ok(());
+        }
+        let metadata = io(fs::symlink_metadata(&destination))?;
+        if !metadata.is_dir() || metadata.is_symlink() {
+            return Err(err("The native TLS certificate directory is not an ordinary directory."));
+        }
+        let cache = root.join("run/borea/ca-directory");
+        io(fs::create_dir(&cache))?;
+        io(fs::set_permissions(&cache, fs::Permissions::from_mode(0o755)))?;
+        let bundle = io(fs::read_to_string(root.join("run/borea/session-ca.pem")))?;
+        let mut count = 0;
+        for (index, part) in bundle.split("-----BEGIN CERTIFICATE-----").skip(1).enumerate() {
+            let (body, _) = part
+                .split_once("-----END CERTIFICATE-----")
+                .ok_or_else(|| err("The transport CA bundle is malformed."))?;
+            let path = cache.join(format!("ca-{index}.pem"));
+            io(fs::write(
+                &path,
+                format!("-----BEGIN CERTIFICATE-----{body}-----END CERTIFICATE-----\n"),
+            ))?;
+            io(fs::set_permissions(path, fs::Permissions::from_mode(0o644)))?;
+            count += 1;
+        }
+        if count == 0 {
+            return Err(err("The transport CA bundle has no certificates."));
+        }
+        self.command(
+            Root::Live,
+            "/usr/bin/openssl",
+            vec!["rehash".into(), cache.display().to_string()],
+            emit,
+        )?;
+        mount(Some(&cache), &destination, None::<&str>, MsFlags::MS_BIND, None::<&str>)
+            .map_err(|e| err(e.to_string()))?;
+        self.mounted.push(destination);
+        Ok(())
+    }
+    fn restore_transport_ca(&mut self, emit: &mut impl FnMut(Event)) -> Result<(), Hint> {
+        let path = Path::new(TARGET).join("etc/ssl/certs");
+        if self.mounted.contains(&path) {
+            umount2(&path, MntFlags::empty()).map_err(|e| err(e.to_string()))?;
+            self.mounted.retain(|mounted| mounted != &path);
+            self.command(Root::Target, "/usr/sbin/update-ca-certificates", vec![], emit)?;
+        }
+        Ok(())
+    }
     pub fn cleanup(&mut self) -> Result<(), Hint> {
         let mut errors = Vec::new();
+        if let Err(error) = self.restore_transport_ca(&mut |_| {}) {
+            errors.push(error.message);
+        }
         if let Err(error) = self.restore_efi() {
             errors.push(error.message);
         }
@@ -1960,6 +2056,26 @@ impl Session {
             Err(err(errors.join("; ")))
         }
     }
+}
+/// Exercise the approved native preparation phase, then clean up without
+/// partitioning. This consumes its private session and never emits Finished.
+pub fn verify_sources(
+    job: Job,
+    secrets: Secrets,
+    approved: &str,
+    facts: &borea_disk::DiskFacts,
+    emit: &mut impl FnMut(Event),
+) -> Result<(), Hint> {
+    if !job.stages.first().is_some_and(|stage| stage.actions.iter().all(Action::preparation_only)) {
+        return Err(err(
+            "The preparation stage contains an action outside the read-only verification allowlist.",
+        ));
+    }
+    let mut session = Session::start(job, secrets, approved, facts)?;
+    session.advance(1, emit)?;
+    session.cleanup()?;
+    session.finished = true;
+    Ok(())
 }
 impl Drop for Session {
     fn drop(&mut self) {

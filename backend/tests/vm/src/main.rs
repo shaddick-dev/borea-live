@@ -7,6 +7,7 @@ use std::{
     path::Path,
 };
 mod fixture;
+mod repair;
 fn run() -> Result<(), Hint> {
     let marker = "/sys/firmware/qemu_fw_cfg/by_name/opt/borea/autotest/raw";
     if !Path::new(marker).is_file()
@@ -26,6 +27,11 @@ fn run() -> Result<(), Hint> {
         .find(|d| d.id.serial.as_deref() == Some("BOREA-TEST-TARGET"))
         .ok_or_else(|| hint("vm", "The disposable target disk was not found."))?
         .clone();
+    if fs::read_to_string("/sys/firmware/qemu_fw_cfg/by_name/opt/borea/repair/raw").ok().as_deref()
+        == Some("debian-boot")
+    {
+        return repair::debian_boot(&disk);
+    }
     let alongside = fs::read_to_string("/sys/firmware/qemu_fw_cfg/by_name/opt/borea/layout/raw")
         .ok()
         .as_deref()
@@ -115,6 +121,43 @@ fn run() -> Result<(), Hint> {
         passphrase: Secret::new("borea-disposable-vm-ONLY".into()),
         admin: None,
     };
+    if fs::read_to_string("/sys/firmware/qemu_fw_cfg/by_name/opt/borea/preflight/raw")
+        .ok()
+        .as_deref()
+        == Some("1")
+    {
+        let stat = format!(
+            "/sys/class/block/{}/stat",
+            disk.id
+                .path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .ok_or_else(|| hint("vm", "No test disk name."))?
+        );
+        let writes = || -> Result<Vec<u64>, Hint> {
+            let text = fs::read_to_string(&stat).map_err(|e| hint("vm", e.to_string()))?;
+            let fields = text
+                .split_whitespace()
+                .map(|s| s.parse::<u64>())
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| hint("vm", e.to_string()))?;
+            Ok(vec![
+                *fields.get(4).ok_or_else(|| hint("vm", "No disk write counter."))?,
+                *fields.get(6).ok_or_else(|| hint("vm", "No disk sector counter."))?,
+            ])
+        };
+        let before = writes()?;
+        borea_exec::verify_sources(job, secrets, &approved, &facts, &mut |event| {
+            if let borea_exec::Event::Line { text, .. } = event {
+                println!("{text}");
+            }
+        })?;
+        if before != writes()? {
+            return Err(hint("vm", "Preparation wrote to the target disk."));
+        }
+        println!("BOREA_PREFLIGHT_COMPLETE");
+        return Ok(());
+    }
     let mut session = borea_exec::Session::start(job, secrets, &approved, &facts)?;
     session.run(&mut |event| match event {
         borea_exec::Event::StageStarted { title, .. } => println!("BOREA_STAGE {title}"),

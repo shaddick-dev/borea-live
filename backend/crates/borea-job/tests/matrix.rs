@@ -84,6 +84,7 @@ fn every_distro_profile_hardware_path_compiles_and_review_matches_job() {
                     let job =
                         compile(&p, &hw, &DiskFacts { uefi: true, disks: vec![disk] }, &b).unwrap();
                     assert_eq!(job.stages.iter().map(|s| s.weight).sum::<u32>(), 100);
+                    assert!(job.stages[0].actions.iter().all(Action::preparation_only));
                     let wire = serde_json::to_string(&job).unwrap();
                     assert_eq!(job, serde_json::from_str::<Job>(&wire).unwrap());
                     assert_eq!(job.digest().unwrap().len(), 64);

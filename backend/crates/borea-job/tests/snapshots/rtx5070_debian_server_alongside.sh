@@ -158,7 +158,7 @@ chroot '/run/borea/target' '/usr/bin/dpkg-divert' '--remove' '--rename' '--diver
 # backup_initramfs=no
 # 
 chroot /run/borea/target '/usr/sbin/update-initramfs' '-c' '-k' 'all'
-chroot /run/borea/target '/usr/bin/mkdir' '-p' '/boot/efi/EFI/debian' '/boot/efi/EFI/BOOT'
+chroot /run/borea/target '/usr/bin/mkdir' '-p' '/boot/grub' '/boot/efi/EFI/debian' '/boot/efi/EFI/BOOT'
 chroot /run/borea/target '/usr/bin/cp' '/usr/lib/shim/shimx64.efi.signed' '/boot/efi/EFI/debian/shimx64.efi'
 chroot /run/borea/target '/usr/bin/cp' '/usr/lib/shim/mmx64.efi.signed' '/boot/efi/EFI/debian/mmx64.efi'
 chroot /run/borea/target '/usr/bin/cp' '/usr/lib/grub/x86_64-efi-signed/grubx64.efi.signed' '/boot/efi/EFI/debian/grubx64.efi'

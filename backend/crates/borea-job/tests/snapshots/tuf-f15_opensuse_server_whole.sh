@@ -173,6 +173,7 @@ chroot /run/borea/target '/usr/bin/dracut' '--regenerate-all' '--force'
 # 
 chroot /run/borea/target '/usr/bin/sdbootutil' '--esp-path' '/boot' '--arch' 'x64' '--secure-boot' 'install'
 chroot /run/borea/target '/usr/bin/sdbootutil' '--esp-path' '/boot' '--arch' 'x64' 'add-all-kernels'
+# Unmount the temporary hashed transport CA directory and regenerate the installed system's native certificate cache. Session proxy trust is never persisted.
 # Restore the target's native DNS file/symlink and refresh the selected Wi-Fi profile before unmounting.
 '/usr/bin/sync' 
 

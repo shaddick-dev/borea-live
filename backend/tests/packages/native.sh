@@ -15,13 +15,15 @@ case "$BOREA_AUDIT_DISTRO" in
   apt-get update
   ;;
  fedora)
+  if [ -n "${SSL_CERT_FILE:-}" ]; then printf "\nsslcacert=%s\nproxy_sslcacert=%s\n" "$SSL_CERT_FILE" "$SSL_CERT_FILE" >> /etc/dnf/dnf.conf; fi
   for kind in free nonfree; do
-   rpm --import "https://download1.rpmfusion.org/$kind/fedora/RPM-GPG-KEY-rpmfusion-$kind-fedora-44"
+   rpm --import "https://download1.rpmfusion.org/$kind/fedora/RPM-GPG-KEY-rpmfusion-$kind-fedora-2020"
    dnf --setopt=localpkg_gpgcheck=1 install -y "https://download1.rpmfusion.org/$kind/fedora/rpmfusion-$kind-release-44.noarch.rpm"
   done
   dnf makecache --refresh
   ;;
  opensuse)
+  sed -i 's|http://|https://|g' /etc/zypp/repos.d/*.repo
   zypper --non-interactive refresh
   zypper --non-interactive install openSUSE-repos-NVIDIA
   rpm --import https://ftp.gwdg.de/pub/linux/misc/packman/suse/openSUSE_Tumbleweed/repodata/repomd.xml.key

@@ -56,9 +56,16 @@ pub enum Action {
     ConfigureFstab,
     CopyNetwork,
     RestoreNetwork,
+    RestoreTransportTrust,
     BuildAur { packages: Vec<String> },
     InstallAppImages { releases: Vec<String> },
     Note { message: String },
+}
+impl Action {
+    pub fn preparation_only(&self) -> bool {
+        matches!(self, Self::PrepareExternal | Self::AcquireToolRoot { .. } | Self::PreflightNative)
+            || matches!(self, Self::Run(command) if command.root == Root::Live && command.program == "/usr/sbin/debootstrap" && command.args.first().is_some_and(|arg| arg == "--print-debs") && command.stdin.is_none())
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Stage {
@@ -877,7 +884,7 @@ pub fn compile(
             boot.push(target("/usr/sbin/update-initramfs", ["-c", "-k", "all"]));
             boot.push(target(
                 "/usr/bin/mkdir",
-                ["-p", "/boot/efi/EFI/debian", "/boot/efi/EFI/BOOT"],
+                ["-p", "/boot/grub", "/boot/efi/EFI/debian", "/boot/efi/EFI/BOOT"],
             ));
             boot.push(target(
                 "/usr/bin/cp",
@@ -1012,6 +1019,9 @@ pub fn compile(
     }
     if matches!(plan.disk, DiskPlan::Alongside { .. }) {
         boot.push(Action::RestoreEfiFallback);
+    }
+    if plan.distro == Distro::OpenSuse {
+        boot.push(Action::RestoreTransportTrust);
     }
     boot.push(Action::RestoreNetwork);
     boot.push(run(Root::Live, "/usr/bin/sync", Vec::<String>::new()));

@@ -20,7 +20,13 @@ fn run() -> Result<(), String> {
     {
         return Err("Missing disposable work-directory marker.".into());
     }
-    let boot = std::env::args().nth(1).as_deref() == Some("boot");
+    let mode = std::env::args().nth(1).unwrap_or_else(|| "install".into());
+    if !["install", "boot", "repair", "preflight"].contains(&mode.as_str()) {
+        return Err("Choose install, boot, repair or preflight.".into());
+    }
+    let boot = mode == "boot";
+    let repair = mode == "repair";
+    let preflight = mode == "preflight";
     let distro = std::env::var("BOREA_TEST_DISTRO").unwrap_or_else(|_| "debian".into());
     if !["arch", "debian", "fedora", "opensuse"].contains(&distro.as_str()) {
         return Err("Unknown VM test distro.".into());
@@ -36,6 +42,12 @@ fn run() -> Result<(), String> {
     };
     if secure_boot && distro == "arch" {
         return Err("Arch uses owner-key enrollment from Setup Mode; the Microsoft-enrolled fixture cannot certify that separate pathway.".into());
+    }
+    if repair && (distro != "debian" || layout != "whole" || secure_boot) {
+        return Err("Diagnostic boot repair only supports the disposable Debian whole-drive fixture with Secure Boot off.".into());
+    }
+    if preflight && layout != "whole" {
+        return Err("Preparation-only testing must use a whole-drive fixture without constructing an alongside layout.".into());
     }
     let scenario = format!("{distro} {layout} secure_boot={}\n", u8::from(secure_boot));
     let scenario_path = Path::new("/work/scenario");
@@ -126,7 +138,7 @@ fn run() -> Result<(), String> {
             media::secure_live_media()?;
             command.args([
                 "-drive",
-                "if=none,id=live,format=raw,file=fat:ro:/work/live-esp",
+                "if=none,id=live,format=raw,readonly=on,file=fat:ro:/work/live-esp",
                 "-device",
                 "virtio-blk-pci,drive=live,bootindex=1",
             ]);
@@ -149,6 +161,13 @@ fn run() -> Result<(), String> {
             &format!("name=opt/borea/layout,string={layout}"),
             "-fw_cfg",
             &format!("name=opt/borea/secure-boot,string={}", u8::from(secure_boot)),
+            "-fw_cfg",
+            &format!(
+                "name=opt/borea/repair,string={}",
+                if repair { "debian-boot" } else { "none" }
+            ),
+            "-fw_cfg",
+            &format!("name=opt/borea/preflight,string={}", u8::from(preflight)),
             "-fw_cfg",
             "name=opt/borea/ca,file=/run/borea-ca.pem",
             "-fw_cfg",
@@ -202,7 +221,7 @@ fn run() -> Result<(), String> {
         ". /etc/os-release; test \"$ID\" = {expected_distro} && echo BOREA_DISTRO_OK; test \"$(id -un)\" = boreatest && echo BOREA_USER_OK; test -b /dev/mapper/borea-root && echo BOREA_LUKS_OK; nm-online -q --timeout=60 && echo BOREA_NET_OK; {firmware_check}sudo -S -p '[BOREA_SUDO]' id -u\n"
     );
     loop {
-        if start.elapsed() > Duration::from_secs(14400) {
+        if start.elapsed() > Duration::from_secs(if boot { 1800 } else { 14400 }) {
             let _ = child.kill();
             let _ = child.wait();
             return Err("The VM exceeded the test time limit.".into());
@@ -221,13 +240,23 @@ fn run() -> Result<(), String> {
                         (keep..buffer.len()).find(|i| buffer.is_char_boundary(*i)).unwrap_or(0);
                     buffer.drain(..keep);
                 }
-                if buffer.contains("Kernel panic") || buffer.contains("BOREA_TEST_ERROR") {
+                if buffer.contains("Kernel panic")
+                    || buffer.contains("BOREA_TEST_ERROR")
+                    || buffer.contains("Gave up waiting for root file system")
+                    || buffer.contains("You are in emergency mode")
+                {
                     let _ = child.kill();
                     let _ = child.wait();
                     return Err("The guest reported a fatal error; inspect its console log.".into());
                 }
                 if !boot {
-                    complete |= buffer.contains("BOREA_INSTALL_COMPLETE");
+                    complete |= buffer.contains(if preflight {
+                        "BOREA_PREFLIGHT_COMPLETE"
+                    } else if repair {
+                        "BOREA_BOOT_REPAIR_COMPLETE"
+                    } else {
+                        "BOREA_INSTALL_COMPLETE"
+                    });
                     preservation_ok |= buffer.contains("BOREA_PRESERVATION_OK");
                     install_exit_ok |= buffer.contains("BOREA_VM_INSTALL_EXIT_0");
                     continue;
@@ -292,7 +321,7 @@ fn run() -> Result<(), String> {
             "VM assertion failed: exit={status}, complete={complete}, luks={luks}, network={net}, sudo={sudo}, firmware={firmware_ok}, preservation={preservation_ok}, installer_exit={install_exit_ok}"
         ));
     }
-    println!("BOREA_VM_TEST_PASSED {}", if boot { "boot" } else { "install" });
+    println!("BOREA_VM_TEST_PASSED {mode}");
     Ok(())
 }
 fn main() -> std::process::ExitCode {

@@ -112,7 +112,7 @@ fn query(distro: Distro, entry: &Entry) -> Result<(), Hint> {
         return Ok(());
     }
     let (program, args) = match distro {
-        Distro::Arch => ("/usr/bin/pacman", vec!["-Sp", "--noconfirm", entry.name.as_str()]),
+        Distro::Arch => ("/usr/bin/pacman", vec!["-Si", entry.name.as_str()]),
         Distro::Debian => ("/usr/bin/apt-cache", vec!["show", entry.name.as_str()]),
         Distro::Fedora if entry.name.starts_with('@') => (
             "/usr/bin/dnf",
@@ -132,6 +132,15 @@ fn query(distro: Distro, entry: &Entry) -> Result<(), Hint> {
         .env("LC_ALL", "C")
         .output()
         .map_err(|e| hint("verify", e.to_string()))?;
+    if distro == Distro::Arch && !output.status.success() {
+        let group = Command::new("/usr/bin/pacman")
+            .args(["-Sg", entry.name.as_str()])
+            .output()
+            .map_err(|e| hint("verify", e.to_string()))?;
+        if group.status.success() && !group.stdout.is_empty() {
+            return Ok(());
+        }
+    }
     if !output.status.success()
         || output.stdout.is_empty()
         || distro == Distro::Fedora

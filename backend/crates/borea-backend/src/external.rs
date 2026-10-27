@@ -16,10 +16,10 @@ pub struct RepositoryKey {
     pub url: String,
     pub sha256: String,
 }
-pub fn repository_key(source: &str, release: &str) -> Result<Option<RepositoryKey>, Hint> {
-    let url = match source {
-        "fedora.rpmfusion-free" => format!("https://download1.rpmfusion.org/free/fedora/RPM-GPG-KEY-rpmfusion-free-fedora-{release}"),
-        "fedora.rpmfusion-nonfree" => format!("https://download1.rpmfusion.org/nonfree/fedora/RPM-GPG-KEY-rpmfusion-nonfree-fedora-{release}"),
+pub fn repository_key(source: &str, _release: &str) -> Result<Option<RepositoryKey>, Hint> {
+    let url: String = match source {
+        "fedora.rpmfusion-free" => "https://download1.rpmfusion.org/free/fedora/RPM-GPG-KEY-rpmfusion-free-fedora-2020".into(),
+        "fedora.rpmfusion-nonfree" => "https://download1.rpmfusion.org/nonfree/fedora/RPM-GPG-KEY-rpmfusion-nonfree-fedora-2020".into(),
         "opensuse.packman" => "https://ftp.gwdg.de/pub/linux/misc/packman/suse/openSUSE_Tumbleweed/repodata/repomd.xml.key".into(),
         _ => return Ok(None),
     };
