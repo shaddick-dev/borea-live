@@ -440,7 +440,10 @@ fn spawn_build(
             make::newest_image(&repo)
                 .ok_or_else(|| "the build finished but left no image".to_owned())
         } else {
-            Err(format!("the build failed ({status}); see the log for details"))
+            let log = repo.join("target/live/build.log");
+            Err(make::log_tail(&log, 16 << 20)
+                .and_then(|text| make::failure(&text))
+                .unwrap_or_else(|| format!("the build failed ({status}); see the log for details")))
         };
         let _ = tx.send(Event::Built(result));
     });

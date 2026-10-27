@@ -1,6 +1,9 @@
 config BR2_PACKAGE_HOST_LIMINE
 	bool "host limine"
 	depends on BR2_HOSTARCH = "x86_64"
+	depends on BR2_PACKAGE_LLVM_ARCH_SUPPORTS # host-clang, host-lld
+	depends on BR2_HOST_GCC_AT_LEAST_7 # host-llvm
+	select BR2_PACKAGE_HOST_LLD
 	help
 	  The Limine bootloader: BIOS and UEFI binaries for a hybrid
 	  ISO, and the host tool that installs its BIOS stage.
