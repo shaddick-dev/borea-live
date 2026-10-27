@@ -163,6 +163,7 @@ chroot /run/borea/target '/usr/bin/find' '/usr/lib/modules' '-mindepth' '1' '-ma
 chroot /run/borea/target '/usr/sbin/akmods' '--force' '--kernels' '${KERNEL_VERSION}'
 chroot /run/borea/target '/usr/bin/dracut' '--regenerate-all' '--force'
 # Restore the target's native DNS file/symlink and refresh the selected Wi-Fi profile before unmounting.
+chroot /run/borea/target '/usr/sbin/setfiles' '-F' '-m' '-e' '/dev' '-e' '/proc' '-e' '/sys' '-e' '/run' '-e' '/boot/efi' '/etc/selinux/targeted/contexts/files/file_contexts' '/'
 '/usr/bin/sync'
 
 # Cleanup: stop child processes only in the job-owned private namespace,

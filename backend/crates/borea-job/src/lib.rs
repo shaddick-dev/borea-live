@@ -1081,6 +1081,27 @@ pub fn compile(
         boot.push(Action::RestoreTransportTrust);
     }
     boot.push(Action::RestoreNetwork);
+    if plan.distro == Distro::Fedora {
+        boot.push(target(
+            "/usr/sbin/setfiles",
+            [
+                "-F",
+                "-m",
+                "-e",
+                "/dev",
+                "-e",
+                "/proc",
+                "-e",
+                "/sys",
+                "-e",
+                "/run",
+                "-e",
+                "/boot/efi",
+                "/etc/selinux/targeted/contexts/files/file_contexts",
+                "/",
+            ],
+        ));
+    }
     boot.push(run(Root::Live, "/usr/bin/sync", Vec::<String>::new()));
     stages.push(Stage { title: "Finishing up.".into(), weight: 7, actions: boot });
     Ok(Job {

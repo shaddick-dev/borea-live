@@ -64,7 +64,9 @@ fn fatal_error(buffer: &str) -> Option<&str> {
             && (line.contains("Kernel panic")
                 || line.contains("BOREA_TEST_ERROR")
                 || line.contains("Gave up waiting for root file system")
-                || line.contains("You are in emergency mode"))
+                || line.contains("You are in emergency mode")
+                || line.contains("Failed to allocate manager object")
+                || line.contains("Freezing execution."))
     })
 }
 fn run() -> Result<(), String> {
@@ -262,6 +264,7 @@ fn run() -> Result<(), String> {
     let mut user_ok = false;
     let mut preservation_ok = layout != "alongside";
     let mut firmware_ok = !secure_boot;
+    let mut selinux_ok = distro != "fedora";
     let mut install_exit_ok = false;
     let expected_distro =
         if distro == "opensuse" { "opensuse-tumbleweed" } else { distro.as_str() };
@@ -270,8 +273,13 @@ fn run() -> Result<(), String> {
     } else {
         ""
     };
+    let selinux_check = if distro == "fedora" {
+        "test \"$(cat /sys/fs/selinux/enforce)\" = 1 && echo BOREA_SELINUX_OK; "
+    } else {
+        ""
+    };
     let checks = format!(
-        "echo; . /etc/os-release; test \"$ID\" = {expected_distro} && echo BOREA_DISTRO_OK; test \"$(id -un)\" = boreatest && echo BOREA_USER_OK; test -b /dev/mapper/borea-root && echo BOREA_LUKS_OK; nm-online -q --timeout=60 && echo BOREA_NET_OK; {firmware_check}sudo -k; sudo -S -p '[BOREA_SUDO]' id -u && echo BOREA_SUDO_OK\n"
+        "echo; . /etc/os-release; test \"$ID\" = {expected_distro} && echo BOREA_DISTRO_OK; test \"$(id -un)\" = boreatest && echo BOREA_USER_OK; test -b /dev/mapper/borea-root && echo BOREA_LUKS_OK; nm-online -q --timeout=60 && echo BOREA_NET_OK; {firmware_check}{selinux_check}sudo -k; sudo -S -p '[BOREA_SUDO]' id -u && echo BOREA_SUDO_OK\n"
     );
     loop {
         if start.elapsed() > Duration::from_secs(if boot { 1800 } else { 14400 }) {
@@ -325,6 +333,7 @@ fn run() -> Result<(), String> {
                 distro_ok |= marker(&buffer, "BOREA_DISTRO_OK");
                 user_ok |= marker(&buffer, "BOREA_USER_OK");
                 firmware_ok |= marker(&buffer, "BOREA_SECURE_BOOT_OK");
+                selinux_ok |= marker(&buffer, "BOREA_SELINUX_OK");
                 luks |= marker(&buffer, "BOREA_LUKS_OK");
                 net |= marker(&buffer, "BOREA_NET_OK");
                 let input = match stage {
@@ -375,13 +384,13 @@ fn run() -> Result<(), String> {
     }
     let status = child.wait().map_err(|e| e.to_string())?;
     let assertions_pass = if boot {
-        luks && net && sudo && distro_ok && user_ok && firmware_ok
+        luks && net && sudo && distro_ok && user_ok && firmware_ok && selinux_ok
     } else {
         preservation_ok && install_exit_ok
     };
     if !status.success() || !complete || !assertions_pass {
         return Err(format!(
-            "VM assertion failed: exit={status}, complete={complete}, luks={luks}, network={net}, sudo={sudo}, firmware={firmware_ok}, preservation={preservation_ok}, installer_exit={install_exit_ok}"
+            "VM assertion failed: exit={status}, complete={complete}, luks={luks}, network={net}, sudo={sudo}, firmware={firmware_ok}, selinux={selinux_ok}, preservation={preservation_ok}, installer_exit={install_exit_ok}"
         ));
     }
     println!("BOREA_VM_TEST_PASSED {mode}");

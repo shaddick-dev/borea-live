@@ -27,8 +27,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        id: rust
         with:
           targets: x86_64-unknown-linux-musl
+      - uses: actions/cache@v4
+        with:
+          path: |
+            backend/target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: borea-vm-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-${{ hashFiles('backend/Cargo.lock') }}-${{ github.sha }}
+          restore-keys: |
+            borea-vm-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-${{ hashFiles('backend/Cargo.lock') }}-
       - name: Build native test drivers and static target helper
         run: |
           set -euo pipefail

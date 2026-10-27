@@ -161,6 +161,7 @@ chroot /run/borea/target '/usr/bin/dnf' 'install' '-y' 'mokutil'
 # stdin: <redacted secret>, twice. Enrollment is confirmed in firmware on first restart.
 chroot '/run/borea/target' '/usr/bin/mokutil' '--import' '/etc/pki/akmods/certs/public_key.der'
 # Restore the target's native DNS file/symlink and refresh the selected Wi-Fi profile before unmounting.
+chroot /run/borea/target '/usr/sbin/setfiles' '-F' '-m' '-e' '/dev' '-e' '/proc' '-e' '/sys' '-e' '/run' '-e' '/boot/efi' '/etc/selinux/targeted/contexts/files/file_contexts' '/'
 '/usr/bin/sync'
 
 # Cleanup: stop child processes only in the job-owned private namespace,
