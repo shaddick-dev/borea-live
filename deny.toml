@@ -1,0 +1,26 @@
+# cargo-deny policy (CI runs `cargo deny check advisories sources`).
+# Every ignore names who pulls the crate in, why it cannot be fixed here yet,
+# and what removes the need for it. Revisit them whenever eframe or zbus moves.
+
+[advisories]
+ignore = [
+    # quick-xml 0.38: quadratic duplicate-attribute check and unbounded namespace
+    # allocation (denial of service only). Pulled in only by the GUI's
+    # accessibility stack: eframe 0.37 -> accesskit_unix -> atspi-common ->
+    # zbus-lockstep 0.5 -> zbus_xml 5 -> quick-xml ^0.38. The fixed release
+    # needs zbus_xml 6, which nothing in that chain accepts yet. Remove when
+    # eframe/accesskit move to it.
+    { id = "RUSTSEC-2026-0194", reason = "GUI accessibility chain pins quick-xml ^0.38 via zbus_xml 5; DoS only; no compatible fix" },
+    { id = "RUSTSEC-2026-0195", reason = "GUI accessibility chain pins quick-xml ^0.38 via zbus_xml 5; DoS only; no compatible fix" },
+    # zvariant, zvariant_derive and zbus_names are marked unmaintained with no
+    # safe upgrade; every zbus 5 release depends on them. zbus is how the
+    # backend and GUI talk to NetworkManager and logind. Replace when zbus
+    # publishes a successor.
+    { id = "RUSTSEC-2026-0370", reason = "zvariant unmaintained; required by every zbus 5; no successor yet" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names unmaintained; required by every zbus 5; no successor yet" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive unmaintained; required by every zbus 5; no successor yet" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
