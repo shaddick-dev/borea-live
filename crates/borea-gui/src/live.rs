@@ -9,9 +9,9 @@
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 
+use borea_distro::adapter;
 use borea_distro::secure_boot::{self, Readiness};
-use borea_distro::{Finding, adapter, machine_findings};
-use borea_hardware::{DiskUsage, HardwareSnapshot};
+use borea_hardware::HardwareSnapshot;
 use borea_live_catalog::{Catalog, Distro, Edition};
 use borea_live_core::{Fact, Family, FirmwareMode};
 use eframe::egui::{
@@ -19,12 +19,15 @@ use eframe::egui::{
     ScrollArea, Stroke, Ui,
 };
 
-use crate::firmware::FirmwareLink;
+use crate::firmware::{Choice, FirmwareLink};
 use crate::icon;
-use crate::model::{DesktopMode, Selection, ShellPick, capitalize, compose_teaser, device_name};
+use crate::model::{
+    DesktopMode, Selection, ShellPick, capitalize, compose_teaser, device_name, family_line,
+    hardware_facts,
+};
 use crate::theme::{self, DARK, LIGHT, Palette, RADIUS, size};
 use crate::widgets::{
-    self, badge, caption, choice_card, eyebrow, glyph, notice, primary, quiet, rows, tag,
+    self, badge, caption, choice_card, eyebrow, fact_icon, glyph, notice, primary, quiet, rows, tag,
 };
 use crate::wifi::{WifiForm, WifiLink};
 use crate::wind;
@@ -221,8 +224,8 @@ impl LiveInstaller {
         self.step
     }
 
-    /// Whether this GUI can install. The Arch Minimal CLI planner and worker
-    /// exist, but storage/account review and worker integration are still pending.
+    /// Whether this GUI can install. borea-installd can, through borea-cli; the
+    /// Review step is not wired to it yet (docs/STATUS.md).
     pub const CAN_INSTALL: bool = false;
 
     pub fn selection(&self) -> &Selection {
@@ -615,24 +618,19 @@ impl LiveInstaller {
             });
 
         ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
-            let available = self.uefi() && self.firmware.available && !self.firmware.restarting;
-            let hint = if !self.uefi() {
-                "Restarting into firmware setup requires a UEFI session. Use your firmware's startup key instead."
-            } else if !self.firmware.available {
-                &self.firmware.reason
-            } else {
-                "Restart into UEFI Firmware Setup to change Secure Boot settings."
-            };
-            let button = ui.add_enabled_ui(available, |ui| {
-                quiet(ui, &p, &format!("{}  UEFI setup", icon::CPU))
-            }).inner.on_disabled_hover_text(hint).on_hover_text(hint);
+            let (enabled, hint) = self.firmware.control(self.uefi());
+            let button = ui
+                .add_enabled_ui(enabled, |ui| quiet(ui, &p, &FirmwareLink::label()))
+                .inner
+                .on_disabled_hover_text(hint)
+                .on_hover_text(hint);
             if button.clicked() {
                 actions.push(Action::OpenFirmware);
             }
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                let theme = if p.dark { "Light" } else { "Dark" };
-                if quiet(ui, &p, theme).clicked() {
+                let theme = if p.dark { "Light appearance" } else { "Dark appearance" };
+                if quiet(ui, &p, &format!("{}  {theme}", icon::THEME)).clicked() {
                     actions.push(Action::ToggleTheme);
                 }
                 let motion = if self.still { "Wind paused" } else { "Pause wind" };
@@ -656,37 +654,10 @@ impl LiveInstaller {
         if !self.firmware_dialog {
             return;
         }
-        let p = self.palette;
-        let response = egui::Modal::new(egui::Id::unique("firmware-confirmation"))
-            .frame(Frame::new().fill(p.paper).stroke(Stroke::new(1.0, p.line))
-                .corner_radius(CornerRadius::same(RADIUS)).inner_margin(Margin::same(26)))
-            .show(ctx, |ui| {
-                ui.set_width(420.0_f32.min(ctx.content_rect().width() - 56.0));
-                ui.label(RichText::new("Restart into UEFI setup?").size(size::HEADING));
-                ui.add_space(8.0);
-                ui.label("The computer will restart into its firmware settings, where you can change Secure Boot. Return to the BOREA USB afterwards to continue installation.");
-                ui.label(caption("Your current installer choices are not saved across this restart.", &p));
-                if let Some(error) = &self.firmware.error {
-                    ui.add_space(8.0);
-                    notice(ui, &p, error);
-                }
-                ui.add_space(16.0);
-                ui.add_enabled_ui(!self.firmware.restarting, |ui| {
-                    ui.horizontal(|ui| {
-                        if quiet(ui, &p, "Cancel").clicked() {
-                            actions.push(Action::CancelFirmware);
-                        }
-                        if primary(ui, &p, "Restart into firmware", false).clicked() {
-                            actions.push(Action::RestartFirmware);
-                        }
-                    });
-                });
-                if self.firmware.restarting {
-                    ui.label(caption("Restarting into firmware setup…", &p));
-                }
-            });
-        if response.should_close() && !self.firmware.restarting {
-            actions.push(Action::CancelFirmware);
+        match self.firmware.confirmation(ctx, &self.palette) {
+            Some(Choice::Cancel) => actions.push(Action::CancelFirmware),
+            Some(Choice::Restart) => actions.push(Action::RestartFirmware),
+            None => {}
         }
     }
 
@@ -796,24 +767,11 @@ impl LiveInstaller {
             ui.label(caption("Scanning…", &p));
             return;
         };
-        let facts = machine_facts(hw);
+        let facts = hardware_facts(hw);
         grid(ui, 3, &facts, |ui, (label, value, detail)| {
             info_card(ui, &p, label, value, detail);
         });
-        let findings = machine_findings(hw);
-        if !findings.is_empty() {
-            ui.add_space(14.0);
-            ui.label(eyebrow("What Borea will do", p.sub));
-            ui.add_space(6.0);
-            for finding in findings {
-                let (mark, text) = match finding {
-                    Finding::Recommend(text) => (icon::NEXT, text),
-                    Finding::Unknown(text) => ("?", text),
-                    Finding::Blocker(text) => (icon::CLOSE, text),
-                };
-                ui.label(RichText::new(format!("{mark}  {text}")).size(size::SMALL));
-            }
-        }
+        widgets::findings(ui, &p, hw);
     }
 
     fn system(&self, ui: &mut Ui, actions: &mut Vec<Action>) {
@@ -830,12 +788,17 @@ impl LiveInstaller {
                 self.picked_family == Some(*f),
                 true,
                 |ui| {
-                    ui.set_min_height(86.0);
+                    ui.set_min_height(124.0);
                     ui.horizontal(|ui| {
                         glyph(ui, icon::family(*f), 22.0, p.accent);
-                        ui.label(RichText::new(f.to_string()).size(size::HEADING));
+                        ui.label(
+                            RichText::new(f.to_string())
+                                .family(theme::display())
+                                .size(size::HEADING),
+                        );
                     });
-                    ui.label(caption(names.join(" · "), &p));
+                    ui.label(caption(family_line(*f), &p));
+                    ui.label(RichText::new(names.join(" · ")).size(size::TINY).color(p.sub));
                 },
             );
             if card.clicked() {
@@ -867,11 +830,15 @@ impl LiveInstaller {
                         ui.label(RichText::new(&d.name).size(size::HEADING - 2.0));
                     });
                     ui.label(caption(&d.summary, &p));
-                    ui.label(
-                        RichText::new(capitalize(&d.channel.to_string()))
-                            .size(size::TINY)
-                            .color(p.accent),
-                    );
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(capitalize(&d.channel.to_string()))
+                                .size(size::TINY)
+                                .color(p.accent),
+                        );
+                        let status = capitalize(&d.status.to_string());
+                        ui.label(caption(format!("· {status} integration"), &p));
+                    });
                 },
             );
             if card.clicked() {
@@ -1029,6 +996,10 @@ impl LiveInstaller {
                 actions.push(Action::Mode(family, *mode));
             }
         });
+        if self.picked_mode && choice.mode == DesktopMode::Bare {
+            ui.add_space(6.0);
+            ui.label(caption(s.bare_summary(catalog, family), &p));
+        }
         if !self.picked_mode || choice.mode == DesktopMode::Bare {
             return;
         }
@@ -1041,7 +1012,10 @@ impl LiveInstaller {
             let card =
                 choice_card(ui, &p, ("compositor", &c.id), &c.name, on, offer.available(), |ui| {
                     ui.set_min_height(92.0);
-                    ui.label(RichText::new(&c.name).size(size::HEADING - 2.0));
+                    ui.horizontal(|ui| {
+                        glyph(ui, icon::compositor(&c.id), size::HEADING, p.accent);
+                        ui.label(RichText::new(&c.name).size(size::HEADING - 2.0));
+                    });
                     ui.label(caption(&c.style, &p));
                     match offer.source {
                         Some(source) => badge(ui, &p, source),
@@ -1281,81 +1255,4 @@ fn info_card(ui: &mut Ui, p: &Palette, label: &str, value: &str, detail: &str) {
                 }
             });
         });
-}
-
-fn fact_icon(label: &str) -> &'static str {
-    match label {
-        "Processor" => icon::CPU,
-        "Graphics" => icon::GPU,
-        "Memory" => icon::MEMORY,
-        "Firmware" => icon::SHIELD,
-        "Device" => icon::LAPTOP,
-        "Display" => icon::MONITOR,
-        "Disk" => icon::DISK,
-        "Network" => icon::ETHERNET,
-        _ => icon::CHIP,
-    }
-}
-
-/// The machine as label, value, and detail, one card each.
-fn machine_facts(hw: &HardwareSnapshot) -> Vec<(&'static str, String, String)> {
-    let mut facts = Vec::new();
-    match &hw.cpu {
-        Fact::Known(cpu) => {
-            let level = cpu.x86_level.map(|l| format!(" · {l}")).unwrap_or_default();
-            facts.push((
-                "Processor",
-                cpu.model.clone().unwrap_or_else(|| "Unknown model".into()),
-                format!("{} threads{level}", cpu.logical_cores),
-            ));
-        }
-        Fact::Unknown { reason } => facts.push(("Processor", "Unknown".into(), reason.clone())),
-    }
-    for gpu in &hw.gpus {
-        let driver = gpu.host_driver.clone().unwrap_or_else(|| "no driver in this session".into());
-        facts.push(("Graphics", gpu.label(), driver));
-    }
-    let memory =
-        hw.memory_bytes.known().map_or("Unknown".into(), |b| format!("{:.0} GB", *b as f64 / 1e9));
-    facts.push(("Memory", memory, String::new()));
-    let secure = match hw.secure_boot {
-        Fact::Known(true) => "Secure Boot on",
-        Fact::Known(false) => "Secure Boot off",
-        Fact::Unknown { .. } => "Secure Boot unknown",
-    };
-    facts.push(("Firmware", hw.firmware.to_string(), secure.into()));
-    let detail = match (&hw.device_class, hw.battery) {
-        (Fact::Unknown { reason }, _) => capitalize(reason),
-        (Fact::Known(_), true) => "battery".into(),
-        (Fact::Known(_), false) => String::new(),
-    };
-    facts.push(("Device", device_name(hw), detail));
-    for display in &hw.displays {
-        let place = if display.internal { "Built-in" } else { "External" };
-        facts.push((
-            "Display",
-            format!("{place} · {}", display.connector),
-            display.mode.clone().unwrap_or_default(),
-        ));
-    }
-    for disk in &hw.disks {
-        let usage = match &disk.usage {
-            DiskUsage::Free => "Available to choose later".to_owned(),
-            other => capitalize(&other.to_string()),
-        };
-        facts.push((
-            "Disk",
-            format!("{} · {:.0} GB", disk.name, disk.size_bytes as f64 / 1e9),
-            usage,
-        ));
-    }
-    for nic in &hw.network {
-        let kind = if nic.wireless { "Wi-Fi" } else { "Wired" };
-        facts.push((
-            "Network",
-            format!("{kind} · {}", nic.interface),
-            nic.host_driver.clone().unwrap_or_default(),
-        ));
-    }
-    facts
 }

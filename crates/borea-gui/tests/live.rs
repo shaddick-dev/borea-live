@@ -90,6 +90,9 @@ fn guided_path_through_every_step() {
     press(&mut h, "Next");
 
     assert_eq!(app(&h).step(), Step::System);
+    // The family cards carry Windpad's lines.
+    assert!(h.query_by_label("A system shaped by you.").is_some());
+    assert!(h.query_by_label("A fresh perspective.").is_some());
     press(&mut h, "Fedora family");
     assert_eq!(app(&h).step(), Step::Distribution);
     press(&mut h, "Fedora Linux");

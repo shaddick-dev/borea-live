@@ -91,6 +91,21 @@ Nothing has to be started or pressed by hand. On Borea Live it starts with the s
 
 It starts full-screen; `--window` runs it in a window for development. `tests/live.rs` walks every path, including the rail and the keyboard.
 
+### What Windpad and Borea Live share
+
+Both windows draw the same things from the same code, so a change lands in both:
+
+| Shared | Where |
+| --- | --- |
+| Palette, type sizes, corners, fonts | `theme.rs` |
+| Cards, buttons, badges, notices, dialogs (frame, title, Close) | `widgets.rs` |
+| Machine facts (one order, one wording, decimal GB) and "What Borea will do" | `model::hardware_facts`, `widgets::findings` |
+| Family lines, compose offer, the "No desktop" summary with extras | `model.rs` |
+| Wi-Fi panel, wind, icons | `wifi.rs`, `wind.rs`, `icon.rs` |
+| Restart into UEFI setup: availability, hint, confirmation | `firmware.rs` (Windpad's header, Borea Live's rail) |
+
+What differs is presentation only: Windpad shows everything on one page with dropdowns and drawers; Borea Live takes it a step at a time with cards. Secure Boot choice and the Review step exist only in Borea Live, because only it heads toward an installation. Parity tests in `tests/windpad.rs` check the shared behaviour from Windpad's side.
+
 ## Interactive concept
 
 [Open the Windpad concept](../design/windpad.html).
