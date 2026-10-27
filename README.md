@@ -162,16 +162,16 @@ bash <(curl -fsSL https://raw.githubusercontent.com/shaddick-dev/borea-live/main
 
 Add `--flash-only` if you already have an ISO, `--dry-run` to see what it would do, `--help` for the rest.
 
-To install **Borea TUI Helper** as a terminal command and app launcher:
+To install **borea-rataTUI** as a terminal command and app launcher:
 
 ```sh
 cargo run --release -p borea-flash -- --install     # once: commands + launcher
-borea-helper             # prepare ISO, choose USB, raw write, sync and verify
-borea-helper IMAGE.iso   # use an existing ISO without rebuilding
-borea-helper --list      # show USB candidates without writing or building
+borea-rataTUI             # prepare ISO, choose USB, raw write, sync and verify
+borea-rataTUI IMAGE.iso   # use an existing ISO without rebuilding
+borea-rataTUI --list      # show USB candidates without writing or building
 ```
 
-Open **Borea TUI Helper** from your app launcher or run `borea-helper`. It builds the ISO if missing or out of date, then asks which USB drive to erase. Type that device's name to start the raw image copy (the equivalent of `dd`), followed by flushing and byte-for-byte verification. The first ISO build compiles upstream sources and can take hours; later builds reuse previous output. `borea-flash` remains available for writing images directly.
+Open **borea-rataTUI** from your app launcher or run `borea-rataTUI`. It builds the ISO if missing or out of date, then asks which USB drive to erase. Type that device's name to start the raw image copy (the equivalent of `dd`), followed by flushing and byte-for-byte verification. The first ISO build compiles upstream sources and can take hours; later builds reuse previous output. `borea-flash` remains available for writing images directly.
 
 It works in any terminal, including the Linux console without a desktop (`TERM=linux`), where it switches to 16 colours and plain marks. Run `--install` again after updating the checkout. See [the helper guide](crates/borea-flash/README.md).
 

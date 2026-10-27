@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Borea setup: from a fresh Linux install to Borea TUI Helper, in one go.
+# Borea setup: from a fresh Linux install to borea-rataTUI, in one go.
 #
 #   bash <(curl -fsSL https://raw.githubusercontent.com/shaddick-dev/borea-live/main/scripts/borea-setup.sh)
 #
 # 1. Installs the system packages for your distribution (asks once, then uses sudo).
 # 2. Installs Rust with rustup, in your home folder, or updates it.
 # 3. Clones Borea Live to ~/borea-live, or fast-forwards an existing clone.
-# 4. Installs Borea TUI Helper (borea-helper) and its app launcher.
+# 4. Installs borea-rataTUI, the Ratatui USB writer, and its app launcher.
 # 5. Starts the helper: it builds the ISO when needed, then writes your USB stick.
 #
 # Options:
@@ -54,7 +54,7 @@ while [ $# -gt 0 ]; do
         ;;
     -h | --help)
         cat <<'USAGE'
-Borea setup: install everything Borea TUI Helper needs, then start it.
+Borea setup: install everything borea-rataTUI needs, then start it.
 
   --flash-only   skip the ISO build packages (you already have an ISO)
   --no-run       set everything up, but don't start the helper
@@ -104,7 +104,7 @@ if [ "$DRY" -eq 0 ] && { [ -e /run/ostree-booted ] || [ "$ID" = steamos ]; }; th
     die "this system is image-based (Silverblue, Bazzite, SteamOS…), so packages can't be added directly.
 Run this script inside a toolbox or distrobox, which shares your home folder:
     toolbox create && toolbox enter
-then run it again with --no-run, and start ~/.local/bin/borea-helper on the host."
+then run it again with --no-run, and start ~/.local/bin/borea-rataTUI on the host."
 fi
 
 packages=()
@@ -181,17 +181,17 @@ else
     run git clone "$REPO_URL" "$DIR"
 fi
 
-# ── 5. Borea TUI Helper ───────────────────────────────────────────────────────
-say "Building and installing Borea TUI Helper (a few minutes the first time)"
+# ── 5. borea-rataTUI ───────────────────────────────────────────────────────
+say "Building and installing borea-rataTUI (a few minutes the first time)"
 run cargo run --release --locked --manifest-path "$DIR/Cargo.toml" -p borea-flash -- --install
 
-helper="${XDG_BIN_HOME:-$HOME/.local/bin}/borea-helper"
+helper="${XDG_BIN_HOME:-$HOME/.local/bin}/borea-rataTUI"
 case ":$PATH:" in
 *":$(dirname "$helper"):"*) ;;
 *) warn "$(dirname "$helper") isn't on your PATH; add this to ~/.profile: export PATH=\"$(dirname "$helper"):\$PATH\"" ;;
 esac
 
-say "Done. Open \"Borea TUI Helper\" from your app launcher, or run: $helper"
+say "Done. Open \"borea-rataTUI\" from your app launcher, or run: $helper"
 if [ "$RUN" -eq 1 ]; then
     if [ "$FLASH_ONLY" -eq 1 ]; then
         # borea-flash writes the newest borea-live*.iso it finds, never building one.

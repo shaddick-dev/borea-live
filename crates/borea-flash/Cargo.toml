@@ -1,6 +1,6 @@
 [package]
 name = "borea-flash"
-default-run = "borea-helper"
+default-run = "borea-rataTUI"
 description = "Write the Borea Live ISO to a USB stick, safely, from a terminal"
 version.workspace = true
 edition.workspace = true
@@ -12,7 +12,7 @@ name = "borea-flash"
 path = "src/main.rs"
 
 [[bin]]
-name = "borea-helper"
+name = "borea-rataTUI"
 path = "src/helper.rs"
 
 [dependencies]

@@ -519,7 +519,7 @@ pub fn render_header(frame: &mut Frame, area: Rect) {
         Line::from(""),
         Line::from(vec![
             Span::raw("  BOREA").bold(),
-            Span::styled("  TUI Helper", SUB),
+            Span::styled("  rataTUI", SUB),
             Span::styled("    Prepare ISO → write USB → verify", SUB),
         ]),
         Line::from(Span::styled(

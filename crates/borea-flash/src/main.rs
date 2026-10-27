@@ -1,7 +1,8 @@
-//! Borea TUI Helper: prepare Borea Live, write a USB stick, then verify it.
+//! borea-rataTUI: prepare Borea Live, write a USB stick, then verify it.
+//! (`borea-helper` is its earlier name and still works the same way.)
 //!
 //! ```text
-//! borea-helper                 prepare the current ISO, then write a USB stick
+//! borea-rataTUI                prepare the current ISO, then write a USB stick
 //! borea-flash [IMAGE]           write IMAGE, or the newest borea-live*.iso found
 //! borea-flash --make            in a Borea checkout: rebuild Borea Live if its sources
 //!                               changed since the last image, then write it
@@ -9,7 +10,7 @@
 //! borea-flash --list [IMAGE]    print the sticks it sees and exit
 //! borea-flash --install         install both commands and the app launcher
 //! borea-flash --install-launcher
-//!                               add a "Borea TUI Helper" launcher
+//!                               add a "borea-rataTUI" launcher
 //! ```
 
 use std::io::{BufRead, BufReader, Write};
@@ -54,16 +55,16 @@ enum Event {
 }
 
 const USAGE: &str = "\
-usage: borea-helper             prepare Borea Live, then write and verify a USB stick
-       borea-helper IMAGE.iso   write an existing ISO without rebuilding it
+usage: borea-rataTUI            prepare Borea Live, then write and verify a USB stick
+       borea-rataTUI IMAGE.iso  write an existing ISO without rebuilding it
        borea-flash [IMAGE.iso]   write IMAGE, or the newest Borea Live image found;
                                  in a Borea checkout, b on that screen rebuilds it first
        borea-flash --make        in a Borea checkout: rebuild Borea Live if it changed, then write it
        borea-flash --build       as --make, but always rebuild
        borea-flash --list        show the USB sticks it could write, and exit
-       borea-flash --install     install both commands and the Borea TUI Helper launcher
+       borea-flash --install     install the commands and the borea-rataTUI launcher
        borea-flash --install-launcher
-                                 install the commands and Borea TUI Helper launcher";
+                                 install the commands and the borea-rataTUI launcher";
 
 /// What the screen shows: the build, then the stick.
 enum Stage {
@@ -86,9 +87,9 @@ pub(crate) fn main() -> ExitCode {
 }
 
 fn start() -> ExitCode {
-    let helper = std::env::args_os()
-        .next()
-        .is_some_and(|p| Path::new(&p).file_stem().is_some_and(|s| s == "borea-helper"));
+    let helper = std::env::args_os().next().is_some_and(|p| {
+        Path::new(&p).file_stem().is_some_and(|s| s == "borea-rataTUI" || s == "borea-helper")
+    });
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     if take_wait_flag(&mut args) {
         WAIT_ON_ERROR.store(true, Ordering::Relaxed);
@@ -459,13 +460,14 @@ fn stop_build(build: Option<Arc<Mutex<Child>>>) {
 fn install_launcher(helper: &Path) -> Result<(), String> {
     let entry = install::desktop_entry(helper);
     let home = std::env::var_os("HOME").map(PathBuf::from).ok_or("HOME is not set")?;
-    let place = home.join(".local/share/applications/borea-live-maker.desktop");
-    if let Some(dir) = place.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
+    let apps = home.join(".local/share/applications");
+    let place = apps.join("borea-ratatui.desktop");
+    std::fs::create_dir_all(&apps).map_err(|e| e.to_string())?;
+    // The launcher used to be borea-live-maker.desktop; one entry is enough.
+    let _ = std::fs::remove_file(apps.join("borea-live-maker.desktop"));
     std::fs::write(&place, &entry).map_err(|e| format!("{}: {e}", place.display()))?;
     say!("Added {}", place.display());
-    say!("Open \"Borea TUI Helper\" from your app launcher.");
+    say!("Open \"borea-rataTUI\" from your app launcher.");
     Ok(())
 }
 
@@ -480,9 +482,9 @@ fn install_command() -> Result<PathBuf, String> {
     let this = std::env::current_exe().map_err(|e| e.to_string())?;
     install::commands(&this, &dir).map_err(|e| e.to_string())?;
     say!(
-        "Installed {} and {}",
-        dir.join("borea-helper").display(),
-        dir.join("borea-flash").display()
+        "Installed {} (also as {})",
+        dir.join(install::NAMES[0]).display(),
+        install::NAMES[1..].join(" and ")
     );
     if let Some(repo) = make::repo() {
         say!("It builds from the checkout at {}.", repo.display());
@@ -490,7 +492,7 @@ fn install_command() -> Result<PathBuf, String> {
     let on_path =
         std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|p| p == dir));
     if on_path {
-        say!("Run `borea-helper` to prepare the ISO and write a USB stick.");
+        say!("Run `borea-rataTUI` to prepare the ISO and write a USB stick.");
     } else {
         say!(
             "{} is not on your PATH. Add this line to your shell's startup file:\n  \
@@ -499,7 +501,7 @@ fn install_command() -> Result<PathBuf, String> {
             dir.display()
         );
     }
-    Ok(dir.join("borea-helper"))
+    Ok(dir.join(install::NAMES[0]))
 }
 
 fn apply(app: &mut App, event: Event) {
