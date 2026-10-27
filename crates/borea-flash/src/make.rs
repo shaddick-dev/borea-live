@@ -196,7 +196,7 @@ impl BuildView {
             (None, None) => Line::from(Span::styled("Preparing…", SUB)),
         };
         let note = Line::from(Span::styled(
-            "The first build compiles everything from source and takes a few hours. Later ones reuse what is unchanged.",
+            "The first build compiles everything from source and can take up to a few hours, depending on your machine. Later ones reuse what is unchanged.",
             SUB,
         ));
         frame.render_widget(

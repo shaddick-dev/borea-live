@@ -198,7 +198,7 @@ if [ "$RUN" -eq 1 ]; then
         say "Starting the writer: it uses the newest ISO in $DIR/target/live/out, this folder, or ~/Downloads"
         [ "$DRY" -eq 1 ] || exec "$(dirname "$helper")/borea-flash"
     else
-        say "Starting the helper: it builds Borea Live if needed (hours the first time), then writes your USB stick"
+        say "Starting the helper: it builds Borea Live if needed (the first build can take up to a few hours, depending on your machine), then writes your USB stick"
         [ "$DRY" -eq 1 ] || exec "$helper"
     fi
 fi
