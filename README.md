@@ -5,7 +5,7 @@
 borea-rataTUI is Borea's terminal app for making a bootable Borea Live USB stick. It builds the ISO if needed, then writes and verifies the stick. One command sets it up on Arch, Fedora, Debian, Ubuntu, openSUSE and their derivatives:
 
 ```sh
-bash <(curl -fsSL https://raw.githubusercontent.com/shaddick-dev/borea-live/main/scripts/borea-setup.sh)
+curl -fsSL https://raw.githubusercontent.com/shaddick-dev/borea-live/main/scripts/borea-setup.sh -o borea-setup.sh && bash borea-setup.sh
 ```
 
 Run it as your normal user. It installs the packages it needs (asking first), Rust, and borea-rataTUI, then starts it. The first ISO build can take up to a few hours, depending on your machine; later ones are much faster.
