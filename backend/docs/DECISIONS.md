@@ -36,3 +36,6 @@
 
 - NVIDIA’s sanctioned Tumbleweed repo also pins its upstream repomd signing key before Review, using the same digest/import path as Packman. Tool-root base refresh may import only keys referenced by the authenticated native root’s repo definitions. External repository keys are imported from their approved digests before refresh; missing key access blocks before disk writes.
 - Tumbleweed preflight resolves the selected native set with Zypper install --dry-run before partitioning, so native capabilities such as versioned Python providers are accepted and dependency conflicts are caught. The catalog audit separately accepts exact native package providers and refuses header-only/no-match output.
+- `bootctl --boot-path` selects XBOOTLDR and is supplied only when the layout has that separate partition. With a single ESP mounted at /boot, the ESP is sufficient.
+- Native certificate-directory symlinks are canonicalized and must stay inside the owned authenticated root. Their actual mount path is recorded for restoration; native directory links are preserved.
+- The synthetic post-resize NTFS check uses read-only ntfscat --force because ntfsresize deliberately schedules chkdsk. Production NTFS discovery/refusal rules are unchanged.

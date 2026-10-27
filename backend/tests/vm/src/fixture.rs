@@ -130,7 +130,9 @@ impl Preserved {
         }
         if output(
             "/usr/sbin/ntfscat",
-            &[windows.path.display().to_string(), "/BOREA-PRESERVE.txt".into()],
+            // ntfsresize schedules chkdsk. This known fixture must remain
+            // readable for verification; ntfscat still opens it read-only.
+            &["--force".into(), windows.path.display().to_string(), "/BOREA-PRESERVE.txt".into()],
         )? != CONTENT
         {
             return Err(error("NTFS contents changed during installation."));

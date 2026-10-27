@@ -161,7 +161,7 @@ chroot /run/borea/target '/usr/bin/firewall-offline-cmd' '--add-service=cockpit'
 # HOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck)
 #
 chroot /run/borea/target '/usr/bin/mkinitcpio' '-P'
-chroot /run/borea/target '/usr/bin/bootctl' '--esp-path=/boot' '--boot-path=/boot' 'install'
+chroot /run/borea/target '/usr/bin/bootctl' '--esp-path=/boot' 'install'
 # write target:/boot/loader/loader.conf mode 644
 # default arch.conf
 # timeout 4

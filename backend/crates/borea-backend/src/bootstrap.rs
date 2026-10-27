@@ -50,6 +50,21 @@ fn suse_archive(listing: &str) -> Result<String, Hint> {
         )
     })
 }
+fn fedora_archive(listing: &str, release: &str) -> Option<String> {
+    let mut names = listing
+        .split(['"', '\''])
+        .map(|name| name.strip_prefix("./").unwrap_or(name))
+        .filter(|name| {
+            name.starts_with("Fedora-Container-Base")
+                && name.contains("x86_64")
+                && name.ends_with(".tar.xz")
+                && name.split(['-', '.']).any(|part| part == release)
+                && crate::external::identifier(name)
+        })
+        .collect::<Vec<_>>();
+    names.sort_unstable();
+    names.last().map(|name| (*name).to_owned())
+}
 pub fn resolve(plan: &Plan) -> Result<Bootstrap, Hint> {
     let keyring = format!("/usr/share/keyrings/borea/{}.gpg", plan.distro.key());
     let artifact = match plan.distro {
@@ -89,24 +104,15 @@ pub fn resolve(plan: &Plan) -> Result<Bootstrap, Hint> {
                 plan.release
             );
             let listing = text(&format!("{base}/"))?;
-            let mut names = listing
-                .split('"')
-                .filter(|s| {
-                    s.starts_with(&format!("Fedora-Container-Base-Generic-{}-", plan.release))
-                        && s.ends_with(".x86_64.tar.xz")
-                        && !s.contains('/')
-                })
-                .collect::<Vec<_>>();
-            names.sort();
-            names.dedup();
-            let name = names.last().ok_or_else(|| {
+            let name = fedora_archive(&listing, &plan.release).ok_or_else(|| {
                 hint(
                     "bootstrap",
                     "No official Fedora Container Base artifact was listed for this release.",
                 )
             })?;
             let checksums = listing
-                .split('"')
+                .split(['"', '\''])
+                .map(|name| name.strip_prefix("./").unwrap_or(name))
                 .find(|s| {
                     s.starts_with("Fedora-Container-")
                         && s.ends_with("CHECKSUM")
@@ -117,11 +123,11 @@ pub fn resolve(plan: &Plan) -> Result<Bootstrap, Hint> {
                 })?;
             let metadata = format!("{base}/{checksums}");
             let sums = text(&metadata)?;
-            let sha256 = find_hash(&sums, name).ok_or_else(|| {
+            let sha256 = find_hash(&sums, &name).ok_or_else(|| {
                 hint("bootstrap", "The container image has no published SHA-256.")
             })?;
             Some(Artifact {
-                checksum: Some(ChecksumProof { url: metadata.clone(), filename: (*name).into() }),
+                checksum: Some(ChecksumProof { url: metadata.clone(), filename: name.clone() }),
                 signature_url: metadata,
                 url: format!("{base}/{name}"),
                 sha256,
@@ -159,6 +165,34 @@ pub fn resolve(plan: &Plan) -> Result<Bootstrap, Hint> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fedora_accepts_native_oci_archive_names_and_only_the_requested_release() {
+        for name in [
+            "Fedora-Container-Base-Generic-44-1.7.x86_64.tar.xz",
+            "Fedora-Container-Base-Generic-44-1.7.x86_64.ociarchive.tar.xz",
+            "Fedora-Container-Base-Generic.x86_64-44-1.7.ociarchive.tar.xz",
+        ] {
+            assert_eq!(
+                fedora_archive(&format!("<a href='./{name}'>base</a>"), "44").as_deref(),
+                Some(name)
+            );
+            assert!(fedora_archive(&format!("<a href='./{name}'>base</a>"), "43").is_none());
+        }
+        assert!(
+            fedora_archive(
+                "<a href='Fedora-Container-Minimal-Generic-44-1.7.x86_64.tar.xz'>minimal</a>",
+                "44"
+            )
+            .is_none()
+        );
+        assert!(
+            fedora_archive(
+                "<a href='../Fedora-Container-Base-Generic-44-1.7.x86_64.tar.xz'>escape</a>",
+                "44"
+            )
+            .is_none()
+        );
+    }
     #[test]
     fn checksum_formats() {
         let h = "a".repeat(64);

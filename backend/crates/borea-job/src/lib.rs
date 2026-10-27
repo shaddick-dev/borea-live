@@ -888,14 +888,12 @@ pub fn compile(
         Distro::Arch => {
             boot.push(write("/etc/mkinitcpio.conf","MODULES=()\nBINARIES=()\nFILES=()\nHOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck)\n".into(),0o644));
             boot.push(target("/usr/bin/mkinitcpio", ["-P"]));
-            boot.push(target(
-                "/usr/bin/bootctl",
-                [
-                    format!("--esp-path={}", layout.esp_mount),
-                    "--boot-path=/boot".into(),
-                    "install".into(),
-                ],
-            ));
+            let mut arguments = vec![format!("--esp-path={}", layout.esp_mount)];
+            if layout.boot.is_some() {
+                arguments.push("--boot-path=/boot".into());
+            }
+            arguments.push("install".into());
+            boot.push(target("/usr/bin/bootctl", arguments));
             boot.push(write(
                 &format!("{}/loader/loader.conf", layout.esp_mount),
                 "default arch.conf\ntimeout 4\neditor no\n".into(),

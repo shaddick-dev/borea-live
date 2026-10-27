@@ -145,6 +145,7 @@ pub struct Session {
     wifi_profile: Option<(String, Zeroizing<String>)>,
     resolv_state: Option<ResolvState>,
     preserved_efi: Option<BTreeMap<PathBuf, Vec<u8>>>,
+    target_transport_ca: Option<PathBuf>,
     _install_lock: nix::fcntl::Flock<File>,
     namespace: runtime::PrivateNamespace,
     command_failure: Option<(Option<i32>, Vec<String>)>,
@@ -239,6 +240,7 @@ impl Session {
             wifi_profile: None,
             resolv_state: None,
             preserved_efi: None,
+            target_transport_ca: None,
             _install_lock: install_lock,
             namespace,
             command_failure: None,
@@ -1953,13 +1955,9 @@ impl Session {
         root: &Path,
         emit: &mut impl FnMut(Event),
     ) -> Result<(), Hint> {
-        let destination = root.join("etc/ssl/certs");
+        let destination = runtime::certificate_directory(root)?;
         if self.mounted.contains(&destination) {
             return Ok(());
-        }
-        let metadata = io(fs::symlink_metadata(&destination))?;
-        if !metadata.is_dir() || metadata.is_symlink() {
-            return Err(err("The native TLS certificate directory is not an ordinary directory."));
         }
         let cache = root.join("run/borea/ca-directory");
         io(fs::create_dir(&cache))?;
@@ -1989,14 +1987,18 @@ impl Session {
         )?;
         mount(Some(&cache), &destination, None::<&str>, MsFlags::MS_BIND, None::<&str>)
             .map_err(|e| err(e.to_string()))?;
+        if root == Path::new(TARGET) {
+            self.target_transport_ca = Some(destination.clone());
+        }
         self.mounted.push(destination);
         Ok(())
     }
     fn restore_transport_ca(&mut self, emit: &mut impl FnMut(Event)) -> Result<(), Hint> {
-        let path = Path::new(TARGET).join("etc/ssl/certs");
+        let Some(path) = self.target_transport_ca.clone() else { return Ok(()) };
         if self.mounted.contains(&path) {
             umount2(&path, MntFlags::empty()).map_err(|e| err(e.to_string()))?;
             self.mounted.retain(|mounted| mounted != &path);
+            self.target_transport_ca = None;
             self.command(Root::Target, "/usr/sbin/update-ca-certificates", vec![], emit)?;
         }
         Ok(())

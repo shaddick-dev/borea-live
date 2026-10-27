@@ -47,6 +47,15 @@ pub(crate) fn set_mode(path: &Path, mode: u32) -> Result<(), Hint> {
     }
     Ok(())
 }
+pub(crate) fn certificate_directory(root: &Path) -> Result<std::path::PathBuf, Hint> {
+    let root = std::fs::canonicalize(root).map_err(|e| hint("tls", e.to_string()))?;
+    let path = std::fs::canonicalize(root.join("etc/ssl/certs"))
+        .map_err(|e| hint("tls", e.to_string()))?;
+    if !path.starts_with(&root) || !path.is_dir() {
+        return Err(hint("tls", "The native certificate directory escapes its system root."));
+    }
+    Ok(path)
+}
 pub(crate) fn capture_efi(
     root: &Path,
 ) -> Result<std::collections::BTreeMap<std::path::PathBuf, Vec<u8>>, Hint> {
@@ -145,6 +154,24 @@ pub fn static_helper(path: &Path) -> Result<(), Hint> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_certificate_symlinks_stay_inside_their_root() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let root = std::env::temp_dir().join(format!("borea-cert-root-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("etc/ssl"))?;
+        std::fs::create_dir_all(root.join("var/lib/ca-certificates/pem"))?;
+        let link = root.join("etc/ssl/certs");
+        std::os::unix::fs::symlink("../../var/lib/ca-certificates/pem", &link)?;
+        assert_eq!(certificate_directory(&root)?, root.join("var/lib/ca-certificates/pem"));
+        std::fs::remove_file(&link)?;
+        std::os::unix::fs::symlink("/tmp", &link)?;
+        assert!(certificate_directory(&root).is_err());
+        std::fs::remove_file(&link)?;
+        std::os::unix::fs::symlink("certs", &link)?;
+        assert!(certificate_directory(&root).is_err());
+        std::fs::remove_dir_all(root)?;
+        Ok(())
+    }
     #[test]
     fn target_helper_rejects_live_libc_interpreter() {
         let mut data = vec![0u8; 120];

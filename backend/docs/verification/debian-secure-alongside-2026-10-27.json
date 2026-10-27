@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-27",
+  "install_binary_revision": "e724d75",
+  "scenario": "debian alongside, enforced Microsoft Secure Boot",
+  "install_completed": true,
+  "boot_passed_without_repair": true,
+  "boot_markers": [
+    "BOREA_CONSOLE_READY",
+    "BOREA_DISTRO_OK",
+    "BOREA_USER_OK",
+    "BOREA_LUKS_OK",
+    "BOREA_NET_OK",
+    "BOREA_SECURE_BOOT_OK",
+    "BOREA_SUDO_OK",
+    "BOREA_VM_BOOT_OK",
+    "BOREA_VM_TEST_PASSED boot"
+  ],
+  "approved_ntfs_size": 64300777472,
+  "offline_preservation": [
+    "NTFS data sentinel matches",
+    "Microsoft EFI loader sentinel matches",
+    "fallback EFI loader sentinel matches",
+    "NTFS start and approved resized GPT length match"
+  ],
+  "geometry": {
+    "partitions": [
+      {
+        "number": 1,
+        "start": 1048576,
+        "size": 104857600,
+        "guid": "233928447dc6e14fbcf6a0eb68df35cb"
+      },
+      {
+        "number": 2,
+        "start": 105906176,
+        "size": 16777216,
+        "guid": "5b0d76fc6dc96d479bdbe59a5890c8f7"
+      },
+      {
+        "number": 3,
+        "start": 122683392,
+        "size": 64300777472,
+        "guid": "877cce5f04938e49bb3b196e43358615"
+      },
+      {
+        "number": 4,
+        "start": 64423460864,
+        "size": 1073741824,
+        "guid": "2253cc5992e22b46a19eee519fe7affe"
+      },
+      {
+        "number": 5,
+        "start": 65497202688,
+        "size": 41876962816,
+        "guid": "9975a10c965b4e4b93a144380e2a1939"
+      }
+    ],
+    "ntfs_bytes_copied": 68026368
+  },
+  "harness_note": "Original post-install ntfscat check refused the chkdsk flag intentionally set by ntfsresize. Verification on an offline sparse copy with read-only ntfscat --force succeeds. The fixture now uses --force; production discovery stays conservative. Original post-install UUID comparison did not finish in that harness; a fresh uninterrupted full scenario rerun remains outstanding."
+}

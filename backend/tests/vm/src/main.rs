@@ -166,7 +166,12 @@ fn run() -> Result<(), Hint> {
     session.run(&mut |event| match event {
         borea_exec::Event::StageStarted { title, .. } => println!("BOREA_STAGE {title}"),
         borea_exec::Event::Line { text, .. } => println!("{text}"),
-        borea_exec::Event::Failed { fault } => println!("BOREA_FAILED {}", fault.title),
+        borea_exec::Event::Failed { fault } => {
+            println!("BOREA_FAILED {}", fault.title);
+            for line in fault.stderr_tail {
+                println!("BOREA_COMMAND_STDERR {line}");
+            }
+        }
         borea_exec::Event::Finished => println!("BOREA_INSTALL_COMPLETE"),
         _ => {}
     })?;
