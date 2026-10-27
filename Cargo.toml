@@ -49,3 +49,21 @@ unsafe_code = "forbid"
 lto = true
 codegen-units = 1
 strip = true
+
+# For installing borea-rataTUI from a checkout: optimised, but without the
+# release profile's whole-program LTO, so it builds in a fraction of the time
+# and rebuilds after a change in seconds. Releases still ship `release` builds.
+[profile.app]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true
+# Light optimisation for libraries, whose speed doesn't matter in a USB writer
+# (a few D-Bus calls, TLS on ring's assembly crypto, drawing a terminal)...
+opt-level = 1
+
+# ...and full optimisation where it does: hashing the image, and the writer.
+[profile.app.package.sha2]
+opt-level = 3
+[profile.app.package.borea-flash]
+opt-level = 3

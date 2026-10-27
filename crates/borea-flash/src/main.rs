@@ -68,6 +68,8 @@ usage: borea-rataTUI            get the latest Borea Live release (a download, k
                                  if it changed (hours the first time), then write it
        borea-flash --build       as --make, but always rebuild
        borea-flash --list        show the USB sticks it could write, and exit
+       borea-rataTUI --update    replace this program with the latest release's ready-made
+                                 build (seconds; nothing to compile)
        borea-flash --install     install the commands and the borea-rataTUI launcher
        borea-flash --install-launcher
                                  install the commands and the borea-rataTUI launcher";
@@ -110,6 +112,9 @@ fn start() -> ExitCode {
     let flag = |name: &str| args.iter().any(|a| a == name);
     if flag("--install") || flag("--install-launcher") {
         return report(install_command().and_then(|helper| install_launcher(&helper)));
+    }
+    if flag("--update") {
+        return report(update());
     }
     if flag("--get") {
         let host = borea_host::detect().kind;
@@ -520,6 +525,17 @@ fn stop_build(build: Option<Arc<Mutex<Child>>>) {
         let group = rustix::process::Pid::from_child(&child);
         let _ = rustix::process::kill_process_group(group, rustix::process::Signal::INT);
     }
+}
+
+/// Download the latest release's ready-made borea-rataTUI and let it install
+/// itself: the commands and the launcher, as `--install` does from a build.
+fn update() -> Result<(), String> {
+    let dir = download::cache_dir().ok_or("HOME is not set")?.join("app");
+    say!("Downloading the latest borea-rataTUI…");
+    let app = download::fetch_app(&dir)?;
+    let status = Command::new(&app).arg("--install").status().map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(&app);
+    status.success().then_some(()).ok_or_else(|| format!("installing it failed ({status})"))
 }
 
 /// Launch the installed program directly, so its TUI appears before any build.

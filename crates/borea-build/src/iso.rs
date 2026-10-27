@@ -190,7 +190,7 @@ pub fn run(args: &[&str]) -> Result {
     step(&format!("Done: {}", iso.display()));
     println!("Try it:   qemu-system-x86_64 -enable-kvm -m 4G -cdrom {}", iso.display());
     println!(
-        "Write it: borea-flash   (finds the newest build itself; install it once with `cargo run --release -p borea-flash -- --install`)"
+        "Write it: borea-flash   (finds the newest build itself; install it once with `cargo run --profile app -p borea-flash -- --install`)"
     );
     Ok(())
 }

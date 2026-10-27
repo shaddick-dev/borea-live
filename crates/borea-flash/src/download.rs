@@ -8,6 +8,7 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -69,7 +70,12 @@ fn describe(error: ureq::Error) -> String {
 
 /// The SHA-256 the latest release publishes for its ISO.
 pub fn latest_checksum() -> Result<String, String> {
-    let url = format!("{}/{ISO}.sha256", releases());
+    published_checksum(ISO)
+}
+
+/// The SHA-256 the latest release publishes for one of its files.
+fn published_checksum(name: &str) -> Result<String, String> {
+    let url = format!("{}/{name}.sha256", releases());
     let mut response = agent().get(&url).call().map_err(describe)?;
     let text = response
         .body_mut()
@@ -89,6 +95,46 @@ pub fn parse_checksum(text: &str) -> Option<String> {
 
 fn hex(digest: &[u8]) -> String {
     digest.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The ready-made borea-rataTUI in every release.
+pub const APP: &str = "borea-rataTUI-x86_64-linux";
+
+/// Download the latest release's borea-rataTUI into `dir`, checked against its
+/// SHA-256 and made executable. Returns its path.
+pub fn fetch_app(dir: &Path) -> Result<PathBuf, String> {
+    let expected = published_checksum(APP).map_err(|e| {
+        if e.starts_with("No Borea Live release") {
+            "No ready-made borea-rataTUI has been published yet.".to_owned()
+        } else {
+            e
+        }
+    })?;
+    let mut response = agent().get(&format!("{}/{APP}", releases())).call().map_err(describe)?;
+    let bytes = response
+        .body_mut()
+        .with_config()
+        .limit(256 << 20)
+        .read_to_vec()
+        .map_err(|e| format!("the download was interrupted: {e}"))?;
+    let actual = hex(&Sha256::digest(&bytes));
+    if actual != expected {
+        return Err(format!(
+            "the downloaded borea-rataTUI doesn't match the published SHA-256 (got {actual})"
+        ));
+    }
+    fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let path = dir.join(APP);
+    let mut file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .mode(0o755)
+        .open(&path)
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    file.write_all(&bytes).map_err(|e| e.to_string())?;
+    file.sync_all().map_err(|e| e.to_string())?;
+    Ok(path)
 }
 
 /// What a download reports as it goes.
@@ -507,6 +553,23 @@ pub(crate) mod tests {
         let error = fetch(&other, &cancel, |_| {}).unwrap_err();
         assert!(error.contains("doesn't match"), "{error}");
         assert!(!other.join(ISO).exists() && !other.join(format!("{ISO}.part")).exists());
+
+        // The ready-made app comes down checked and executable.
+        use std::os::unix::fs::PermissionsExt;
+        let app = b"#!/bin/sh\necho borea\n".to_vec();
+        let (base2, _) = serve(vec![
+            ("app/borea-rataTUI-x86_64-linux", app.clone()),
+            (
+                "app/borea-rataTUI-x86_64-linux.sha256",
+                format!("{}  {APP}\n", sha(&app)).into_bytes(),
+            ),
+        ]);
+        use_releases(&format!("{base2}/app"));
+        let path = fetch_app(&other).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), app);
+        assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o755);
+        use_releases(&format!("{base2}/none"));
+        assert!(fetch_app(&other).unwrap_err().contains("No ready-made borea-rataTUI"));
 
         // No release yet: a plain explanation, not an HTTP error.
         use_releases(&format!("{base}/none"));
