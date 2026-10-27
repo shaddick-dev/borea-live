@@ -106,9 +106,18 @@ pub fn run(args: &[&str]) -> Result {
         let cpus = std::thread::available_parallelism().map_or(1, |n| n.get());
         default_jobs(cpus, memory_bytes())
     });
-    let make = |targets: &[&str]| -> Result {
+    let cpus = std::thread::available_parallelism().map_or(1, |n| n.get());
+    // `parallel` builds independent packages side by side (top-level `make -j`,
+    // with per-package directories). Make-based packages share those job slots;
+    // ninja, meson and cargo ones (LLVM, Mesa) take BR2_JLEVEL each, so the load
+    // limit keeps the machine from being oversubscribed while they overlap.
+    let make = |targets: &[&str], parallel: bool| -> Result {
         // Signing variables come only from this run, never from the caller's shell.
-        let status = command("make")
+        let mut make = command("make");
+        if parallel {
+            make.arg(format!("-j{jobs}")).arg(format!("--load-average={cpus}"));
+        }
+        let status = make
             .arg("-C")
             .arg(&buildroot)
             .arg(format!("O={}", output_dir.display()))
@@ -129,7 +138,7 @@ pub fn run(args: &[&str]) -> Result {
     };
 
     step("Configuring");
-    make(&["borea_live_defconfig"])?;
+    make(&["borea_live_defconfig"], false)?;
     let dropped = dropped_options(
         &fs::read_to_string(external.join("configs/borea_live_defconfig"))
             .map_err(|e| e.to_string())?,
@@ -148,10 +157,25 @@ pub fn run(args: &[&str]) -> Result {
     }
 
     step(&format!(
-        "Building with {jobs} parallel jobs (the first build takes hours; later ones reuse what is unchanged)"
+        "Building with {jobs} parallel jobs, several packages at once (the first build can take up to a few hours, depending on your machine; later ones reuse what is unchanged)"
     ));
-    make(&["borea-dirclean"])?;
-    make(&[])?;
+    // Buildroot needs a clean build after the toolchain or directory layout
+    // changes, and does not notice by itself. Downloads and ccache survive.
+    let layout = build_layout(
+        &fs::read_to_string(external.join("configs/borea_live_defconfig"))
+            .map_err(|e| e.to_string())?,
+    );
+    let stamp = output_dir.join(".borea-layout");
+    if fs::read_to_string(&stamp).is_ok_and(|built| built != layout)
+        || (!stamp.exists() && output_dir.join("build").exists())
+    {
+        step("The toolchain or build layout changed: starting a clean build");
+        make(&["clean"], false)?;
+        let _ = fs::remove_dir_all(output_dir.join("borea-cargo"));
+    }
+    fs::write(&stamp, &layout).map_err(|e| e.to_string())?;
+    make(&["borea-dirclean"], false)?;
+    make(&[], true)?;
 
     let date = output("date", &["+%Y%m%d"])?;
     let signed = if options.secure_boot.is_some() { "-signed" } else { "" };
@@ -169,6 +193,15 @@ pub fn run(args: &[&str]) -> Result {
         "Write it: borea-flash   (finds the newest build itself; install it once with `cargo run --release -p borea-flash -- --install`)"
     );
     Ok(())
+}
+
+/// The defconfig lines that need a clean build when they change.
+fn build_layout(defconfig: &str) -> String {
+    defconfig
+        .lines()
+        .filter(|l| l.starts_with("BR2_TOOLCHAIN") || l.starts_with("BR2_PER_PACKAGE"))
+        .map(|l| format!("{l}\n"))
+        .collect()
 }
 
 /// Memory each compile job may need: LLVM's larger C++ files take 1–2 GB each.
@@ -383,6 +416,16 @@ mod tests {
         let defconfig = "# comment\nBR2_PACKAGE_CAGE=y\nBR2_PACKAGE_GONE=y\nBR2_TARGET_GENERIC_HOSTNAME=\"borea-live\"\n";
         let config = "BR2_PACKAGE_CAGE=y\n# BR2_PACKAGE_GONE is not set\nBR2_TARGET_GENERIC_HOSTNAME=\"x\"\n";
         assert_eq!(dropped_options(defconfig, config), ["BR2_PACKAGE_GONE=y"]);
+    }
+
+    #[test]
+    fn layout_tracks_only_what_needs_a_clean_build() {
+        let a = "BR2_x86_64=y\nBR2_TOOLCHAIN_EXTERNAL=y\nBR2_PER_PACKAGE_DIRECTORIES=y\nBR2_PACKAGE_IW=y\n";
+        let b = "BR2_x86_64=y\nBR2_TOOLCHAIN_EXTERNAL=y\nBR2_PER_PACKAGE_DIRECTORIES=y\n";
+        assert_eq!(build_layout(a), build_layout(b), "adding a package needs no clean build");
+        let c = "BR2_TOOLCHAIN_BUILDROOT_GLIBC=y\n";
+        assert_ne!(build_layout(a), build_layout(c));
+        assert!(build_layout(a).contains("BR2_PER_PACKAGE_DIRECTORIES=y"));
     }
 
     #[test]
