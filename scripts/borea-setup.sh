@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Borea setup: from a fresh Linux install to borea-rataTUI, in one go.
 #
-#   bash <(curl -fsSL https://raw.githubusercontent.com/shaddick-dev/borea-live/main/scripts/borea-setup.sh)
+#   curl -fsSL https://raw.githubusercontent.com/shaddick-dev/borea-live/main/scripts/borea-setup.sh -o borea-setup.sh
+#   bash borea-setup.sh
 #
 # 1. Installs the system packages for your distribution (asks once, then uses sudo).
 # 2. Installs Rust with rustup, in your home folder, or updates it.
