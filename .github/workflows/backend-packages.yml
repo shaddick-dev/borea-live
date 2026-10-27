@@ -3,6 +3,11 @@ on:
   schedule:
     - cron: '23 4 * * *'
   workflow_dispatch:
+    inputs:
+      distro:
+        type: choice
+        options: [all, arch, debian, fedora, opensuse]
+        default: all
 permissions:
   contents: read
 jobs:
@@ -22,15 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - distro: arch
-            image: archlinux:base-devel
-          - distro: debian
-            image: debian:trixie
-          - distro: fedora
-            image: fedora:44
-          - distro: opensuse
-            image: opensuse/tumbleweed:latest
+        distro: ${{ fromJSON(inputs.distro == 'arch' && '["arch"]' || inputs.distro == 'debian' && '["debian"]' || inputs.distro == 'fedora' && '["fedora"]' || inputs.distro == 'opensuse' && '["opensuse"]' || '["arch","debian","fedora","opensuse"]') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -41,14 +38,31 @@ jobs:
       - name: Query signed upstream package metadata
         env:
           BOREA_AUDIT_DISTRO: ${{ matrix.distro }}
-          BOREA_AUDIT_IMAGE: ${{ matrix.image }}
         run: |
           set -euo pipefail
+          case "$BOREA_AUDIT_DISTRO" in
+            arch) BOREA_AUDIT_IMAGE=archlinux:base-devel ;;
+            debian) BOREA_AUDIT_IMAGE=debian:trixie ;;
+            fedora) BOREA_AUDIT_IMAGE=fedora:44 ;;
+            opensuse) BOREA_AUDIT_IMAGE=opensuse/tumbleweed:latest ;;
+          esac
           docker run --rm \
             --mount type=bind,src="$PWD/verify-bin",dst=/verify,readonly \
             --mount type=bind,src="$PWD/backend/tests/packages",dst=/audit,readonly \
             -e BOREA_AUDIT_DISTRO "$BOREA_AUDIT_IMAGE" \
             /bin/bash /audit/native.sh 2>&1 | tee "package-audit-$BOREA_AUDIT_DISTRO.log"
+      - name: Expose upstream failures in the job annotations
+        if: failure()
+        run: |
+          for log in package-audit-*.log; do
+            if [ -f "$log" ]; then
+              tail -n 60 "$log" | while IFS= read -r line; do
+                line=${line//%/%25}
+                line=${line//$'\r'/%0D}
+                echo "::error::$line"
+              done
+            fi
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:

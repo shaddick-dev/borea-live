@@ -91,7 +91,7 @@ pub struct Job {
 impl Job {
     pub fn digest(&self) -> Result<String, Hint> {
         let bytes = serde_json::to_vec(self).map_err(|e| hint("job", e.to_string()))?;
-        Ok(Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect())
+        Ok(format!("{:x}", Sha256::digest(bytes)))
     }
     pub fn render_script(&self) -> String {
         let mut out = String::from(

@@ -1260,6 +1260,16 @@ impl Session {
                 )?;
             }
             D::OpenSuse => {
+                self.command(
+                    Root::Tools,
+                    "/usr/bin/zypper",
+                    vec![
+                        "--gpg-auto-import-keys".into(),
+                        "--non-interactive".into(),
+                        "refresh".into(),
+                    ],
+                    emit,
+                )?;
                 if sources.contains("opensuse.nvidia") {
                     self.command(
                         Root::Tools,
@@ -2123,9 +2133,7 @@ pub fn download(url: &str, path: &Path, expected: Option<&str>) -> Result<(), Hi
     }
     io(f.sync_all())?;
     if let Some(expected) = expected {
-        if digest.finalize().iter().map(|b| format!("{b:02x}")).collect::<String>()
-            != expected.to_ascii_lowercase()
-        {
+        if format!("{:x}", digest.finalize()) != expected.to_ascii_lowercase() {
             let _ = fs::remove_file(path);
             return Err(err("The upstream artifact SHA-256 did not match the reviewed plan."));
         }

@@ -127,7 +127,7 @@ fn run() -> Result<Option<Value>, Hint> {
             let mut iter = args.iter().skip(1);
             while let Some(key) = iter.next() {
                 if !["--plan", "--bootstrap", "--approval"].contains(&key.as_str())
-                    || options.contains_key(key)
+                    || options.contains_key(key.as_str())
                 {
                     return Err(error("Unknown or duplicate command option."));
                 }
@@ -135,14 +135,14 @@ fn run() -> Result<Option<Value>, Hint> {
                     .next()
                     .filter(|s| !s.starts_with("--"))
                     .ok_or_else(|| error("An option value is missing."))?;
-                options.insert(key, value);
+                options.insert(key.as_str(), value);
             }
             let path = options
-                .get(&"--plan".to_owned())
+                .get("--plan")
                 .ok_or_else(|| error("Select an explicit plan with --plan."))?;
             let plan = read_plan(path)?;
             if command == "dry-run" {
-                let path = options.get(&"--bootstrap".to_owned()).ok_or_else(|| {
+                let path = options.get("--bootstrap").ok_or_else(|| {
                     error(
                         "A dry run needs --bootstrap with the reviewed native tool-root manifest.",
                     )
@@ -159,7 +159,7 @@ fn run() -> Result<Option<Value>, Hint> {
             }
             if command == "install" {
                 let approval = options
-                    .get(&"--approval".to_owned())
+                    .get("--approval")
                     .ok_or_else(|| error("Supply the approval digest returned by Review."))?;
                 let mut raw = Zeroizing::new(String::new());
                 std::io::stdin()

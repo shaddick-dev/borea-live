@@ -17,6 +17,15 @@ mod media;
 fn marker(buffer: &str, expected: &str) -> bool {
     buffer.lines().any(|line| line.trim() == expected)
 }
+fn fatal_error(buffer: &str) -> Option<&str> {
+    buffer.split_inclusive('\n').find(|line| {
+        line.ends_with('\n')
+            && (line.contains("Kernel panic")
+                || line.contains("BOREA_TEST_ERROR")
+                || line.contains("Gave up waiting for root file system")
+                || line.contains("You are in emergency mode"))
+    })
+}
 fn run() -> Result<(), String> {
     if fs::read_to_string("/work/.borea-test-workdir").ok().as_deref().map(str::trim)
         != Some("BOREA_TEST_WORK")
@@ -243,14 +252,13 @@ fn run() -> Result<(), String> {
                         (keep..buffer.len()).find(|i| buffer.is_char_boundary(*i)).unwrap_or(0);
                     buffer.drain(..keep);
                 }
-                if buffer.contains("Kernel panic")
-                    || buffer.contains("BOREA_TEST_ERROR")
-                    || buffer.contains("Gave up waiting for root file system")
-                    || buffer.contains("You are in emergency mode")
-                {
+                if let Some(error) = fatal_error(&buffer) {
+                    let error = error
+                        .trim()
+                        .replace("borea-disposable-vm-ONLY", "[TEST CREDENTIAL REDACTED]");
                     let _ = child.kill();
                     let _ = child.wait();
-                    return Err("The guest reported a fatal error; inspect its console log.".into());
+                    return Err(format!("The guest reported a fatal error: {error}"));
                 }
                 if !boot {
                     complete |= buffer.contains(if preflight {
@@ -315,11 +323,12 @@ fn run() -> Result<(), String> {
         }
     }
     let status = child.wait().map_err(|e| e.to_string())?;
-    if !status.success()
-        || !complete
-        || !boot && !(preservation_ok && install_exit_ok)
-        || boot && !(luks && net && sudo && distro_ok && user_ok && firmware_ok)
-    {
+    let assertions_pass = if boot {
+        luks && net && sudo && distro_ok && user_ok && firmware_ok
+    } else {
+        preservation_ok && install_exit_ok
+    };
+    if !status.success() || !complete || !assertions_pass {
         return Err(format!(
             "VM assertion failed: exit={status}, complete={complete}, luks={luks}, network={net}, sudo={sudo}, firmware={firmware_ok}, preservation={preservation_ok}, installer_exit={install_exit_ok}"
         ));
@@ -345,5 +354,10 @@ mod tests {
         assert!(!marker("sudo id -u && echo BOREA_SUDO_OK\r\n", "BOREA_SUDO_OK"));
         assert!(marker("0\r\nBOREA_SUDO_OK\r\n", "BOREA_SUDO_OK"));
         assert!(!marker("not BOREA_SUDO_OK\r\n", "BOREA_SUDO_OK"));
+        assert!(fatal_error("BOREA_TEST_ERROR ").is_none());
+        assert_eq!(
+            fatal_error("BOREA_TEST_ERROR mirror unavailable\r\n"),
+            Some("BOREA_TEST_ERROR mirror unavailable\r\n")
+        );
     }
 }

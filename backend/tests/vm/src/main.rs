@@ -99,6 +99,7 @@ fn run() -> Result<(), Hint> {
         },
     };
     let hw = borea_catalog::probe::probe().map_err(|e| hint("vm", e.to_string()))?;
+    println!("BOREA_HARDWARE_PROBED");
     if fs::read_to_string("/sys/firmware/qemu_fw_cfg/by_name/opt/borea/secure-boot/raw")
         .ok()
         .as_deref()
@@ -111,10 +112,13 @@ fn run() -> Result<(), Hint> {
         ));
     }
     borea_net::check_mirror(borea_backend::mirror(distro))?;
+    println!("BOREA_MIRROR_REACHABLE");
     let bootstrap = borea_backend::bootstrap::resolve(&plan)?;
+    println!("BOREA_BOOTSTRAP_RESOLVED");
     let mut job = borea_job::compile(&plan, &hw, &facts, &bootstrap)?;
     borea_job::resolve_external(&mut job)?;
     let approved = job.digest()?;
+    println!("BOREA_JOB_COMPILED");
     // Public test fixture only. Never used as a production default or written to a plan.
     let secrets = Secrets {
         wifi: None,

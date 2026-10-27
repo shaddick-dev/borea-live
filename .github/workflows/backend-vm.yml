@@ -19,7 +19,33 @@ on:
 permissions:
   contents: read
 jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Build native test drivers and static target helper
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools
+          cargo build --manifest-path backend/Cargo.toml --locked --release -p borea-vm-test --bins
+          cargo build --manifest-path backend/Cargo.toml --locked --release -p borea-exec --bin borea-firstboot --target x86_64-unknown-linux-musl
+          mkdir vm-bin
+          cp backend/target/release/borea-vm-test backend/target/release/borea-vm-runner vm-bin/
+          cp backend/target/x86_64-unknown-linux-musl/release/borea-firstboot vm-bin/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vm-binaries
+          path: vm-bin/*
+          retention-days: 1
   install:
+    needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     strategy:
@@ -39,19 +65,11 @@ jobs:
       CARGO_BUILD_JOBS: '2'
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/download-artifact@v4
         with:
-          targets: x86_64-unknown-linux-musl
-      - name: Build native test drivers and static target helper
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends musl-tools
-          cargo build --manifest-path backend/Cargo.toml --locked --release -p borea-vm-test --bins
-          cargo build --manifest-path backend/Cargo.toml --locked --release -p borea-exec --bin borea-firstboot --target x86_64-unknown-linux-musl
-          mkdir vm-bin
-          cp backend/target/release/borea-vm-test backend/target/release/borea-vm-runner vm-bin/
-          cp backend/target/x86_64-unknown-linux-musl/release/borea-firstboot vm-bin/
+          name: vm-binaries
+          path: vm-bin
+      - run: chmod 755 vm-bin/*
       - name: Build disposable live test environment
         run: |
           set -euo pipefail
@@ -78,6 +96,16 @@ jobs:
             -e BOREA_TEST_DISTRO -e BOREA_TEST_LAYOUT -e BOREA_TEST_SECURE_BOOT \
             borea-vm-tools /bin/sh -c '/binaries/borea-vm-runner install && /binaries/borea-vm-runner boot' \
             2>&1 | tee vm-console.log
+      - name: Expose guest failures in the job annotations
+        if: failure()
+        run: |
+          if [ -f vm-console.log ]; then
+            tail -n 60 vm-console.log | while IFS= read -r line; do
+              line=${line//%/%25}
+              line=${line//$'\r'/%0D}
+              echo "::error::$line"
+            done
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:

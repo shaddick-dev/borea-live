@@ -90,7 +90,7 @@ pub fn firstboot() -> Result<(), Hint> {
             .map_err(|_| err("The first-boot queue is invalid."))?;
     while let Some(action) = queue.first() {
         if action.program != "/usr/bin/flatpak"
-            || !action.args.first().is_some_and(|s| s == "install")
+            || action.args.first().is_none_or(|s| s != "install")
         {
             return Err(err("The first-boot queue contains an unexpected command."));
         }

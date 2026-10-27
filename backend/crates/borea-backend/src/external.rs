@@ -21,6 +21,7 @@ pub fn repository_key(source: &str, _release: &str) -> Result<Option<RepositoryK
         "fedora.rpmfusion-free" => "https://download1.rpmfusion.org/free/fedora/RPM-GPG-KEY-rpmfusion-free-fedora-2020".into(),
         "fedora.rpmfusion-nonfree" => "https://download1.rpmfusion.org/nonfree/fedora/RPM-GPG-KEY-rpmfusion-nonfree-fedora-2020".into(),
         "opensuse.packman" => "https://ftp.gwdg.de/pub/linux/misc/packman/suse/openSUSE_Tumbleweed/repodata/repomd.xml.key".into(),
+        "opensuse.nvidia" => "https://download.nvidia.com/opensuse/tumbleweed/repodata/repomd.xml.key".into(),
         _ => return Ok(None),
     };
     let data = bytes(&url)?;
@@ -76,7 +77,7 @@ fn json(url: &str) -> Result<serde_json::Value, Hint> {
         .map_err(|_| hint("sources", "Upstream returned invalid release metadata."))
 }
 fn digest(b: &[u8]) -> String {
-    Sha256::digest(b).iter().map(|b| format!("{b:02x}")).collect()
+    format!("{:x}", Sha256::digest(b))
 }
 pub fn resolve(review: &Review) -> Result<ExternalSources, Hint> {
     let mut result = ExternalSources::default();
@@ -298,7 +299,7 @@ fn hash_url(url: &str) -> Result<String, Hint> {
         }
         hash.update(&bytes[..n]);
     }
-    Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    Ok(format!("{:x}", hash.finalize()))
 }
 
 #[cfg(test)]

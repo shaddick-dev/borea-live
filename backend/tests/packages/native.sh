@@ -26,8 +26,9 @@ case "$BOREA_AUDIT_DISTRO" in
   ;;
  opensuse)
   sed -i 's|http://|https://|g' /etc/zypp/repos.d/*.repo
-  zypper --non-interactive refresh
+  zypper --gpg-auto-import-keys --non-interactive refresh
   zypper --non-interactive install openSUSE-repos-NVIDIA
+  rpm --import https://download.nvidia.com/opensuse/tumbleweed/repodata/repomd.xml.key
   rpm --import https://ftp.gwdg.de/pub/linux/misc/packman/suse/openSUSE_Tumbleweed/repodata/repomd.xml.key
   zypper --non-interactive addrepo --refresh --priority 90 https://ftp.gwdg.de/pub/linux/misc/packman/suse/openSUSE_Tumbleweed/ packman
   zypper --non-interactive refresh

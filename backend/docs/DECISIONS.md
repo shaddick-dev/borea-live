@@ -33,3 +33,5 @@
 - Debian native Steam uses contrib and i386. Native Steam/Lutris enable i386 before APT refresh; proprietary NVIDIA gaming adds the matching Debian i386 libraries. Debian auditing checks the actual component and architecture.
 - Tumbleweed publishes dated networkd root archives and signed checksum metadata. Native repo URLs use HTTPS; temporary libzypp trust uses a hashed CA directory overlaid from RAM, restored before completion.
 - Arch preparation resolves against an empty local package database with the signed sync indexes. Fedora finishing explicitly creates BLS entries and the signed-GRUB UUID redirect; its kernel command line precedes package scriptlets.
+
+- NVIDIA’s sanctioned Tumbleweed repo also pins its upstream repomd signing key before Review, using the same digest/import path as Packman. Tool-root base refresh may import only keys referenced by the authenticated native root’s repo definitions. External repository keys are imported from their approved digests before refresh; missing key access blocks before disk writes.

@@ -1,0 +1,42 @@
+{
+  "commit": "66176de7a6e8f63df36f40ad2c689cc4365a31fc",
+  "run": "https://github.com/shaddick-dev/shaddick.dev/actions/runs/40447690092",
+  "jobs": [
+    {
+      "completed_at": "2026-10-27T04:05:28Z",
+      "conclusion": "success",
+      "html_url": "https://github.com/shaddick-dev/shaddick.dev/actions/runs/40447690092/job/122002761745",
+      "name": "inventory"
+    },
+    {
+      "completed_at": "2026-10-27T04:06:04Z",
+      "conclusion": "success",
+      "html_url": "https://github.com/shaddick-dev/shaddick.dev/actions/runs/40447690092/job/122003094907",
+      "name": "external"
+    },
+    {
+      "completed_at": "2026-10-27T04:06:18Z",
+      "conclusion": "failure",
+      "html_url": "https://github.com/shaddick-dev/shaddick.dev/actions/runs/40447690092/job/122003094957",
+      "name": "native (opensuse, opensuse/tumbleweed:latest)"
+    },
+    {
+      "completed_at": "2026-10-27T04:07:00Z",
+      "conclusion": "success",
+      "html_url": "https://github.com/shaddick-dev/shaddick.dev/actions/runs/40447690092/job/122003095022",
+      "name": "native (fedora, fedora:44)"
+    },
+    {
+      "completed_at": "2026-10-27T04:06:21Z",
+      "conclusion": "success",
+      "html_url": "https://github.com/shaddick-dev/shaddick.dev/actions/runs/40447690092/job/122003095032",
+      "name": "native (debian, debian:trixie)"
+    },
+    {
+      "completed_at": "2026-10-27T04:06:26Z",
+      "conclusion": "success",
+      "html_url": "https://github.com/shaddick-dev/shaddick.dev/actions/runs/40447690092/job/122003095056",
+      "name": "native (arch, archlinux:base-devel)"
+    }
+  ]
+}
