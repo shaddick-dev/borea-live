@@ -96,7 +96,7 @@ fn tuf_f15_hybrid_laptop_on_every_distro() {
     assert!(!o.mok, "openSUSE signs the open modules");
 
     let d = plan_drivers(&hw, Distro::Debian);
-    assert_eq!(from(&d, "nvidia-open-kernel-dkms"), Source::Repo("debian.non-free"));
+    assert_eq!(from(&d, "nvidia-open-kernel-dkms"), Source::Repo("debian.contrib"));
     assert_eq!(from(&d, "intel-microcode"), Source::Repo("debian.non-free-firmware"));
     assert!(d.kernel_args.contains(&"nvidia-drm.modeset=1") && d.mok);
 }

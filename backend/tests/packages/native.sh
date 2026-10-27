@@ -9,6 +9,7 @@ case "$BOREA_AUDIT_DISTRO" in
   pacman -Sy --noconfirm
   ;;
  debian)
+  if [ -n "${SSL_CERT_FILE:-}" ]; then printf 'Acquire::https::CaInfo "%s";\n' "$SSL_CERT_FILE" > /etc/apt/apt.conf.d/90-borea-session-ca; fi
   apt-get update
   apt-get install -y --no-install-recommends ca-certificates
   sed -i -e 's|http:|https:|g' -e 's/Components: main$/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources

@@ -7,7 +7,7 @@ set -euo pipefail
 
 # Verifying the native installation tools.
 # Check live utilities and the static x86-64 target helper before disk changes.
-'/usr/sbin/debootstrap' '--print-debs' '--variant=minbase' '--keyring=/usr/share/keyrings/debian-archive-keyring.gpg' '--components=main,non-free,non-free-firmware' '--include=bluez,btrfs-progs,console-data,console-setup,cryptsetup-initramfs,cups,efibootmgr,firewalld,grub-efi-amd64-signed,initramfs-tools,kbd,linux-headers-amd64,linux-image-amd64,locales,mesa-vulkan-drivers,mokutil,nano,network-manager,os-prober,pipewire-audio,power-profiles-daemon,sddm,shim-signed,sudo,switcheroo-control,systemd-sysv,systemd-zram-generator,task-kde-desktop,intel-media-va-driver-non-free,nvidia-driver,nvidia-open-kernel-dkms,firmware-intel-graphics,firmware-linux,firmware-misc-nonfree,firmware-sof-signed,intel-microcode' 'trixie' '/run/borea/debian-preflight' 'https://deb.debian.org/debian'
+'/usr/sbin/debootstrap' '--print-debs' '--variant=minbase' '--keyring=/usr/share/keyrings/debian-archive-keyring.gpg' '--components=main,contrib,non-free,non-free-firmware' '--include=nvidia-open-kernel-dkms,bluez,btrfs-progs,console-data,console-setup,cryptsetup-initramfs,cups,efibootmgr,firewalld,grub-efi-amd64-signed,initramfs-tools,kbd,linux-headers-amd64,linux-image-amd64,locales,mesa-vulkan-drivers,mokutil,nano,network-manager,os-prober,pipewire-audio,power-profiles-daemon,sddm,shim-signed,sudo,switcheroo-control,systemd-sysv,systemd-zram-generator,task-kde-desktop,intel-media-va-driver-non-free,nvidia-driver,firmware-intel-graphics,firmware-linux,firmware-misc-nonfree,firmware-sof-signed,intel-microcode' 'trixie' '/run/borea/debian-preflight' 'https://deb.debian.org/debian'
 
 # Clearing the drive.
 '/usr/sbin/sgdisk' '--zap-all' '/dev/vda'
@@ -57,13 +57,13 @@ set -euo pipefail
 # Types: deb
 # URIs: https://deb.debian.org/debian
 # Suites: trixie trixie-updates
-# Components: main non-free non-free-firmware
+# Components: main contrib non-free non-free-firmware
 # Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
 #
 # Types: deb
 # URIs: https://security.debian.org/debian-security
 # Suites: trixie-security
-# Components: main non-free non-free-firmware
+# Components: main contrib non-free non-free-firmware
 # Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
 #
 chroot /run/borea/target '/usr/bin/apt-get' 'update'
@@ -74,7 +74,8 @@ chroot '/run/borea/target' '/usr/bin/dpkg-divert' '--add' '--rename' '--divert' 
 # backup_initramfs=no
 #
 chroot /run/borea/target '/usr/bin/apt-get' '-o' 'Dpkg::Options::=--force-confold' 'install' '-y' '--no-install-recommends' 'bluez' 'btrfs-progs' 'console-data' 'console-setup' 'cryptsetup-initramfs' 'cups' 'efibootmgr' 'firewalld' 'grub-efi-amd64-signed' 'initramfs-tools' 'kbd' 'linux-headers-amd64' 'linux-image-amd64' 'locales' 'mesa-vulkan-drivers' 'mokutil' 'nano' 'network-manager' 'os-prober' 'pipewire-audio' 'power-profiles-daemon' 'sddm' 'shim-signed' 'sudo' 'switcheroo-control' 'systemd-sysv' 'systemd-zram-generator' 'task-kde-desktop'
-chroot /run/borea/target '/usr/bin/apt-get' 'install' '-y' '--no-install-recommends' 'intel-media-va-driver-non-free' 'nvidia-driver' 'nvidia-open-kernel-dkms'
+chroot /run/borea/target '/usr/bin/apt-get' 'install' '-y' '--no-install-recommends' 'nvidia-open-kernel-dkms'
+chroot /run/borea/target '/usr/bin/apt-get' 'install' '-y' '--no-install-recommends' 'intel-media-va-driver-non-free' 'nvidia-driver'
 chroot /run/borea/target '/usr/bin/apt-get' 'install' '-y' '--no-install-recommends' 'firmware-intel-graphics' 'firmware-linux' 'firmware-misc-nonfree' 'firmware-sof-signed' 'intel-microcode'
 # write target:/etc/modprobe.d/borea.conf mode 644
 # options nvidia NVreg_PreserveVideoMemoryAllocations=1

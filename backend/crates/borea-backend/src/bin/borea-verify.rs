@@ -113,9 +113,43 @@ fn inventory(distro: Distro) -> BTreeSet<Entry> {
     }
     entries
 }
-fn query(distro: Distro, entry: &Entry) -> Result<(), Hint> {
+type DebianMetadata = BTreeSet<(String, String, String)>;
+fn parse_debian_metadata(text: &str) -> DebianMetadata {
+    text.split("\n\n")
+        .filter_map(|record| {
+            let field = |name: &str| record.lines().find_map(|line| line.strip_prefix(name));
+            let filename = field("Filename: ")?.strip_prefix("pool/")?;
+            let filename = filename.strip_prefix("updates/").unwrap_or(filename);
+            Some((
+                field("Package: ")?.to_owned(),
+                field("Architecture: ")?.to_owned(),
+                filename.split('/').next()?.to_owned(),
+            ))
+        })
+        .collect()
+}
+fn debian_matches(metadata: &DebianMetadata, entry: &Entry) -> bool {
+    let (name, arch) = entry.name.split_once(':').unwrap_or((&entry.name, "amd64"));
+    let Some(component) = entry.source.strip_prefix("debian.") else { return false };
+    metadata.contains(&(name.into(), arch.into(), component.into()))
+        || metadata.contains(&(name.into(), "all".into(), component.into()))
+}
+fn query(distro: Distro, entry: &Entry, debian: Option<&DebianMetadata>) -> Result<(), Hint> {
     if !entry.source.contains('.') {
         return Ok(());
+    }
+    if let Some(metadata) = debian {
+        return if debian_matches(metadata, entry) {
+            Ok(())
+        } else {
+            Err(hint(
+                "verify",
+                format!(
+                    "{}: {} is missing from its declared component/architecture",
+                    entry.source, entry.name
+                ),
+            ))
+        };
     }
     let (program, args) = match distro {
         Distro::Arch => ("/usr/bin/pacman", vec!["-Si", entry.name.as_str()]),
@@ -207,6 +241,21 @@ fn run() -> Result<(), Hint> {
     if !matches!(mode, Some("--check-native" | "--check-external" | "--check-flathub")) {
         return Err(hint("verify", "Unknown verification mode."));
     }
+    // APT otherwise reparses its entire cache for every package. Query once, then
+    // validate each requested name, architecture and component independently.
+    let debian = if distro == Distro::Debian && mode == Some("--check-native") {
+        let output = Command::new("/usr/bin/apt-cache")
+            .arg("show")
+            .args(entries.iter().filter(|e| e.source.starts_with("debian.")).map(|e| &e.name))
+            .env("LC_ALL", "C")
+            .output()
+            .map_err(|e| hint("verify", e.to_string()))?;
+        // A missing name makes apt-cache exit nonzero while retaining other
+        // records. The per-entry checks below still report every missing name.
+        Some(parse_debian_metadata(&String::from_utf8_lossy(&output.stdout)))
+    } else {
+        None
+    };
     let mut failures = Vec::new();
     for entry in &entries {
         let external = !entry.source.contains('.');
@@ -218,7 +267,7 @@ fn run() -> Result<(), Hint> {
         let result = if external && mode != Some("--check-native") {
             borea_backend::external::verify_source(&entry.source, &entry.name)
         } else {
-            query(distro, entry)
+            query(distro, entry, debian.as_ref())
         };
         match result {
             Ok(()) if !external || mode != Some("--check-native") => {
@@ -249,6 +298,35 @@ fn main() -> std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn debian_audit_requires_the_actual_component_and_architecture() {
+        let metadata = parse_debian_metadata(
+            "Package: lutris\nArchitecture: all\nFilename: pool/contrib/l/lutris/lutris.deb\n\nPackage: nvidia-driver-libs\nArchitecture: amd64\nFilename: pool/non-free/n/nvidia/nvidia.deb\n",
+        );
+        assert!(debian_matches(
+            &metadata,
+            &Entry { source: "debian.contrib".into(), name: "lutris".into() }
+        ));
+        assert!(!debian_matches(
+            &metadata,
+            &Entry { source: "debian.main".into(), name: "lutris".into() }
+        ));
+        assert!(!debian_matches(
+            &metadata,
+            &Entry { source: "debian.non-free".into(), name: "nvidia-driver-libs:i386".into() }
+        ));
+        assert!(!debian_matches(
+            &metadata,
+            &Entry { source: "debian.main".into(), name: "missing".into() }
+        ));
+        let security = parse_debian_metadata(
+            "Package: firefox-esr\nArchitecture: amd64\nFilename: pool/updates/main/f/firefox-esr/firefox.deb\n",
+        );
+        assert!(debian_matches(
+            &security,
+            &Entry { source: "debian.main".into(), name: "firefox-esr".into() }
+        ));
+    }
     #[test]
     fn inventory_covers_sources_and_distro_boundaries() {
         for distro in Distro::ALL {

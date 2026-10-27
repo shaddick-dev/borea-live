@@ -1,0 +1,15 @@
+Debian disposable QEMU whole-drive boot; Secure Boot off
+Date: 2026-10-27 UTC
+The first install failed at update-grub because /boot/grub was absent.
+A diagnostic repair created that directory and regenerated GRUB.
+This is a repaired boot pass, not an uninterrupted full-install pass.
+Production now creates the directory before update-grub.
+
+BOREA_CONSOLE_READY
+BOREA_DISTRO_OK
+BOREA_USER_OK
+BOREA_LUKS_OK
+BOREA_NET_OK
+BOREA_SUDO_OK
+BOREA_VM_BOOT_OK
+BOREA_VM_TEST_PASSED boot

@@ -140,7 +140,8 @@ pub fn plan_drivers(hw: &Hardware, d: Distro) -> DriverPlan {
                     }
                     (Debian, NvDriver::Open) => {
                         p.add(base, &headers());
-                        p.add(r("debian.non-free"), &["nvidia-driver", "nvidia-open-kernel-dkms"]); // verify
+                        p.add(r("debian.non-free"), &["nvidia-driver"]);
+                        p.add(r("debian.contrib"), &["nvidia-open-kernel-dkms"]);
                         p.add(fw, &["firmware-misc-nonfree"]);
                         p.kernel_args.push("nvidia-drm.modeset=1");
                         p.mok |= hw.secure_boot;

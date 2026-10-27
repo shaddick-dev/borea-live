@@ -5,6 +5,10 @@
   "desktop": null,
   "packages": [
     {
+      "source": "debian.contrib",
+      "name": "nvidia-open-kernel-dkms"
+    },
+    {
       "source": "debian.main",
       "name": "btrfs-progs"
     },
@@ -127,10 +131,6 @@
     {
       "source": "debian.non-free",
       "name": "nvidia-driver"
-    },
-    {
-      "source": "debian.non-free",
-      "name": "nvidia-open-kernel-dkms"
     },
     {
       "source": "debian.non-free-firmware",

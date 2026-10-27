@@ -493,7 +493,7 @@ pub const APPS: &[App] = &[
         mb: 60,
         native: &[
             n(Arch, "lutris", AE),
-            n(Debian, "lutris", DM),
+            n(Debian, "lutris", DC),
             n(Fedora, "lutris", FF),
             n(OpenSuse, "lutris", OO),
         ],
