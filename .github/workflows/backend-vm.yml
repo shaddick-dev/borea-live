@@ -100,11 +100,11 @@ jobs:
         if: failure()
         run: |
           if [ -f vm-console.log ]; then
-            tail -n 60 vm-console.log | while IFS= read -r line; do
-              line=${line//%/%25}
-              line=${line//$'\r'/%0D}
-              echo "::error::$line"
-            done
+            failures=$(grep -E 'BOREA_TEST_ERROR|VM assertion failed|fatal error:|time limit' vm-console.log || tail -n 8 vm-console.log)
+            failures=${failures//%/%25}
+            failures=${failures//$'\r'/%0D}
+            failures=${failures//$'\n'/%0A}
+            echo "::error::$failures"
           fi
       - uses: actions/upload-artifact@v4
         if: always()

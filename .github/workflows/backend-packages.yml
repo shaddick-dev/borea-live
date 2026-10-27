@@ -56,11 +56,11 @@ jobs:
         run: |
           for log in package-audit-*.log; do
             if [ -f "$log" ]; then
-              tail -n 60 "$log" | while IFS= read -r line; do
-                line=${line//%/%25}
-                line=${line//$'\r'/%0D}
-                echo "::error::$line"
-              done
+              failures=$(grep '^FAIL ' "$log" || tail -n 8 "$log")
+              failures=${failures//%/%25}
+              failures=${failures//$'\r'/%0D}
+              failures=${failures//$'\n'/%0A}
+              echo "::error::$failures"
             fi
           done
       - uses: actions/upload-artifact@v4
