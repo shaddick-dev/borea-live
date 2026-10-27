@@ -1,5 +1,7 @@
 # Disposable UEFI installation tests
 
+The manual workflow's `rpm` selection tests Fedora and openSUSE together, sharing one binary build when only those adapters change.
+
 These tests never attach a host block device. The Rust guest binary refuses to run without its explicit QEMU firmware marker and a target with serial `BOREA-TEST-TARGET`. The runner attaches `/work/target.qcow2` (40 GiB sparse, or 100 GiB for alongside) and copied OVMF variables. Secure Boot installs also attach a read-only virtual FAT directory containing the signed live boot chain. Its public test password is a fixture, never a product default.
 
 Build `borea-vm-test` and `borea-vm-runner` from the backend workspace, and build `borea-firstboot` for `x86_64-unknown-linux-musl`. Stage that static helper alongside the native test binaries; a dynamically linked target helper is rejected. Build this directory's Dockerfile as `borea-vm-test:kernel`. Prepare a disposable bind-mounted work directory with marker file `.borea-test-workdir` containing `BOREA_TEST_WORK`, copies of `init` as `test-init` and `borea-dhcp`, and the public `dist/keys/*.gpg` under `keyrings/`.
