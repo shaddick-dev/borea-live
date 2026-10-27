@@ -1,0 +1,10 @@
+Native daemon/CLI Unix socket smoke test, disposable unprivileged Docker container
+Commit: 15f6f8b309c0d66efe0ec047056bcfbb74598f87
+Date: 2026-10-27 UTC
+PASS: daemon starts as root with the live borea user configured
+PASS: /run/borea mode 0750, root:borea
+PASS: installd.sock mode 0660, root:borea
+PASS: borea user reads initial install.events through the native CLI
+PASS: returned cursor=0, events=[], busy=false
+PASS: unrelated nobody user receives a nonzero access failure
+PASS: test daemon stopped on exit; no host disks were attached
