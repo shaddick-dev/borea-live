@@ -1018,6 +1018,12 @@ impl Session {
         a: &borea_backend::Artifact,
         emit: &mut impl FnMut(Event),
     ) -> Result<(), Hint> {
+        for tool in ["/usr/bin/gpgv", "/usr/bin/tar"] {
+            borea_platform::live_program(tool)?;
+        }
+        if !Path::new(&a.keyring).is_file() {
+            return Err(err("The live environment is missing the upstream verification keyring."));
+        }
         let dir = PathBuf::from(format!("/run/borea/tools/{}", self.job.plan.distro.key()));
         if dir.exists() {
             return Err(err(

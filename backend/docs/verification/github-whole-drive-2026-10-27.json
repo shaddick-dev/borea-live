@@ -1,0 +1,34 @@
+{
+  "commit": "66176de7a6e8f63df36f40ad2c689cc4365a31fc",
+  "run": "https://github.com/shaddick-dev/shaddick.dev/actions/runs/40447686807",
+  "jobs": [
+    {
+      "completed_at": "2026-10-27T04:18:32Z",
+      "conclusion": "failure",
+      "html_url": "https://github.com/shaddick-dev/shaddick.dev/actions/runs/40447686807/job/122002750979",
+      "name": "install (fedora, whole, 0)"
+    },
+    {
+      "completed_at": "2026-10-27T04:11:53Z",
+      "conclusion": "failure",
+      "html_url": "https://github.com/shaddick-dev/shaddick.dev/actions/runs/40447686807/job/122002751232",
+      "name": "install (arch, whole, 0)"
+    },
+    {
+      "completed_at": "2026-10-27T04:30:34Z",
+      "conclusion": "success",
+      "html_url": "https://github.com/shaddick-dev/shaddick.dev/actions/runs/40447686807/job/122002751238",
+      "name": "install (debian, whole, 0)"
+    },
+    {
+      "completed_at": "2026-10-27T04:25:25Z",
+      "conclusion": "failure",
+      "html_url": "https://github.com/shaddick-dev/shaddick.dev/actions/runs/40447686807/job/122002751572",
+      "name": "install (opensuse, whole, 0)"
+    }
+  ],
+  "notes": [
+    "Debian fresh install and subsequent boot passed; no repair mode used.",
+    "The other scenarios failed before the gpgv dependency was added to the live tools image; they are not passes."
+  ]
+}
