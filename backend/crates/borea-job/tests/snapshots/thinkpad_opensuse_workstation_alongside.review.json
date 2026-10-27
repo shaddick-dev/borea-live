@@ -94,6 +94,10 @@
     },
     {
       "source": "opensuse.oss",
+      "name": "shadow"
+    },
+    {
+      "source": "opensuse.oss",
       "name": "shim"
     },
     {

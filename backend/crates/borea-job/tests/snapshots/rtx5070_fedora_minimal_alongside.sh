@@ -53,6 +53,10 @@ chroot '/run/borea/tools/fedora' '/usr/bin/dnf' 'repoquery' '--available' '--que
 '/usr/sbin/blkid' '-s' 'UUID' '-o' 'value' '/dev/mapper/${MAPPER_NAME}'
 
 # Installing Fedora.
+# write target:/etc/kernel/install.conf mode 644
+# layout=bls
+# BOOT_ROOT=/boot
+#
 # write target:/etc/kernel/cmdline mode 644
 # rd.luks.name=${LUKS_UUID}=borea-root root=/dev/mapper/borea-root rootflags=subvol=root
 #
@@ -133,8 +137,9 @@ chroot /run/borea/target '/usr/bin/systemctl' 'set-default' 'multi-user.target'
 chroot /run/borea/target '/usr/bin/mkdir' '-p' '/boot/loader/entries' '/boot/grub2'
 # write target:/etc/kernel/install.conf mode 644
 # layout=bls
+# BOOT_ROOT=/boot
 #
-chroot /run/borea/target '/usr/bin/kernel-install' '--boot-path=/boot' '--esp-path=/boot/efi' 'add-all'
+chroot /run/borea/target '/usr/bin/kernel-install' 'add-all'
 chroot /run/borea/target '/usr/sbin/grubby' '--update-kernel=ALL' '--remove-args=root rootflags rd.luks.uuid rd.luks.name' '--args=rd.luks.name=${LUKS_UUID}=borea-root root=/dev/mapper/borea-root rootflags=subvol=root '
 chroot /run/borea/target '/usr/bin/grub2-editenv' '-' 'set' 'kernelopts=rd.luks.name=${LUKS_UUID}=borea-root root=/dev/mapper/borea-root rootflags=subvol=root '
 chroot /run/borea/target '/usr/bin/dracut' '--regenerate-all' '--force'

@@ -9,7 +9,8 @@
 //!   (AUR), Fedora → RPM Fusion `akmod-nvidia-580xx`, openSUSE → G06, Debian's 550 still covers them.
 //! * **Kepler and older**: no maintained NVIDIA driver; nouveau.
 //!
-//! Package names marked `// verify` were not confirmed against the live index when written.
+//! Native package names passed the 2026-10-27 upstream inventory audits.
+//! Hardware activation and signing evidence is tracked in backend/docs/VERIFIED.md.
 
 use crate::hardware::{AmdGen, Cpu, Family, Hardware, IntelGen, MuxMode, NvGen};
 use crate::source::{Distro, Source};
@@ -190,7 +191,7 @@ pub fn plan_drivers(hw: &Hardware, d: Distro) -> DriverPlan {
                                 "nvidia-gl-G06",
                                 "nvidia-compute-utils-G06",
                             ],
-                        ); // verify
+                        );
                         p.mok |= hw.secure_boot;
                     }
                     (_, NvDriver::Nouveau) => mesa = true,
@@ -288,7 +289,7 @@ pub fn plan_drivers(hw: &Hardware, d: Distro) -> DriverPlan {
                         } else {
                             p.add(base, &["i965-va-driver"]);
                         }
-                        p.add(fw, &["firmware-intel-graphics"]); // verify (split from firmware-misc-nonfree in 13)
+                        p.add(fw, &["firmware-intel-graphics"]); // Confirmed in Debian 13 non-free-firmware.
                     }
                     Fedora => p.add(
                         base,
@@ -296,7 +297,7 @@ pub fn plan_drivers(hw: &Hardware, d: Distro) -> DriverPlan {
                             "mesa-vulkan-drivers",
                             if va_new { "libva-intel-media-driver" } else { "libva-intel-driver" },
                         ],
-                    ), // verify
+                    ),
                     OpenSuse => p.add(
                         base,
                         &[
@@ -360,7 +361,7 @@ pub fn plan_drivers(hw: &Hardware, d: Distro) -> DriverPlan {
             p.services.extend(["tuned.service", "tuned-ppd.service"]);
         } else {
             p.services.push("power-profiles-daemon.service");
-        } // verify openSUSE default
+        } // Laptop service activation remains a hardware verification gate.
     }
 
     // ---- CPU, audio, wireless, fingerprint

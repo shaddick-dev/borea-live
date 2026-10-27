@@ -96,6 +96,7 @@ pub fn boot_packages(d: Distro) -> &'static [&'static str] {
             "kbd",
         ],
         Distro::OpenSuse => &[
+            "shadow",
             "kernel-default",
             "dracut",
             "cryptsetup",

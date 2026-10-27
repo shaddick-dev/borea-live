@@ -580,6 +580,12 @@ pub fn compile(
     if plan.distro != Distro::Debian {
         bootstrap_actions.insert(0, write("/etc/kernel/cmdline", cmdline.clone() + "\n", 0o644));
     }
+    if plan.distro == Distro::Fedora {
+        bootstrap_actions.insert(
+            0,
+            write("/etc/kernel/install.conf", "layout=bls\nBOOT_ROOT=/boot\n".into(), 0o644),
+        );
+    }
     // Bind pseudo-filesystems only after a target root exists.
     for (src, path, fs, options) in [
         ("proc", "/proc", Some("proc"), "nosuid,nodev,noexec"),
@@ -969,11 +975,12 @@ pub fn compile(
         Distro::Fedora => {
             boot.push(write("/etc/default/grub", format!("GRUB_DEFAULT=saved\nGRUB_TIMEOUT=4\nGRUB_ENABLE_BLSCFG=true\nGRUB_DISABLE_OS_PROBER=false\nGRUB_CMDLINE_LINUX=\"{cmdline}\"\n"), 0o644));
             boot.push(target("/usr/bin/mkdir", ["-p", "/boot/loader/entries", "/boot/grub2"]));
-            boot.push(write("/etc/kernel/install.conf", "layout=bls\n".into(), 0o644));
-            boot.push(target(
-                "/usr/bin/kernel-install",
-                ["--boot-path=/boot", "--esp-path=/boot/efi", "add-all"],
+            boot.push(write(
+                "/etc/kernel/install.conf",
+                "layout=bls\nBOOT_ROOT=/boot\n".into(),
+                0o644,
             ));
+            boot.push(target("/usr/bin/kernel-install", ["add-all"]));
             boot.push(target(
                 "/usr/sbin/grubby",
                 [
