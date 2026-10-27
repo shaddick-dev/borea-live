@@ -39,7 +39,7 @@ cargo run --release -p borea-build -- iso --jobs 4           # fewer parallel jo
 cargo run --release -p borea-flash                           # write the newest build to a USB stick
 ```
 
-No root needed. The first build compiles the toolchain, kernel, LLVM, Mesa, Rust, and the rest. It takes a few hours and about 30 GB. Later builds reuse everything unchanged. `borea-build iso` (Rust, `crates/borea-build`):
+No root needed. The first build downloads a prebuilt Bootlin compiler toolchain, then compiles the kernel, LLVM, Mesa, Borea's Rust, and the rest. It can take up to a few hours, depending on your machine, and about 30 GB. Later builds reuse everything unchanged, including Borea's compiled Rust dependencies (`target/live/output/borea-cargo`). `borea-build iso` (Rust, `crates/borea-build`):
 
 1. Downloads Buildroot 2026.08.1 and checks its SHA-256.
 2. Finds the host tools Buildroot needs. Any that are missing come from Nix for this build only, if Nix is installed; nothing is installed system-wide.
@@ -47,7 +47,7 @@ No root needed. The first build compiles the toolchain, kernel, LLVM, Mesa, Rust
 4. Links `target/live/hooks/post-build` and `post-image` to itself. Buildroot runs those as its hooks, and `borea-build` acts on the name it was started as.
 5. Gives the build a random ID, which the early boot uses to find its own medium.
 6. Configures Buildroot, and **fails if Buildroot dropped any option**.
-7. Builds, with one parallel job per CPU but no more than one per 2 GB of memory, since LLVM's larger files take 1–2 GB each to compile (`--jobs N` overrides this). The post-image hook writes the early boot image itself (a gzip `newc` cpio of `borea-init` and the libraries it needs, read from their ELF headers), lays out the ISO, runs xorriso, and installs Limine's BIOS stage.
+7. Builds several independent packages at once (Buildroot's per-package directories and top-level `make -j`), with one job per CPU but no more than one per 2 GB of memory, since LLVM's larger files take 1–2 GB each to compile, and a load-average cap so overlapping packages don't oversubscribe the machine (`--jobs N` overrides the job count; `--jobs 1` builds one thing at a time). When the toolchain or this layout changes, it starts one clean build by itself; downloads and ccache are kept. The post-image hook writes the early boot image itself (a gzip `newc` cpio of `borea-init` and the libraries it needs, read from their ELF headers), lays out the ISO, runs xorriso, and installs Limine's BIOS stage.
 
 Try it in a VM: `qemu-system-x86_64 -enable-kvm -m 4G -cdrom target/live/out/borea-live-*.iso` (add `-bios /usr/share/edk2/x64/OVMF.4m.fd` for UEFI).
 

@@ -19,19 +19,30 @@ BOREA_CARGO_BUILD_OPTS = \
 	-p borea-cli --bin borea-cli \
 	-p borea-init --bin borea-init
 
+# borea-build wipes this package before every ISO build so it picks up new
+# sources, but the compiled Rust lives outside the package directory, so the
+# ~400 unchanged dependency crates are reused instead of compiled again.
+# Delete $(BASE_DIR)/borea-cargo to force a clean Rust build.
+BOREA_CARGO_TARGET = $(BASE_DIR)/borea-cargo
+# Thin link-time optimisation: much faster to link than the workspace's full
+# LTO, for an installer whose speed is set by downloads and disks.
+BOREA_CARGO_ENV = \
+	CARGO_TARGET_DIR=$(BOREA_CARGO_TARGET)/main \
+	CARGO_PROFILE_RELEASE_LTO=thin
+
 define BOREA_INSTALL_TARGET_CMDS
 	for bin in borea-live borea borea-flash borea-installd borea-cli; do \
-		$(INSTALL) -D -m 0755 $(@D)/target/$(RUSTC_TARGET_NAME)/release/$$bin $(TARGET_DIR)/usr/bin/$$bin || exit 1; \
+		$(INSTALL) -D -m 0755 $(BOREA_CARGO_TARGET)/main/$(RUSTC_TARGET_NAME)/release/$$bin $(TARGET_DIR)/usr/bin/$$bin || exit 1; \
 	done
 	# The early boot's /init; the post-image hook copies it into the initramfs.
-	$(INSTALL) -D -m 0755 $(@D)/target/$(RUSTC_TARGET_NAME)/release/borea-init \
+	$(INSTALL) -D -m 0755 $(BOREA_CARGO_TARGET)/main/$(RUSTC_TARGET_NAME)/release/borea-init \
 		$(TARGET_DIR)/usr/lib/borea/borea-init
 	# Pinned upstream signing keyrings (provenance: backend/dist/keys/PROVENANCE.md).
 	for key in arch fedora opensuse; do \
 		$(INSTALL) -D -m 0644 $(@D)/backend/dist/keys/$$key.gpg \
 			$(TARGET_DIR)/usr/share/keyrings/borea/$$key.gpg || exit 1; \
 	done
-	$(INSTALL) -D -m 0755 $(@D)/target-static/$(RUSTC_TARGET_NAME)/release/borea-firstboot \
+	$(INSTALL) -D -m 0755 $(BOREA_CARGO_TARGET)/static/$(RUSTC_TARGET_NAME)/release/borea-firstboot \
 		$(TARGET_DIR)/usr/bin/borea-firstboot
 endef
 
@@ -42,7 +53,7 @@ define BOREA_BUILD_STATIC_HELPER
 	cd $(@D) && $(TARGET_MAKE_ENV) $(PKG_CARGO_ENV) $(BOREA_CARGO_ENV) \
 		RUSTFLAGS="-C target-feature=+crt-static" \
 		$(HOST_DIR)/bin/cargo build --offline --locked --release \
-		--target $(RUSTC_TARGET_NAME) --target-dir $(@D)/target-static \
+		--target $(RUSTC_TARGET_NAME) --target-dir $(BOREA_CARGO_TARGET)/static \
 		-p borea-exec --bin borea-firstboot
 endef
 BOREA_POST_BUILD_HOOKS += BOREA_BUILD_STATIC_HELPER
