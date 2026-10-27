@@ -16,9 +16,10 @@ set -euo pipefail
 '/usr/bin/umoci' 'unpack' '--image' '/run/borea/tools/opensuse.oci:borea' '/run/borea/tools/opensuse.bundle'
 # For container archives move the verified bundle/rootfs into the tool root. Mount proc, sys and dev there; native tooling must exist. Temporary session CA trust is copied into /run.
 # Check live utilities and the static x86-64 target helper before disk changes.
+chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--gpg-auto-import-keys' '--non-interactive' 'refresh'
 chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--non-interactive' 'install' 'openSUSE-repos-NVIDIA'
 chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--non-interactive' 'refresh'
-chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--non-interactive' 'info' '--type' 'package' 'nvidia-compute-utils-G07' 'nvidia-gl-G07' 'nvidia-video-G07' 'Mesa-dri' 'NetworkManager' 'btrfsprogs' 'chrony' 'cockpit' 'cryptsetup' 'dracut' 'fail2ban' 'firewalld' 'glibc-locale' 'intel-media-driver' 'kbd' 'kernel-default' 'kernel-firmware-all' 'libvulkan_intel' 'nano' 'nvidia-open-driver-G07-signed-kmp-meta' 'openssh-server' 'power-profiles-daemon' 'rsync' 'sdbootutil' 'shim' 'snapper' 'sof-firmware' 'sudo' 'switcheroo-control' 'systemd' 'systemd-boot' 'tmux' 'ucode-intel' 'zram-generator'
+chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--non-interactive' 'install' '--dry-run' '--auto-agree-with-licenses' 'nvidia-compute-utils-G07' 'nvidia-gl-G07' 'nvidia-video-G07' 'Mesa-dri' 'NetworkManager' 'btrfsprogs' 'chrony' 'cockpit' 'cryptsetup' 'dracut' 'fail2ban' 'firewalld' 'glibc-locale' 'intel-media-driver' 'kbd' 'kernel-default' 'kernel-firmware-all' 'libvulkan_intel' 'nano' 'nvidia-open-driver-G07-signed-kmp-meta' 'openssh-server' 'power-profiles-daemon' 'rsync' 'sdbootutil' 'shim' 'snapper' 'sof-firmware' 'sudo' 'switcheroo-control' 'systemd' 'systemd-boot' 'tmux' 'ucode-intel' 'zram-generator'
 
 # Clearing the drive.
 '/usr/sbin/sgdisk' '--zap-all' '/dev/vda'

@@ -35,3 +35,4 @@
 - Arch preparation resolves against an empty local package database with the signed sync indexes. Fedora finishing explicitly creates BLS entries and the signed-GRUB UUID redirect; its kernel command line precedes package scriptlets.
 
 - NVIDIA’s sanctioned Tumbleweed repo also pins its upstream repomd signing key before Review, using the same digest/import path as Packman. Tool-root base refresh may import only keys referenced by the authenticated native root’s repo definitions. External repository keys are imported from their approved digests before refresh; missing key access blocks before disk writes.
+- Tumbleweed preflight resolves the selected native set with Zypper install --dry-run before partitioning, so native capabilities such as versioned Python providers are accepted and dependency conflicts are caught. The catalog audit separately accepts exact native package providers and refuses header-only/no-match output.

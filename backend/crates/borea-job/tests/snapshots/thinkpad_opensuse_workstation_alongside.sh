@@ -16,8 +16,9 @@ set -euo pipefail
 '/usr/bin/umoci' 'unpack' '--image' '/run/borea/tools/opensuse.oci:borea' '/run/borea/tools/opensuse.bundle'
 # For container archives move the verified bundle/rootfs into the tool root. Mount proc, sys and dev there; native tooling must exist. Temporary session CA trust is copied into /run.
 # Check live utilities and the static x86-64 target helper before disk changes.
+chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--gpg-auto-import-keys' '--non-interactive' 'refresh'
 chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--non-interactive' 'refresh'
-chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--non-interactive' 'info' '--type' 'package' 'Mesa-dri' 'NetworkManager' 'bluez' 'btrfsprogs' 'cryptsetup' 'cups' 'dracut' 'firewalld' 'fprintd' 'fprintd-pam' 'glibc-locale' 'intel-media-driver' 'kbd' 'kernel-default' 'kernel-firmware-all' 'libvulkan_intel' 'nano' 'patterns-kde-kde_plasma' 'pipewire' 'power-profiles-daemon' 'sdbootutil' 'sddm' 'shim' 'snapper' 'sof-firmware' 'sudo' 'systemd' 'systemd-boot' 'ucode-intel' 'zram-generator'
+chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--non-interactive' 'install' '--dry-run' '--auto-agree-with-licenses' 'Mesa-dri' 'NetworkManager' 'bluez' 'btrfsprogs' 'cryptsetup' 'cups' 'dracut' 'firewalld' 'fprintd' 'fprintd-pam' 'glibc-locale' 'intel-media-driver' 'kbd' 'kernel-default' 'kernel-firmware-all' 'libvulkan_intel' 'nano' 'patterns-kde-kde_plasma' 'pipewire' 'power-profiles-daemon' 'sdbootutil' 'sddm' 'shim' 'snapper' 'sof-firmware' 'sudo' 'systemd' 'systemd-boot' 'ucode-intel' 'zram-generator'
 
 # Making space.
 '/usr/sbin/ntfsresize' '--no-progress-bar' '--force' '--size' '48318382080' '/dev/vda3'

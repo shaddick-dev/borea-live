@@ -1381,9 +1381,9 @@ impl Session {
                     "/usr/bin/zypper",
                     vec![
                         "--non-interactive".into(),
-                        "info".into(),
-                        "--type".into(),
-                        "package".into(),
+                        "install".into(),
+                        "--dry-run".into(),
+                        "--auto-agree-with-licenses".into(),
                     ]
                     .into_iter()
                     .chain(packages)

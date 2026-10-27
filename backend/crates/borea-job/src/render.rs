@@ -273,6 +273,13 @@ pub(crate) fn helper(job: &Job, action: &Action, out: &mut String) {
                     }
                 }
                 D::OpenSuse => {
+                    command(
+                        out,
+                        job,
+                        Root::Tools,
+                        "/usr/bin/zypper",
+                        args(&["--gpg-auto-import-keys", "--non-interactive", "refresh"]),
+                    );
                     if job.review.packages.iter().any(|p| p.source == "opensuse.nvidia") {
                         command(
                             out,
@@ -313,16 +320,21 @@ pub(crate) fn helper(job: &Job, action: &Action, out: &mut String) {
                         job,
                         Root::Tools,
                         "/usr/bin/zypper",
-                        args(&["--non-interactive", "info", "--type", "package"])
-                            .into_iter()
-                            .chain(
-                                job.review
-                                    .packages
-                                    .iter()
-                                    .filter(|p| p.source.contains('.'))
-                                    .map(|p| p.name.clone()),
-                            )
-                            .collect(),
+                        args(&[
+                            "--non-interactive",
+                            "install",
+                            "--dry-run",
+                            "--auto-agree-with-licenses",
+                        ])
+                        .into_iter()
+                        .chain(
+                            job.review
+                                .packages
+                                .iter()
+                                .filter(|p| p.source.contains('.'))
+                                .map(|p| p.name.clone()),
+                        )
+                        .collect(),
                     );
                 }
                 D::Debian => {}

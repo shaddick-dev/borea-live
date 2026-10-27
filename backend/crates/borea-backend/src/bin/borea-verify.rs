@@ -134,6 +134,9 @@ fn debian_matches(metadata: &DebianMetadata, entry: &Entry) -> bool {
     metadata.contains(&(name.into(), arch.into(), component.into()))
         || metadata.contains(&(name.into(), "all".into(), component.into()))
 }
+fn zypper_has_package_row(text: &str) -> bool {
+    text.lines().any(|line| line.split('|').nth(2).is_some_and(|kind| kind.trim() == "package"))
+}
 fn query(distro: Distro, entry: &Entry, debian: Option<&DebianMetadata>) -> Result<(), Hint> {
     if !entry.source.contains('.') {
         return Ok(());
@@ -178,6 +181,27 @@ fn query(distro: Distro, entry: &Entry, debian: Option<&DebianMetadata>) -> Resu
             .output()
             .map_err(|e| hint("verify", e.to_string()))?;
         if group.status.success() && !group.stdout.is_empty() {
+            return Ok(());
+        }
+    }
+    if distro == Distro::OpenSuse && !output.status.success() {
+        // Tumbleweed's versioned Python packages and QEMU packages expose
+        // native capabilities; `info --type package` only checks exact names.
+        let providers = Command::new("/usr/bin/zypper")
+            .args([
+                "--non-interactive",
+                "search",
+                "--details",
+                "--match-exact",
+                "--provides",
+                &entry.name,
+            ])
+            .env("LC_ALL", "C")
+            .output()
+            .map_err(|e| hint("verify", e.to_string()))?;
+        if providers.status.success()
+            && zypper_has_package_row(&String::from_utf8_lossy(&providers.stdout))
+        {
             return Ok(());
         }
     }
@@ -298,6 +322,16 @@ fn main() -> std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn zypper_provider_audit_requires_a_real_package_row() {
+        assert!(!zypper_has_package_row(
+            "S | Name | Type | Version | Arch | Repository\nNo matching items found.\n"
+        ));
+        assert!(zypper_has_package_row(
+            "S | Name | Type | Version | Arch | Repository\n  | python313 | package | 3.13.9 | x86_64 | repo-oss\n"
+        ));
+        assert!(!zypper_has_package_row("  | desktop | pattern | 1 | x86_64 | repo-oss\n"));
+    }
     #[test]
     fn debian_audit_requires_the_actual_component_and_architecture() {
         let metadata = parse_debian_metadata(
