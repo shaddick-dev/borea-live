@@ -240,7 +240,15 @@ fn run() -> Result<(), String> {
         if start.elapsed() > Duration::from_secs(if boot { 1800 } else { 14400 }) {
             let _ = child.kill();
             let _ = child.wait();
-            return Err("The VM exceeded the test time limit.".into());
+            for line in buffer.lines().rev().take(20).collect::<Vec<_>>().into_iter().rev() {
+                println!(
+                    "BOREA_CONSOLE_TAIL {}",
+                    line.replace("borea-disposable-vm-ONLY", "[TEST CREDENTIAL REDACTED]")
+                );
+            }
+            return Err(format!(
+                "The VM exceeded the test time limit (mode={mode}, console_stage={stage}, unlocked={luks}, network={net}, sudo={sudo})."
+            ));
         }
         match rx.recv_timeout(Duration::from_secs(1)) {
             Ok(text) => {

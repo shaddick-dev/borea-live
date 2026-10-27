@@ -809,6 +809,7 @@ pub fn compile(
         ));
     }
     let admin = borea_backend::admin_group(plan.distro);
+    config.push(target("/usr/sbin/groupadd", ["--system", "--force", admin]));
     config.push(target(
         "/usr/sbin/useradd",
         [

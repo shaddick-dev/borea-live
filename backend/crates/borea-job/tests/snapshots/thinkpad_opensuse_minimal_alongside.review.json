@@ -98,7 +98,15 @@
     },
     {
       "source": "opensuse.oss",
+      "name": "systemd-sysvinit"
+    },
+    {
+      "source": "opensuse.oss",
       "name": "ucode-intel"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "util-linux-systemd"
     },
     {
       "source": "opensuse.oss",

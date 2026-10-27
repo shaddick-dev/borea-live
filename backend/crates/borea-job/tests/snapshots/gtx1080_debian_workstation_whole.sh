@@ -126,6 +126,7 @@ chroot /run/borea/target '/usr/bin/setupcon' '--save-only'
 # en_GB.UTF-8 UTF-8
 #
 chroot /run/borea/target '/usr/bin/locale-gen'
+chroot /run/borea/target '/usr/sbin/groupadd' '--system' '--force' 'sudo'
 chroot /run/borea/target '/usr/sbin/useradd' '--create-home' '--user-group' '--shell' '/bin/bash' '--groups' 'sudo' '--comment' 'Test User' 'tester'
 # stdin: <redacted secret>
 chroot /run/borea/target '/usr/sbin/chpasswd'

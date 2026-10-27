@@ -127,6 +127,7 @@ chroot /run/borea/target '/usr/bin/ln' '-sf' '/usr/share/zoneinfo/Europe/London'
 # en_GB.UTF-8 UTF-8
 #
 chroot /run/borea/target '/usr/bin/locale-gen'
+chroot /run/borea/target '/usr/sbin/groupadd' '--system' '--force' 'wheel'
 chroot /run/borea/target '/usr/sbin/useradd' '--create-home' '--user-group' '--shell' '/bin/bash' '--groups' 'wheel' '--comment' 'Test User' 'tester'
 # stdin: <redacted secret>
 chroot /run/borea/target '/usr/sbin/chpasswd'

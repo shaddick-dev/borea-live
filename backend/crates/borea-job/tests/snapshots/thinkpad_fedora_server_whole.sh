@@ -104,6 +104,7 @@ chroot /run/borea/target '/usr/bin/ln' '-sf' '/usr/share/zoneinfo/Europe/London'
 # write target:/etc/ssh/sshd_config.d/90-borea-root.conf mode 644
 # PermitRootLogin no
 #
+chroot /run/borea/target '/usr/sbin/groupadd' '--system' '--force' 'wheel'
 chroot /run/borea/target '/usr/sbin/useradd' '--create-home' '--user-group' '--shell' '/bin/bash' '--groups' 'wheel' '--comment' 'Test User' 'tester'
 # stdin: <redacted secret>
 chroot /run/borea/target '/usr/sbin/chpasswd'
