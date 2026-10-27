@@ -44,6 +44,23 @@ jobs:
       - run: cargo clippy --locked --all-targets $BACKEND -- -D warnings
       - run: cargo test --locked $BACKEND
 
+  static-app:
+    name: borea-rataTUI static build (what releases ship)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+      - run: |
+          cargo build --locked --release -p borea-flash --bin borea-rataTUI --target x86_64-unknown-linux-musl
+          bin=target/x86_64-unknown-linux-musl/release/borea-rataTUI
+          ! readelf -l "$bin" | grep -q INTERP
+          "$bin" --help >/dev/null
+          ls -la "$bin"
+
   dependencies:
     name: advisories and sources (cargo-deny)
     runs-on: ubuntu-24.04

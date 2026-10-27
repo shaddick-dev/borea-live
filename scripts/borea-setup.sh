@@ -4,16 +4,20 @@
 #   curl -fsSL https://raw.githubusercontent.com/shaddick-dev/borea-live/main/scripts/borea-setup.sh -o borea-setup.sh
 #   bash borea-setup.sh
 #
-# 1. Installs the system packages for your distribution (asks once, then uses sudo).
-# 2. Installs Rust with rustup, in your home folder, or updates it.
-# 3. Clones Borea Live to ~/borea-live, or fast-forwards an existing clone.
-# 4. Installs borea-rataTUI, the Ratatui USB writer, and its app launcher.
-# 5. Starts the helper: it builds the ISO when needed, then writes your USB stick.
+# Downloads the ready-made borea-rataTUI from the latest release (a static
+# program that runs on any x86-64 distribution), checks its SHA-256, installs it
+# into ~/.local/bin with an app launcher, and starts it. No packages, no Rust, no
+# sudo. borea-rataTUI then downloads Borea Live itself and writes your USB stick.
+#
+# With --from-source (or when no release has been published yet) it builds
+# instead: installs your distribution's packages (asks once, uses sudo), Rust
+# with rustup, clones Borea Live to ~/borea-live, and builds borea-rataTUI.
 #
 # Options:
-#   --flash-only   skip the ISO build packages (you already have an ISO)
-#   --no-run       set everything up, but don't start the helper
-#   --dir PATH     where to keep the checkout (default: ~/borea-live)
+#   --from-source  build borea-rataTUI from source instead of downloading it
+#   --flash-only   with --from-source: skip the packages for building the ISO
+#   --no-run       set everything up, but don't start borea-rataTUI
+#   --dir PATH     with --from-source: where to keep the checkout (~/borea-live)
 #   --yes          don't ask before installing packages
 #   --dry-run      print what would run, change nothing
 #
@@ -25,6 +29,7 @@ set -euo pipefail
 REPO_URL="https://github.com/shaddick-dev/borea-live"
 DIR="${HOME}/borea-live"
 FLASH_ONLY=0
+FROM_SOURCE=0
 RUN=1
 YES=0
 DRY=0
@@ -45,6 +50,7 @@ run() {
 while [ $# -gt 0 ]; do
     case "$1" in
     --flash-only) FLASH_ONLY=1 ;;
+    --from-source) FROM_SOURCE=1 ;;
     --no-run) RUN=0 ;;
     --yes | -y) YES=1 ;;
     --dry-run) DRY=1 ;;
@@ -55,11 +61,15 @@ while [ $# -gt 0 ]; do
         ;;
     -h | --help)
         cat <<'USAGE'
-Borea setup: install everything borea-rataTUI needs, then start it.
+Borea setup: install borea-rataTUI, then start it.
 
-  --flash-only   skip the ISO build packages (you already have an ISO)
-  --no-run       set everything up, but don't start the helper
-  --dir PATH     where to keep the checkout (default: ~/borea-live)
+By default it downloads the ready-made borea-rataTUI from the latest release:
+no packages, no Rust, no sudo.
+
+  --from-source  build borea-rataTUI from source instead of downloading it
+  --flash-only   with --from-source: skip the packages for building the ISO
+  --no-run       set everything up, but don't start borea-rataTUI
+  --dir PATH     with --from-source: where to keep the checkout (~/borea-live)
   --yes          don't ask before installing packages
   --dry-run      print what would run, change nothing
 USAGE
@@ -83,6 +93,50 @@ ask() {
 }
 
 [ "$(id -u)" -ne 0 ] || die "run this as your normal user, not root: it uses sudo only for packages, and the ISO build refuses root"
+
+RELEASES="${BOREA_RELEASES_URL:-https://github.com/shaddick-dev/borea-live/releases/latest/download}"
+helper="${XDG_BIN_HOME:-$HOME/.local/bin}/borea-rataTUI"
+
+# borea-rataTUI --install already says if ~/.local/bin isn't on your PATH.
+finish() {
+    say "Done. Open \"borea-rataTUI\" from your app launcher, or run: $helper"
+    if [ "$RUN" -eq 1 ]; then
+        say "Starting borea-rataTUI: it downloads the latest Borea Live, then writes your USB stick"
+        [ "$DRY" -eq 1 ] || exec "$helper"
+    fi
+    exit 0
+}
+
+# ── The quick way: the ready-made program ─────────────────────────────────────
+# Returns non-zero when there is nothing to download, so the build path runs.
+install_ready_made() {
+    local name=borea-rataTUI-x86_64-linux tmp
+    [ "$(uname -m)" = x86_64 ] || { warn "no ready-made borea-rataTUI for $(uname -m)"; return 1; }
+    command -v curl >/dev/null || { warn "curl is needed to download borea-rataTUI"; return 1; }
+    say "Downloading borea-rataTUI from the latest release"
+    if [ "$DRY" -eq 1 ]; then
+        printf '    $ curl %s/%s (+ .sha256), check it, then: %s --install\n' "$RELEASES" "$name" "$name"
+        return 0
+    fi
+    tmp="$(mktemp -d)"
+    if ! curl -fsL "$RELEASES/$name.sha256" -o "$tmp/$name.sha256"; then
+        rm -rf "$tmp"
+        warn "no ready-made borea-rataTUI has been published yet"
+        return 1
+    fi
+    curl -fL --progress-bar "$RELEASES/$name" -o "$tmp/$name" || { rm -rf "$tmp"; die "the download failed; run this again to retry"; }
+    (cd "$tmp" && sha256sum --quiet -c "$name.sha256") || { rm -rf "$tmp"; die "the download doesn't match its published SHA-256"; }
+    chmod 755 "$tmp/$name"
+    # It installs itself (borea-rataTUI and its older names) and its app launcher.
+    "$tmp/$name" --install
+    rm -rf "$tmp"
+}
+
+if [ "$FROM_SOURCE" -eq 0 ]; then
+    install_ready_made && finish
+    say "Building borea-rataTUI from source instead"
+fi
+
 [ -r "$OS_RELEASE" ] || die "can't read $OS_RELEASE to tell which distribution this is"
 
 # ── 1. Which distribution ─────────────────────────────────────────────────────
@@ -188,20 +242,4 @@ fi
 say "Building and installing borea-rataTUI (a few minutes the first time)"
 run cargo run --release --locked --manifest-path "$DIR/Cargo.toml" -p borea-flash -- --install
 
-helper="${XDG_BIN_HOME:-$HOME/.local/bin}/borea-rataTUI"
-case ":$PATH:" in
-*":$(dirname "$helper"):"*) ;;
-*) warn "$(dirname "$helper") isn't on your PATH; add this to ~/.profile: export PATH=\"$(dirname "$helper"):\$PATH\"" ;;
-esac
-
-say "Done. Open \"borea-rataTUI\" from your app launcher, or run: $helper"
-if [ "$RUN" -eq 1 ]; then
-    if [ "$FLASH_ONLY" -eq 1 ]; then
-        # borea-flash writes the newest borea-live*.iso it finds, never building one.
-        say "Starting the writer: it uses the newest ISO in $DIR/target/live/out, this folder, or ~/Downloads"
-        [ "$DRY" -eq 1 ] || exec "$(dirname "$helper")/borea-flash"
-    else
-        say "Starting the helper: it builds Borea Live if needed (the first build can take up to a few hours, depending on your machine), then writes your USB stick"
-        [ "$DRY" -eq 1 ] || exec "$helper"
-    fi
-fi
+finish

@@ -1,0 +1,98 @@
+name: Release
+# Publishing a GitHub release (gh release create, or scripts/publish-release.sh)
+# attaches what users download instead of building:
+#   borea-rataTUI-x86_64-linux   the USB writer, static, runs on any distribution
+#   borea-live-x86_64.iso        Borea Live, built here unless the release already has one
+# each with a .sha256 beside it. borea-rataTUI and scripts/borea-setup.sh fetch them
+# from releases/latest/download/.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to attach to (it must already exist)
+        required: true
+permissions:
+  contents: write
+env:
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+  GH_TOKEN: ${{ github.token }}
+jobs:
+  app:
+    name: borea-rataTUI (static x86-64)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+      - name: Build
+        run: |
+          cargo build --locked --release -p borea-flash --bin borea-rataTUI \
+            --target x86_64-unknown-linux-musl
+          mkdir dist
+          cp target/x86_64-unknown-linux-musl/release/borea-rataTUI dist/borea-rataTUI-x86_64-linux
+          # Static: no dynamic loader, so it runs on any distribution.
+          ! readelf -l dist/borea-rataTUI-x86_64-linux | grep -q INTERP
+          dist/borea-rataTUI-x86_64-linux --help >/dev/null
+          (cd dist && sha256sum borea-rataTUI-x86_64-linux > borea-rataTUI-x86_64-linux.sha256)
+      - run: gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+
+  iso:
+    name: Borea Live ISO
+    runs-on: ubuntu-24.04
+    # GitHub's limit for one job. A first build on 4 cores is close to it; a
+    # locally built ISO can be attached with scripts/publish-release.sh instead.
+    timeout-minutes: 360
+    steps:
+      - name: Skip if the release already has an ISO
+        id: existing
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+               --jq '.assets[].name' | grep -qx borea-live-x86_64.iso; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.existing.outputs.skip != 'true'
+        with:
+          ref: ${{ env.TAG }}
+      - name: Make room
+        if: steps.existing.outputs.skip != 'true'
+        # The build needs about 30 GB; the runner image ships with less free.
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL \
+            /usr/local/share/boost /usr/local/.ghcup
+          df -h /
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.existing.outputs.skip != 'true'
+      - name: Host tools
+        if: steps.existing.outputs.skip != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential patch perl python3 \
+            rsync cpio unzip bc wget file tar xz-utils bzip2 curl bison flex
+      - uses: actions/cache@v4
+        if: steps.existing.outputs.skip != 'true'
+        with:
+          # Downloads and ccache make later release builds much shorter.
+          path: |
+            target/live/dl
+            target/live/ccache
+          key: borea-live-${{ hashFiles('live/**', 'Cargo.lock') }}
+          restore-keys: borea-live-
+      - name: Build
+        if: steps.existing.outputs.skip != 'true'
+        run: cargo run --locked --release -p borea-build -- iso
+      - name: Attach
+        if: steps.existing.outputs.skip != 'true'
+        run: |
+          mkdir dist
+          iso=$(ls -t target/live/out/borea-live-*.iso | head -n1)
+          cp "$iso" dist/borea-live-x86_64.iso
+          (cd dist && sha256sum borea-live-x86_64.iso > borea-live-x86_64.iso.sha256)
+          gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
