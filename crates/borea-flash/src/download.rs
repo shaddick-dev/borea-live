@@ -59,9 +59,7 @@ fn agent() -> ureq::Agent {
 
 fn describe(error: ureq::Error) -> String {
     match error {
-        ureq::Error::StatusCode(404) => {
-            "No Borea Live release has been published yet. Build one from source with `borea-rataTUI --build` (takes hours).".into()
-        }
+        ureq::Error::StatusCode(404) => "No Borea Live release has been published yet.".into(),
         ureq::Error::StatusCode(code) => format!("the release server answered HTTP {code}"),
         ureq::Error::Io(e) => format!("the download was interrupted: {e}"),
         other => format!("could not reach the release server: {other}"),
@@ -256,6 +254,8 @@ pub fn fetch(
 pub enum DownloadRequest {
     Stop,
     Retry,
+    /// Build the image from this checkout instead.
+    Build,
     Quit,
 }
 
@@ -264,6 +264,8 @@ pub struct DownloadView {
     step: Option<Step>,
     failed: Option<String>,
     stop_asked: bool,
+    /// Running from a checkout, so a failed download can turn into a build.
+    can_build: bool,
 }
 
 impl Default for DownloadView {
@@ -274,7 +276,19 @@ impl Default for DownloadView {
 
 impl DownloadView {
     pub fn new() -> Self {
-        DownloadView { started: Instant::now(), step: None, failed: None, stop_asked: false }
+        DownloadView {
+            started: Instant::now(),
+            step: None,
+            failed: None,
+            stop_asked: false,
+            can_build: false,
+        }
+    }
+
+    /// Offer building from this checkout when the download fails.
+    pub fn offer_build(mut self, can_build: bool) -> Self {
+        self.can_build = can_build;
+        self
     }
 
     pub fn step(&mut self, step: Step) {
@@ -301,6 +315,7 @@ impl DownloadView {
                     self.started = Instant::now();
                     Some(DownloadRequest::Retry)
                 }
+                KeyCode::Char('b') if self.can_build => Some(DownloadRequest::Build),
                 KeyCode::Char('q') | KeyCode::Esc => Some(DownloadRequest::Quit),
                 _ if ctrl_c => Some(DownloadRequest::Quit),
                 _ => None,
@@ -370,12 +385,20 @@ impl DownloadView {
                 Line::from(spans)
             }
         };
-        let note = Line::from(Span::styled(
-            "The ready-made image from the latest release, checked against its published SHA-256 and kept for next time.",
-            SUB,
-        ));
+        let note = match &self.failed {
+            None => {
+                "The ready-made image from the latest release, checked against its published SHA-256 and kept for next time."
+            }
+            Some(_) if self.can_build => {
+                "You can build it from this checkout instead. That compiles a whole Linux system: an hour or more."
+            }
+            Some(_) => {
+                "To build it yourself instead, run borea-rataTUI --build inside a Borea checkout (an hour or more)."
+            }
+        };
         frame.render_widget(
-            Paragraph::new(vec![status_line, note]).wrap(Wrap { trim: true }),
+            Paragraph::new(vec![status_line, Line::from(Span::styled(note, SUB))])
+                .wrap(Wrap { trim: true }),
             status,
         );
 
@@ -394,6 +417,9 @@ impl DownloadView {
         }
 
         let footer = match (&self.failed, self.stop_asked) {
+            (Some(_), _) if self.can_build => {
+                vec![Line::from(Span::styled("b build it here · r try again · q quit", SUB))]
+            }
             (Some(_), _) => vec![Line::from(Span::styled("r try again · q quit", SUB))],
             (None, true) => vec![
                 Line::from(Span::styled(
@@ -584,4 +610,16 @@ pub(crate) mod tests {
     }
 
     pub(crate) static TEST_URL: Mutex<Option<String>> = Mutex::new(None);
+
+    #[test]
+    fn a_failed_download_offers_a_build_only_from_a_checkout() {
+        let b = KeyEvent::from(KeyCode::Char('b'));
+        let mut view = DownloadView::new();
+        view.failed("No Borea Live release has been published yet.".into());
+        assert_eq!(view.key(b), None);
+        let mut view = DownloadView::new().offer_build(true);
+        assert_eq!(view.key(b), None, "only once the download has failed");
+        view.failed("No Borea Live release has been published yet.".into());
+        assert_eq!(view.key(b), Some(DownloadRequest::Build));
+    }
 }
