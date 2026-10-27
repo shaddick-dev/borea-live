@@ -71,11 +71,29 @@ enum Stage {
     Writing(Box<App>),
 }
 
+/// Set by the app launcher: keep the terminal open after a failure, so the reason
+/// can be read before the launcher's window closes.
+static WAIT_ON_ERROR: AtomicBool = AtomicBool::new(false);
+const WAIT_FLAG: &str = "--wait-on-error";
+
 pub(crate) fn main() -> ExitCode {
+    let code = start();
+    if code != ExitCode::SUCCESS && WAIT_ON_ERROR.load(Ordering::Relaxed) {
+        eprint!("\nPress Enter to close this window.");
+        let _ = std::io::stdin().read_line(&mut String::new());
+    }
+    code
+}
+
+fn start() -> ExitCode {
     let helper = std::env::args_os()
         .next()
         .is_some_and(|p| Path::new(&p).file_stem().is_some_and(|s| s == "borea-helper"));
-    let args = arguments(std::env::args().skip(1).collect(), helper);
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    if take_wait_flag(&mut args) {
+        WAIT_ON_ERROR.store(true, Ordering::Relaxed);
+    }
+    let args = arguments(args, helper);
     let list_only = args.iter().any(|a| a == "--list");
     if args.iter().any(|a| a == "-h" || a == "--help") {
         say!("Write the Borea Live ISO to a USB stick, then verify it byte for byte.\n\n{USAGE}");
@@ -145,6 +163,14 @@ pub(crate) fn main() -> ExitCode {
 
     let app = writing_with(image, targets, repo.as_deref());
     report(run(Stage::Writing(Box::new(app)), repo, host).map_err(|e| e.to_string()))
+}
+
+/// Remove the launcher's flag, saying whether it was there. It never changes
+/// what the command does, so the helper's own default still applies.
+fn take_wait_flag(args: &mut Vec<String>) -> bool {
+    let present = args.iter().any(|a| a == WAIT_FLAG);
+    args.retain(|a| a != WAIT_FLAG);
+    present
 }
 
 /// The helper prepares the image by default; explicit files and read-only flags
@@ -219,8 +245,8 @@ fn run(mut stage: Stage, repo: Option<PathBuf>, host: HostKind) -> std::io::Resu
     let (tx, rx) = mpsc::channel();
     let cancel = Arc::new(AtomicBool::new(false));
     let mut build: Option<Arc<Mutex<Child>>> = None;
-    match (&stage, &repo) {
-        (Stage::Building(_), Some(repo)) => build = Some(spawn_build(repo, &tx)?),
+    match (&mut stage, &repo) {
+        (Stage::Building(view), Some(repo)) => build = start_build(repo, &tx, view),
         (Stage::Writing(app), _) => start_checksum(app, &tx),
         _ => {}
     }
@@ -270,8 +296,9 @@ fn run(mut stage: Stage, repo: Option<PathBuf>, host: HostKind) -> std::io::Resu
             match &mut stage {
                 Stage::Writing(app) => match (app.key(key), &repo) {
                     (Some(Request::Rebuild), Some(repo)) => {
-                        build = Some(spawn_build(repo, &tx)?);
-                        stage = Stage::Building(BuildView::new(repo.join("target/live/build.log")));
+                        let mut view = BuildView::new(repo.join("target/live/build.log"));
+                        build = start_build(repo, &tx, &mut view);
+                        stage = Stage::Building(view);
                     }
                     (Some(request), _) => carry_out(request, app, &host, &cancel, &tx),
                     (None, _) => {}
@@ -283,7 +310,7 @@ fn run(mut stage: Stage, repo: Option<PathBuf>, host: HostKind) -> std::io::Resu
                     }
                     Some(BuildRequest::Retry) => {
                         if let Some(repo) = &repo {
-                            build = Some(spawn_build(repo, &tx)?);
+                            build = start_build(repo, &tx, view);
                         }
                     }
                     Some(BuildRequest::Quit) => return Ok(()),
@@ -320,8 +347,50 @@ fn start_checksum(app: &App, tx: &Sender<Event>) {
 
 /// Run `borea-build iso` from the checkout, streaming its output to the screen and
 /// to `target/live/build.log`.
-fn spawn_build(repo: &Path, tx: &Sender<Event>) -> std::io::Result<Arc<Mutex<Child>>> {
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+/// Start the ISO build; if it cannot start, say why on the build screen.
+fn start_build(repo: &Path, tx: &Sender<Event>, view: &mut BuildView) -> Option<Arc<Mutex<Child>>> {
+    let Some(cargo) = cargo() else {
+        view.failed(
+            "Cargo was not found. Install Rust with rustup (https://rustup.rs), then press Retry."
+                .into(),
+        );
+        return None;
+    };
+    match spawn_build(repo, &cargo, tx) {
+        Ok(child) => Some(child),
+        Err(error) => {
+            view.failed(format!("The build could not start: {error}"));
+            None
+        }
+    }
+}
+
+/// Cargo: as `cargo` was run (`CARGO`), on PATH, or where rustup puts it. An app
+/// launcher's PATH often lacks ~/.cargo/bin even when a terminal's has it.
+fn cargo() -> Option<PathBuf> {
+    let explicit = std::env::var_os("CARGO").map(PathBuf::from);
+    let on_path = std::env::var_os("PATH")
+        .into_iter()
+        .flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
+        .map(|dir| dir.join("cargo"));
+    let rustup = std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cargo")))
+        .map(|home| home.join("bin/cargo"));
+    explicit.into_iter().chain(on_path).chain(rustup).find(|p| p.is_file())
+}
+
+fn spawn_build(
+    repo: &Path,
+    cargo: &Path,
+    tx: &Sender<Event>,
+) -> std::io::Result<Arc<Mutex<Child>>> {
+    // The ISO builder checks for cargo on PATH too, so give it the one found here.
+    let mut path = cargo.parent().map(Path::to_path_buf).into_iter().collect::<Vec<_>>();
+    if let Some(existing) = std::env::var_os("PATH") {
+        path.extend(std::env::split_paths(&existing));
+    }
+    let path = std::env::join_paths(path).map_err(std::io::Error::other)?;
     let log_path = repo.join("target/live/build.log");
     std::fs::create_dir_all(repo.join("target/live"))?;
     // Append: a refused second build must not wipe the log of the one running.
@@ -333,6 +402,7 @@ fn spawn_build(repo: &Path, tx: &Sender<Event>) -> std::io::Result<Arc<Mutex<Chi
         .arg(repo.join("Cargo.toml"))
         .args(["-p", "borea-build", "--", "iso"])
         .current_dir(repo)
+        .env("PATH", path)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -531,7 +601,17 @@ fn check_image(path: PathBuf, expected: String, from: PathBuf, tx: Sender<Event>
 
 #[cfg(test)]
 mod cli_tests {
-    use super::arguments;
+    use super::{arguments, take_wait_flag};
+
+    #[test]
+    fn the_launcher_flag_keeps_the_helpers_default() {
+        let mut args = vec!["--wait-on-error".to_owned()];
+        assert!(take_wait_flag(&mut args));
+        assert_eq!(arguments(args, true), ["--make"]);
+        let mut plain = vec!["image.iso".to_owned()];
+        assert!(!take_wait_flag(&mut plain));
+        assert_eq!(plain, ["image.iso"]);
+    }
 
     #[test]
     fn helper_prepares_by_default_but_respects_explicit_actions() {
