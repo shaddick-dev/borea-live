@@ -822,21 +822,13 @@ impl LiveInstaller {
         section(ui, &p, "Family");
         grid(ui, 4, &Family::ALL, |ui, f| {
             let names: Vec<_> = catalog.family(*f).map(|d| d.name.as_str()).collect();
-            let card = choice_card(
+            let card = crate::family_cards::card(
                 ui,
                 &p,
-                ("family", *f),
-                &format!("{f} family"),
+                *f,
+                &names,
                 self.picked_family == Some(*f),
-                true,
-                |ui| {
-                    ui.set_min_height(86.0);
-                    ui.horizontal(|ui| {
-                        glyph(ui, icon::family(*f), 22.0, p.accent);
-                        ui.label(RichText::new(f.to_string()).size(size::HEADING));
-                    });
-                    ui.label(caption(names.join(" · "), &p));
-                },
+                !self.still,
             );
             if card.clicked() {
                 actions.push(Action::Family(*f));

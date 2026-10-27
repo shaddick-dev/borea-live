@@ -4,6 +4,8 @@
 
 Create a calm native Rust interface using a Nord palette (snow-storm light or polar-night dark), fine frost-colored borders, generous whitespace, and a muted frost-blue accent. It is set entirely in JetBrains Mono Nerd Font, regular and bold, with Nerd Font icons doing the work of marks and pictures: distribution logos on the family and distribution choices, hardware icons on the machine facts, an icon per extra. Corners are tight, and there is no serif. Quiet airflow paths animate behind the hero.
 
+Borea Live's separate Family page brings Claude's prototype hero-select treatment into the native installer: tall portrait cards, prominent distro emblems inside diamond frames, individual family accents, release labels, and an Explore family action. Distribution names come from the existing catalog. No family is preselected; selecting a card opens its distribution page. Cards reflow on narrower windows, retain keyboard focus and selection markers, and stop their hover lift when motion is paused. The Windpad landing-page layout below remains separate.
+
 ```text
  BOREA                                  Hardware   Wi-Fi   Appearance
 
