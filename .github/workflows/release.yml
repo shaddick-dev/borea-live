@@ -75,7 +75,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential patch perl python3 \
-            rsync cpio unzip bc wget file tar xz-utils bzip2 curl
+            rsync cpio unzip bc wget file tar xz-utils bzip2 curl bison flex
       - uses: actions/cache@v4
         if: steps.existing.outputs.skip != 'true'
         with:
