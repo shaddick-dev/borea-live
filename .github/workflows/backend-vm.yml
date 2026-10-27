@@ -88,7 +88,9 @@ jobs:
         run: |
           set -euo pipefail
           kvm_args=()
-          if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then kvm_args=(--device /dev/kvm); fi
+          # Docker's root user opens this device; runner-user file modes do not
+          # determine its availability inside the explicitly permitted guest.
+          if [ -c /dev/kvm ]; then kvm_args=(--device /dev/kvm); fi
           docker run --rm "${kvm_args[@]}" \
             --mount type=bind,src="$PWD/vm-work",dst=/work \
             --mount type=bind,src="$PWD/vm-bin",dst=/binaries,readonly \

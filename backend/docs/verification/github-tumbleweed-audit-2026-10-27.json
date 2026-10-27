@@ -1,0 +1,30 @@
+{
+  "commit": "bf7841d",
+  "run": "https://github.com/shaddick-dev/shaddick.dev/actions/runs/40450872358",
+  "jobs": [
+    {
+      "completed_at": "2026-10-27T04:39:41Z",
+      "conclusion": "success",
+      "html_url": "https://github.com/shaddick-dev/shaddick.dev/actions/runs/40450872358/job/122013035053",
+      "name": "inventory"
+    },
+    {
+      "completed_at": "2026-10-27T04:41:37Z",
+      "conclusion": "success",
+      "html_url": "https://github.com/shaddick-dev/shaddick.dev/actions/runs/40450872358/job/122013288845",
+      "name": "native (opensuse)"
+    },
+    {
+      "completed_at": "2026-10-27T04:40:07Z",
+      "conclusion": "success",
+      "html_url": "https://github.com/shaddick-dev/shaddick.dev/actions/runs/40450872358/job/122013288960",
+      "name": "external"
+    }
+  ],
+  "native_changes": [
+    "iperf replaces nonexistent iperf3",
+    "intel-vaapi-driver replaces libva-intel-driver",
+    "cosmic-session replaces nonexistent patterns-cosmic-cosmic",
+    "Exact native capabilities validate versioned Python, Certbot and QEMU providers."
+  ]
+}
