@@ -1,5 +1,24 @@
 # Borea
 
+## Write Borea Live to a USB stick with borea-rataTUI
+
+borea-rataTUI is Borea's terminal app for making a bootable Borea Live USB stick. It builds the ISO if needed, then writes and verifies the stick. One command sets it up on Arch, Fedora, Debian, Ubuntu, openSUSE and their derivatives:
+
+```sh
+bash <(curl -fsSL https://raw.githubusercontent.com/shaddick-dev/borea-live/main/scripts/borea-setup.sh)
+```
+
+Run it as your normal user. It installs the packages it needs (asking first), Rust, and borea-rataTUI, then starts it. The first ISO build can take up to a few hours, depending on your machine; later ones are much faster.
+
+- Already have an ISO? Add `--flash-only`. Want to see every command first? Add `--dry-run`.
+- Next time, open **borea-rataTUI** from your app launcher or run `borea-rataTUI`.
+- To update: `cd ~/borea-live && git pull && cargo run --release -p borea-flash -- --install`
+- In the app: pick the stick, type its device name to confirm, and it writes then reads every byte back. Only USB or removable drives are offered.
+
+More detail: [crates/borea-flash/README.md](crates/borea-flash/README.md).
+
+---
+
 **Go wherever the wind takes you.**
 
 Borea is an independent, distro-agnostic online Linux installer. It is not tied to any distribution's ISO. It runs from Borea Live or any compatible live session. Windpad, one interface for every target, guides the installation. Distribution adapters are intended to download and install upstream systems, customize selected packages, and preserve native updates and boot requirements.
@@ -154,13 +173,7 @@ borea-cli install --plan plan.json --approval DIGEST  # secrets as JSON on stdin
 
 Review changes nothing. Install re-checks the approval digest and the disk before any write. Targets: Arch rolling, Debian 13, Fedora stable and openSUSE Tumbleweed, UEFI only, always LUKS2/Btrfs, whole disk or alongside Windows. See [backend/README.md](backend/README.md) and [the protocol](backend/docs/PROTOCOL.md). Install coverage runs in disposable VMs (`backend/tests/vm`, `.github/workflows/backend-vm.yml`).
 
-**Quickest way to a USB stick, on any distribution:** one script installs the packages, Rust and the helper, then starts it (it builds the ISO if needed, then writes the stick):
-
-```sh
-bash <(curl -fsSL https://raw.githubusercontent.com/shaddick-dev/borea-live/main/scripts/borea-setup.sh)
-```
-
-Add `--flash-only` if you already have an ISO, `--dry-run` to see what it would do, `--help` for the rest.
+The one-command setup is at [the top of this page](#write-borea-live-to-a-usb-stick-with-borea-ratatui). By hand, from a checkout:
 
 To install **borea-rataTUI** as a terminal command and app launcher:
 
