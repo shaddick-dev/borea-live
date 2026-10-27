@@ -19,7 +19,7 @@ Ctrl+Alt+F2 opens a rescue console: log in as `root`, with no password. Ctrl+Alt
 ```sh
 cargo run --release -p borea-flash -- --install            # once: adds borea-flash to ~/.local/bin
 borea-flash --make                                         # from any terminal
-cargo run --release -p borea-flash -- --install-launcher   # optional: a "Borea Live Maker" app launcher entry
+cargo run --release -p borea-flash -- --install-launcher   # optional: a "borea-rataTUI" app launcher entry
 ```
 
 The installed copy remembers this checkout, so `borea-flash --make` works from any directory. Plain `borea-flash` helps too: when this checkout has changed since the newest image, its Image panel says so, and **b** rebuilds before writing (with no image yet, it starts building straight away). It runs in any terminal, the Linux console included. The launcher entry opens a terminal running the same thing. `borea-flash --make`:

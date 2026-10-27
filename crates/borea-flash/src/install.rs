@@ -1,12 +1,15 @@
-//! Install the helper and its compatibility command without invoking Cargo at launch.
+//! Install borea-rataTUI, its older names, and its launcher, without invoking Cargo at launch.
 use std::fs;
 use std::io;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
+/// The app's command, then the older names it still answers to.
+pub const NAMES: [&str; 3] = ["borea-rataTUI", "borea-helper", "borea-flash"];
+
 pub fn commands(source: &Path, directory: &Path) -> io::Result<()> {
     fs::create_dir_all(directory)?;
-    for name in ["borea-helper", "borea-flash"] {
+    for name in NAMES {
         let destination = directory.join(name);
         if source == destination {
             continue;
@@ -30,10 +33,10 @@ pub fn desktop_entry(helper: &Path) -> String {
         .replace('$', "\\\\$")
         .replace('%', "%%");
     format!(
-        "[Desktop Entry]\nType=Application\nName=Borea TUI Helper\n\
+        "[Desktop Entry]\nType=Application\nName=borea-rataTUI\n\
          Comment=Prepare the Borea Live ISO and write it to a USB drive\n\
          Exec=\"{executable}\" --wait-on-error\nTerminal=true\nIcon=drive-removable-media-usb\n\
-         Categories=System;\nKeywords=Borea;ISO;USB;flash;installer;\n"
+         Categories=System;\nKeywords=Borea;ratatui;ISO;USB;flash;installer;\n"
     )
 }
 
@@ -49,19 +52,21 @@ mod tests {
         let bin = directory.join("bin");
         commands(&source, &bin).unwrap();
         fs::remove_file(source).unwrap();
-        for name in ["borea-helper", "borea-flash"] {
+        for name in NAMES {
             assert_eq!(fs::read(bin.join(name)).unwrap(), b"binary");
             assert_eq!(fs::metadata(bin.join(name)).unwrap().permissions().mode() & 0o777, 0o755);
         }
-        commands(&bin.join("borea-helper"), &bin).unwrap();
+        commands(&bin.join("borea-rataTUI"), &bin).unwrap();
         assert_eq!(fs::read(bin.join("borea-flash")).unwrap(), b"binary");
     }
 
     #[test]
     fn launcher_runs_helper_directly_and_quotes_its_path() {
-        let entry = desktop_entry(Path::new("/home/Example User/100%/borea-helper"));
-        assert!(entry.contains("Name=Borea TUI Helper\n"));
-        assert!(entry.contains("Exec=\"/home/Example User/100%%/borea-helper\" --wait-on-error\n"));
+        let entry = desktop_entry(Path::new("/home/Example User/100%/borea-rataTUI"));
+        assert!(entry.contains("Name=borea-rataTUI\n"));
+        assert!(
+            entry.contains("Exec=\"/home/Example User/100%%/borea-rataTUI\" --wait-on-error\n")
+        );
         assert!(entry.contains("Terminal=true\n"));
         assert!(!entry.contains("cargo"));
     }
