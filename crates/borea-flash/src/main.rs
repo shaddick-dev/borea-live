@@ -24,6 +24,7 @@ use std::thread;
 use std::time::Duration;
 
 use borea_flash::app::{self, App, Checkout, Checksum, Request};
+use borea_flash::download::{self, DownloadRequest, DownloadView};
 use borea_flash::image::{self, Image};
 use borea_flash::make::{self, BuildRequest, BuildView};
 use borea_flash::target::{self, Target, Verdict};
@@ -52,22 +53,28 @@ enum Event {
     BuildLine(String),
     /// The build ended: the new image, or why it failed.
     Built(Result<PathBuf, String>),
+    Download(download::Step),
+    /// The download ended: the image, or why it stopped.
+    Downloaded(Result<PathBuf, String>),
 }
 
 const USAGE: &str = "\
-usage: borea-rataTUI            prepare Borea Live, then write and verify a USB stick
-       borea-rataTUI IMAGE.iso  write an existing ISO without rebuilding it
-       borea-flash [IMAGE.iso]   write IMAGE, or the newest Borea Live image found;
-                                 in a Borea checkout, b on that screen rebuilds it first
-       borea-flash --make        in a Borea checkout: rebuild Borea Live if it changed, then write it
+usage: borea-rataTUI            get the latest Borea Live release (a download, kept for
+                                next time), then write and verify a USB stick
+       borea-rataTUI IMAGE.iso  write an existing ISO
+       borea-flash [IMAGE.iso]   write IMAGE, or the newest Borea Live image found,
+                                 downloading the latest release when there is none
+       borea-flash --make        developers: in a Borea checkout, build Borea Live from source
+                                 if it changed (hours the first time), then write it
        borea-flash --build       as --make, but always rebuild
        borea-flash --list        show the USB sticks it could write, and exit
        borea-flash --install     install the commands and the borea-rataTUI launcher
        borea-flash --install-launcher
                                  install the commands and the borea-rataTUI launcher";
 
-/// What the screen shows: the build, then the stick.
+/// What the screen shows: getting the image (download or build), then the stick.
 enum Stage {
+    Downloading(DownloadView),
     Building(BuildView),
     Writing(Box<App>),
 }
@@ -104,6 +111,11 @@ fn start() -> ExitCode {
     if flag("--install") || flag("--install-launcher") {
         return report(install_command().and_then(|helper| install_launcher(&helper)));
     }
+    if flag("--get") {
+        let host = borea_host::detect().kind;
+        let start = Stage::Downloading(DownloadView::new());
+        return report(run(start, make::repo(), host).map_err(|e| e.to_string()));
+    }
     if flag("--make") || flag("--build") {
         let Some(repo) = make::repo() else {
             eprintln!("borea-flash: --make works inside a Borea checkout");
@@ -129,15 +141,15 @@ fn start() -> ExitCode {
     let repo = make::repo();
     let path = args.iter().find(|a| !a.starts_with("--")).map(PathBuf::from).or_else(find_image);
     let Some(path) = path else {
-        if let Some(repo) = repo.filter(|_| !list_only) {
-            // Nothing to write yet, but this checkout can make it.
+        if !list_only {
+            // Nothing to write yet: get the latest release, in minutes.
             let host = borea_host::detect().kind;
-            let start = Stage::Building(BuildView::new(repo.join("target/live/build.log")));
-            return report(run(start, Some(repo), host).map_err(|e| e.to_string()));
+            let start = Stage::Downloading(DownloadView::new());
+            return report(run(start, repo, host).map_err(|e| e.to_string()));
         }
         eprintln!(
-            "borea-flash: no Borea Live image found. Build one with `borea-flash --make` \
-             in a Borea checkout, or name the .iso to write.\n\n{USAGE}"
+            "borea-flash: no Borea Live image found. Run borea-rataTUI to download the latest \
+             release, or name the .iso to write.\n\n{USAGE}"
         );
         return ExitCode::FAILURE;
     };
@@ -174,11 +186,11 @@ fn take_wait_flag(args: &mut Vec<String>) -> bool {
     present
 }
 
-/// The helper prepares the image by default; explicit files and read-only flags
-/// keep their own meaning and never unexpectedly start an ISO build.
+/// The app gets the latest release by default; explicit files and flags keep
+/// their own meaning. Building from source (hours) is only ever asked for.
 fn arguments(mut args: Vec<String>, helper: bool) -> Vec<String> {
     if helper && args.is_empty() {
-        args.push("--make".into());
+        args.push("--get".into());
     }
     args
 }
@@ -200,12 +212,13 @@ fn writing(path: &Path, host: &HostKind, repo: Option<&Path>) -> Result<App, Str
     Ok(writing_with(image, targets, repo))
 }
 
-/// `borea-live*.iso` in this checkout's build output, the current directory, or
-/// ~/Downloads, newest first.
+/// `borea-live*.iso` in this checkout's build output, the download cache, the
+/// current directory, or ~/Downloads, newest first.
 fn find_image() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").map(PathBuf::from);
     let dirs = [
         make::repo().map(|repo| repo.join("target/live/out")),
+        download::cache_dir(),
         Some(PathBuf::from(".")),
         home.map(|h| h.join("Downloads")),
     ];
@@ -232,7 +245,11 @@ fn writing_with(image: Image, targets: Vec<Target>, repo: Option<&Path>) -> App 
         None => Checksum::Unpublished,
         Some(_) => Checksum::Checking { done: 0 },
     };
+    // A downloaded release isn't built from this checkout, so it is never
+    // "behind" or "up to date with" it.
+    let downloaded = download::cache_dir().is_some_and(|dir| image.path.starts_with(dir));
     let checkout = match repo {
+        _ if downloaded => Checkout::None,
         None => Checkout::None,
         Some(repo) if make::needs_build(repo, Some(&image.path)) => Checkout::Changed,
         Some(_) => Checkout::Current,
@@ -246,7 +263,9 @@ fn run(mut stage: Stage, repo: Option<PathBuf>, host: HostKind) -> std::io::Resu
     let (tx, rx) = mpsc::channel();
     let cancel = Arc::new(AtomicBool::new(false));
     let mut build: Option<Arc<Mutex<Child>>> = None;
+    let mut fetching = Arc::new(AtomicBool::new(false));
     match (&mut stage, &repo) {
+        (Stage::Downloading(_), _) => fetching = start_download(&tx),
         (Stage::Building(view), Some(repo)) => build = start_build(repo, &tx, view),
         (Stage::Writing(app), _) => start_checksum(app, &tx),
         _ => {}
@@ -267,6 +286,17 @@ fn run(mut stage: Stage, repo: Option<PathBuf>, host: HostKind) -> std::io::Resu
 
             for event in rx.try_iter() {
                 match (&mut stage, event) {
+                    (Stage::Downloading(view), Event::Download(step)) => view.step(step),
+                    (Stage::Downloading(view), Event::Downloaded(Err(why))) => view.failed(why),
+                    (Stage::Downloading(view), Event::Downloaded(Ok(path))) => {
+                        match writing(&path, &host, repo.as_deref()) {
+                            Ok(app) => {
+                                start_checksum(&app, &tx);
+                                stage = Stage::Writing(Box::new(app));
+                            }
+                            Err(why) => view.failed(why),
+                        }
+                    }
                     (Stage::Building(view), Event::BuildLine(line)) => view.line(&line),
                     (Stage::Building(view), Event::Built(Err(why))) => {
                         build = None;
@@ -295,6 +325,12 @@ fn run(mut stage: Stage, repo: Option<PathBuf>, host: HostKind) -> std::io::Resu
                 continue;
             }
             match &mut stage {
+                Stage::Downloading(view) => match view.key(key) {
+                    Some(DownloadRequest::Stop) => fetching.store(true, Ordering::Relaxed),
+                    Some(DownloadRequest::Retry) => fetching = start_download(&tx),
+                    Some(DownloadRequest::Quit) => return Ok(()),
+                    None => {}
+                },
                 Stage::Writing(app) => match (app.key(key), &repo) {
                     (Some(Request::Rebuild), Some(repo)) => {
                         let mut view = BuildView::new(repo.join("target/live/build.log"));
@@ -320,14 +356,24 @@ fn run(mut stage: Stage, repo: Option<PathBuf>, host: HostKind) -> std::io::Resu
             }
         }
     });
-    // Never leave a build running behind a closed window.
+    // Never leave a build or download running behind a closed window.
     stop_build(build);
+    fetching.store(true, Ordering::Relaxed);
     result
 }
 
 fn draw(frame: &mut ratatui::Frame, stage: &mut Stage) {
     match stage {
         Stage::Writing(app) => app.render(frame),
+        Stage::Downloading(view) => {
+            let [header, body] = ratatui::layout::Layout::vertical([
+                ratatui::layout::Constraint::Length(4),
+                ratatui::layout::Constraint::Fill(1),
+            ])
+            .areas(frame.area());
+            app::render_header(frame, header);
+            view.render(frame, body);
+        }
         Stage::Building(view) => {
             let [header, body] = ratatui::layout::Layout::vertical([
                 ratatui::layout::Constraint::Length(4),
@@ -338,6 +384,23 @@ fn draw(frame: &mut ratatui::Frame, stage: &mut Stage) {
             view.render(frame, body);
         }
     }
+}
+
+/// Get the latest release's ISO into the cache in the background. Returns the
+/// flag that stops it.
+fn start_download(tx: &Sender<Event>) -> Arc<AtomicBool> {
+    let stop = Arc::new(AtomicBool::new(false));
+    let (flag, tx) = (Arc::clone(&stop), tx.clone());
+    thread::spawn(move || {
+        let result = match download::cache_dir() {
+            Some(dir) => download::fetch(&dir, &flag, |step| {
+                let _ = tx.send(Event::Download(step));
+            }),
+            None => Err("HOME is not set, so there is nowhere to keep the download".into()),
+        };
+        let _ = tx.send(Event::Downloaded(result));
+    });
+    stop
 }
 
 fn start_checksum(app: &App, tx: &Sender<Event>) {
@@ -514,7 +577,7 @@ fn apply(app: &mut App, event: Event) {
         Event::Progress(progress) => app.progress(progress),
         Event::Finished(result) => app.finished(result),
         Event::Message(message) => app.message = Some(message),
-        Event::BuildLine(_) | Event::Built(_) => {}
+        Event::BuildLine(_) | Event::Built(_) | Event::Download(_) | Event::Downloaded(_) => {}
     }
 }
 
@@ -612,7 +675,7 @@ mod cli_tests {
     fn the_launcher_flag_keeps_the_helpers_default() {
         let mut args = vec!["--wait-on-error".to_owned()];
         assert!(take_wait_flag(&mut args));
-        assert_eq!(arguments(args, true), ["--make"]);
+        assert_eq!(arguments(args, true), ["--get"]);
         let mut plain = vec!["image.iso".to_owned()];
         assert!(!take_wait_flag(&mut plain));
         assert_eq!(plain, ["image.iso"]);
@@ -620,7 +683,7 @@ mod cli_tests {
 
     #[test]
     fn helper_prepares_by_default_but_respects_explicit_actions() {
-        assert_eq!(arguments(vec![], true), ["--make"]);
+        assert_eq!(arguments(vec![], true), ["--get"]);
         for action in ["--list", "--help", "--install", "image.iso", "--build"] {
             assert_eq!(arguments(vec![action.into()], true), [action]);
         }

@@ -9,6 +9,7 @@
 
 pub mod app;
 pub mod device;
+pub mod download;
 pub mod image;
 pub mod install;
 pub mod make;
