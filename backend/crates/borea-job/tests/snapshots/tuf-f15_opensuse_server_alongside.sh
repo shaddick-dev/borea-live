@@ -19,7 +19,7 @@ set -euo pipefail
 chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--gpg-auto-import-keys' '--non-interactive' 'refresh'
 chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--non-interactive' 'install' 'openSUSE-repos-NVIDIA'
 chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--non-interactive' 'refresh'
-chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--non-interactive' 'install' '--dry-run' '--auto-agree-with-licenses' 'nvidia-compute-utils-G07' 'nvidia-gl-G07' 'nvidia-video-G07' 'Mesa-dri' 'NetworkManager' 'btrfsprogs' 'chrony' 'cockpit' 'cryptsetup' 'dracut' 'fail2ban' 'firewalld' 'glibc-locale' 'intel-media-driver' 'kbd' 'kernel-default' 'kernel-firmware-all' 'libvulkan_intel' 'nano' 'nvidia-open-driver-G07-signed-kmp-meta' 'openssh-server' 'power-profiles-daemon' 'rsync' 'sdbootutil' 'shadow' 'shim' 'snapper' 'sof-firmware' 'sudo' 'switcheroo-control' 'systemd' 'systemd-boot' 'systemd-sysvinit' 'tmux' 'ucode-intel' 'util-linux-systemd' 'zram-generator'
+chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--non-interactive' 'install' '--dry-run' '--auto-agree-with-licenses' 'nvidia-compute-utils-G07' 'nvidia-gl-G07' 'nvidia-video-G07' 'Mesa-dri' 'NetworkManager' 'btrfsprogs' 'chrony' 'cockpit' 'cryptsetup' 'dracut' 'fail2ban' 'firewalld' 'glibc-locale' 'intel-media-driver' 'kbd' 'kernel-default' 'kernel-firmware-all' 'libvulkan_intel' 'nano' 'nvidia-open-driver-G07-signed-kmp-meta' 'openssh-server' 'power-profiles-daemon' 'rsync' 'sdbootutil' 'shadow' 'shim' 'snapper' 'sof-firmware' 'sudo' 'switcheroo-control' 'systemd' 'systemd-boot' 'tmux' 'ucode-intel' 'util-linux-systemd' 'zram-generator'
 
 # Making space.
 '/usr/sbin/ntfsresize' '--no-progress-bar' '--force' '--size' '48318382080' '/dev/vda3'
@@ -89,7 +89,7 @@ chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--non-interactive' 'instal
 #
 # Copy native openSUSE repository definitions from the authenticated tool root into the target.
 chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--root' '/mnt' '--gpg-auto-import-keys' '--non-interactive' 'install' '--auto-agree-with-licenses' '--type' 'pattern' 'minimal_base'
-chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--root' '/mnt' '--non-interactive' 'install' '--auto-agree-with-licenses' 'Mesa-dri' 'NetworkManager' 'btrfsprogs' 'chrony' 'cockpit' 'cryptsetup' 'dracut' 'fail2ban' 'firewalld' 'glibc-locale' 'intel-media-driver' 'kbd' 'kernel-default' 'kernel-firmware-all' 'libvulkan_intel' 'nano' 'nvidia-open-driver-G07-signed-kmp-meta' 'openssh-server' 'power-profiles-daemon' 'rsync' 'sdbootutil' 'shadow' 'shim' 'snapper' 'sof-firmware' 'sudo' 'switcheroo-control' 'systemd' 'systemd-boot' 'systemd-sysvinit' 'tmux' 'ucode-intel' 'util-linux-systemd' 'zram-generator'
+chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--root' '/mnt' '--non-interactive' 'install' '--auto-agree-with-licenses' 'Mesa-dri' 'NetworkManager' 'btrfsprogs' 'chrony' 'cockpit' 'cryptsetup' 'dracut' 'fail2ban' 'firewalld' 'glibc-locale' 'intel-media-driver' 'kbd' 'kernel-default' 'kernel-firmware-all' 'libvulkan_intel' 'nano' 'nvidia-open-driver-G07-signed-kmp-meta' 'openssh-server' 'power-profiles-daemon' 'rsync' 'sdbootutil' 'shadow' 'shim' 'snapper' 'sof-firmware' 'sudo' 'switcheroo-control' 'systemd' 'systemd-boot' 'tmux' 'ucode-intel' 'util-linux-systemd' 'zram-generator'
 'mount' '-t' 'proc' '-o' 'nosuid,nodev,noexec' 'proc' '/run/borea/target/proc'
 'mount' '-o' 'rbind,ro' '/sys' '/run/borea/target/sys'
 'mount' '-o' 'rbind' '/dev' '/run/borea/target/dev'

@@ -14,11 +14,48 @@ use std::{
 use zeroize::Zeroizing;
 #[path = "../media.rs"]
 mod media;
+fn terminal_text(buffer: &str) -> String {
+    let mut output = String::new();
+    let mut chars = buffer.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '\x1b' {
+            if !ch.is_control() || matches!(ch, '\n' | '\r' | '\t') {
+                output.push(ch);
+            }
+            continue;
+        }
+        match chars.next() {
+            Some('[') => {
+                for ch in chars.by_ref() {
+                    if matches!(ch, '@'..='~') {
+                        break;
+                    }
+                }
+            }
+            Some(']' | 'P' | 'X' | '^' | '_') => {
+                while let Some(ch) = chars.next() {
+                    if ch == '\x07' {
+                        break;
+                    }
+                    if ch == '\x1b' && chars.peek() == Some(&'\\') {
+                        chars.next();
+                        break;
+                    }
+                }
+            }
+            Some('(' | ')' | '#') => {
+                chars.next();
+            }
+            _ => {}
+        }
+    }
+    output
+}
 fn marker(buffer: &str, expected: &str) -> bool {
-    buffer.lines().any(|line| line.trim() == expected)
+    terminal_text(buffer).lines().any(|line| line.trim() == expected)
 }
 fn unlock_prompt(buffer: &str) -> bool {
-    let text = buffer.to_ascii_lowercase();
+    let text = terminal_text(buffer).to_ascii_lowercase();
     text.contains("please unlock disk") || text.contains("enter passphrase")
 }
 fn fatal_error(buffer: &str) -> Option<&str> {
@@ -264,7 +301,8 @@ fn run() -> Result<(), String> {
                         (keep..buffer.len()).find(|i| buffer.is_char_boundary(*i)).unwrap_or(0);
                     buffer.drain(..keep);
                 }
-                if let Some(error) = fatal_error(&buffer) {
+                let plain = terminal_text(&buffer);
+                if let Some(error) = fatal_error(&plain) {
                     let error = error
                         .trim()
                         .replace("borea-disposable-vm-ONLY", "[TEST CREDENTIAL REDACTED]");
@@ -294,15 +332,15 @@ fn run() -> Result<(), String> {
                         stage = 1;
                         Some("borea-disposable-vm-ONLY\n")
                     }
-                    1 if buffer.contains("login:") => {
+                    1 if plain.contains("login:") => {
                         stage = 2;
                         Some("boreatest\n")
                     }
-                    2 if buffer.contains("Password:") => {
+                    2 if plain.contains("Password:") => {
                         stage = 3;
                         Some("borea-disposable-vm-ONLY\n")
                     }
-                    3 if buffer.contains("boreatest@borea-test-vm") => {
+                    3 if plain.contains("boreatest@borea-test-vm") => {
                         stage = 4;
                         Some("stty -echo; echo; echo BOREA_CONSOLE_READY\n")
                     }
@@ -310,7 +348,10 @@ fn run() -> Result<(), String> {
                         stage = 5;
                         Some(checks.as_str())
                     }
-                    5 if buffer.lines().any(|line| line.trim_end().ends_with("[BOREA_SUDO]")) => {
+                    5 if terminal_text(&buffer)
+                        .lines()
+                        .any(|line| line.trim_end().ends_with("[BOREA_SUDO]")) =>
+                    {
                         stage = 6;
                         Some("borea-disposable-vm-ONLY\n")
                     }
@@ -371,6 +412,15 @@ mod tests {
         assert!(!marker("sudo id -u && echo BOREA_SUDO_OK\r\n", "BOREA_SUDO_OK"));
         assert!(marker("0\r\nBOREA_SUDO_OK\r\n", "BOREA_SUDO_OK"));
         assert!(!marker("not BOREA_SUDO_OK\r\n", "BOREA_SUDO_OK"));
+        assert!(marker(
+            "\x1b]3008;end=fixture;exit=success\x1b\\\x1b[32mBOREA_SUDO_OK\x1b[0m\r\n",
+            "BOREA_SUDO_OK"
+        ));
+        assert!(marker(
+            "\x1b]3008;start=fixture\x07BOREA_CONSOLE_READY\r\n",
+            "BOREA_CONSOLE_READY"
+        ));
+        assert_eq!(terminal_text("a\x1b]3008;unfinished"), "a");
         assert!(fatal_error("BOREA_TEST_ERROR ").is_none());
         assert_eq!(
             fatal_error("BOREA_TEST_ERROR mirror unavailable\r\n"),

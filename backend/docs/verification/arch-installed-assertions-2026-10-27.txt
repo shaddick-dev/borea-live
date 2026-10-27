@@ -1,0 +1,18 @@
+Arch fresh online installation and installed-system assertions
+Commit: 61552b972c8931db03002d234ebd1507fa15dc79
+Run: https://github.com/shaddick-dev/shaddick.dev/actions/runs/40507354681
+Job: 122202563056
+
+Observed in the completed full console:
+BOREA_INSTALL_COMPLETE
+BOREA_VM_TEST_PASSED install
+BOREA_DISTRO_OK
+BOREA_USER_OK
+BOREA_LUKS_OK
+BOREA_NET_OK
+BOREA_SUDO_OK
+
+The sudo marker was prefixed by an OSC 3008 terminal sequence, so the old
+runner did not recognize it and timed out before shutdown. This is not a
+complete harness pass. The corrected parser strips OSC/CSI/DCS controls
+before interpreting console markers; its unit test includes this output.

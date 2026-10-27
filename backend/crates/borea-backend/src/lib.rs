@@ -97,7 +97,6 @@ pub fn boot_packages(d: Distro) -> &'static [&'static str] {
         ],
         Distro::OpenSuse => &[
             "shadow",
-            "systemd-sysvinit",
             "util-linux-systemd",
             "kernel-default",
             "dracut",
