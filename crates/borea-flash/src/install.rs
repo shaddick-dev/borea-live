@@ -32,7 +32,7 @@ pub fn desktop_entry(helper: &Path) -> String {
     format!(
         "[Desktop Entry]\nType=Application\nName=Borea TUI Helper\n\
          Comment=Prepare the Borea Live ISO and write it to a USB drive\n\
-         Exec=\"{executable}\"\nTerminal=true\nIcon=drive-removable-media-usb\n\
+         Exec=\"{executable}\" --wait-on-error\nTerminal=true\nIcon=drive-removable-media-usb\n\
          Categories=System;\nKeywords=Borea;ISO;USB;flash;installer;\n"
     )
 }
@@ -61,7 +61,7 @@ mod tests {
     fn launcher_runs_helper_directly_and_quotes_its_path() {
         let entry = desktop_entry(Path::new("/home/Example User/100%/borea-helper"));
         assert!(entry.contains("Name=Borea TUI Helper\n"));
-        assert!(entry.contains("Exec=\"/home/Example User/100%%/borea-helper\"\n"));
+        assert!(entry.contains("Exec=\"/home/Example User/100%%/borea-helper\" --wait-on-error\n"));
         assert!(entry.contains("Terminal=true\n"));
         assert!(!entry.contains("cargo"));
     }
