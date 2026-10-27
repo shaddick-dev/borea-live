@@ -1,13 +1,26 @@
 // Borea Live: the installer acts for whoever is at this machine, without asking for
 // a password that does not exist. Only the live session's user, only on the local
-// active session, and only for networking, disks, and switching to the rescue
-// console (Ctrl+Alt+F2, which cage asks logind for), and restarting into firmware.
+// active session, and only for networking, switching to the rescue console
+// (Ctrl+Alt+F2, which cage asks logind for), restarting into firmware, and the
+// removable-media actions borea-flash uses to write a USB stick.
+//
+// Installing to internal disks is not granted here. It goes through
+// borea-installd, which runs as root and only acts on a reviewed, approved plan.
+// udisks2's "-system" actions (internal disks), formatting, partition editing,
+// unlocking and loop setup are deliberately left to polkit's defaults.
+var BOREA_UDISKS = [
+    "org.freedesktop.udisks2.open-device",
+    "org.freedesktop.udisks2.filesystem-unmount-others",
+    "org.freedesktop.udisks2.power-off-drive",
+    "org.freedesktop.udisks2.power-off-drive-other",
+];
+
 polkit.addRule(function (action, subject) {
     if (subject.user !== "borea" || !subject.local || !subject.active) {
         return polkit.Result.NOT_HANDLED;
     }
     if (action.id.indexOf("org.freedesktop.NetworkManager.") === 0 ||
-        action.id.indexOf("org.freedesktop.udisks2.") === 0 ||
+        BOREA_UDISKS.indexOf(action.id) !== -1 ||
         action.id === "org.freedesktop.login1.chvt" ||
         action.id === "org.freedesktop.login1.set-reboot-to-firmware-setup" ||
         action.id === "org.freedesktop.login1.reboot") {
