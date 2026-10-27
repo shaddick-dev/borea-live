@@ -1,18 +1,13 @@
 //! Firmware actions run off the UI thread. Preview instances never contact the host.
 use std::{
-    io::{BufRead, BufReader, Read, Write},
-    os::unix::net::UnixStream,
-    path::Path,
     sync::mpsc::{self, Receiver},
     thread,
     time::Duration,
 };
 
 use eframe::egui;
-use serde_json::{Value, json};
+use serde_json::Value;
 use zbus::blocking::{Connection, Proxy};
-
-const SOCKET: &str = "/run/borea/installd.sock";
 
 pub struct FirmwareLink {
     pub available: bool,
@@ -94,34 +89,31 @@ impl FirmwareLink {
 }
 
 fn backend_request(reboot: bool) -> Result<(), String> {
-    let mut stream = UnixStream::connect(SOCKET).map_err(|e| e.to_string())?;
-    let timeout = Some(Duration::from_secs(30));
-    stream.set_read_timeout(timeout).map_err(|e| e.to_string())?;
-    stream.set_write_timeout(timeout).map_err(|e| e.to_string())?;
-    let request = if reboot {
-        json!({"jsonrpc":"2.0","id":1,"method":"system.reboot","params":{"firmware_setup":true}})
-    } else {
-        json!({"jsonrpc":"2.0","id":1,"method":"system.info"})
-    };
-    writeln!(stream, "{request}").map_err(|e| e.to_string())?;
-    let mut line = String::new();
-    BufReader::new(stream).take(64 * 1024).read_line(&mut line).map_err(|e| e.to_string())?;
-    let response: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
-    if let Some(error) = response.get("error") {
-        return Err(error["message"].as_str().unwrap_or("Firmware restart was refused.").into());
+    let timeout = Duration::from_secs(30);
+    if reboot {
+        let params = borea_protocol::RebootParams { firmware_setup: true };
+        return borea_protocol::call::<_, Value>(
+            borea_protocol::method::SYSTEM_REBOOT,
+            &params,
+            timeout,
+        )
+        .map(drop)
+        .map_err(|e| e.to_string());
     }
-    if response["id"] != 1 || response.get("result").is_none() {
-        return Err("The installer returned an invalid firmware response.".into());
-    }
-    if !reboot && response["result"]["firmware_setup"] != true {
+    let info: borea_protocol::SystemInfo =
+        borea_protocol::call(borea_protocol::method::SYSTEM_INFO, &Value::Null, timeout)
+            .map_err(|e| e.to_string())?;
+    if !info.firmware_setup {
         return Err("This firmware does not support restarting directly into setup. Use its startup key instead.".into());
     }
     Ok(())
 }
 
 fn request(reboot: bool) -> Result<(), String> {
-    // Once installd is present it owns the action, including its active-job guard.
-    if Path::new(SOCKET).exists() {
+    // installd owns the action, including its active-job guard. The logind path is
+    // only for development sessions without the service: installs need installd, so
+    // with no socket there is no installation to interrupt.
+    if borea_protocol::present() {
         return backend_request(reboot);
     }
     let connection = Connection::system().map_err(|e| e.to_string())?;

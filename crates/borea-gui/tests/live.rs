@@ -2,9 +2,9 @@
 
 mod common;
 
-use borea_core::Family;
 use borea_gui::LiveInstaller;
 use borea_gui::live::{Action, Step};
+use borea_live_core::Family;
 use common::machine;
 use eframe::egui::{self, accesskit::Role};
 use egui_kittest::Harness;
@@ -55,7 +55,7 @@ fn firmware_footer_requires_confirmation_and_preview_never_reboots_host() {
 #[test]
 fn legacy_bios_cannot_request_a_firmware_restart() {
     let mut hardware = machine();
-    hardware.firmware = borea_core::Fact::Known(borea_core::FirmwareMode::Bios);
+    hardware.firmware = borea_live_core::Fact::Known(borea_live_core::FirmwareMode::Bios);
     let mut h = with_hardware(false, hardware);
     press(&mut h, "UEFI setup");
     assert!(h.query_by_label("Restart into UEFI setup?").is_none());

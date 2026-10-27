@@ -1,0 +1,19 @@
+[package]
+name = "borea-http"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+rust-version = "1.85"
+license = "GPL-3.0-or-later"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+[dependencies]
+borea-core.workspace = true
+ureq.workspace = true

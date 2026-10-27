@@ -6,8 +6,8 @@
 //! and backs up whatever keys the firmware holds today. Nothing is enforced until
 //! the firmware's own Secure Boot switch is on, and Borea checks the first boot.
 
-use borea_core::{Fact, FirmwareMode};
 use borea_hardware::HardwareSnapshot;
+use borea_live_core::{Fact, FirmwareMode};
 
 use crate::{Acquisition, AdapterSpec};
 
@@ -91,7 +91,7 @@ impl Enrollment {
 mod tests {
     use super::*;
     use crate::adapter;
-    use borea_core::DeviceClass;
+    use borea_live_core::DeviceClass;
 
     fn machine(firmware: FirmwareMode, secure_boot: bool, setup_mode: bool) -> HardwareSnapshot {
         HardwareSnapshot {

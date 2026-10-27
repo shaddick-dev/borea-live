@@ -7,7 +7,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-borea-core.workspace = true
+borea-live-core.workspace = true
 
 [dev-dependencies]
 borea-testkit.workspace = true

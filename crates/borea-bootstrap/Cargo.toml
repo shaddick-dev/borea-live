@@ -11,12 +11,11 @@ name = "borea"
 path = "src/main.rs"
 
 [dependencies]
-borea-core.workspace = true
-borea-catalog.workspace = true
+borea-live-core.workspace = true
+borea-live-catalog.workspace = true
 borea-host.workspace = true
 borea-hardware.workspace = true
 borea-distro.workspace = true
-borea-engine.workspace = true
 borea-network.workspace = true
 rpassword.workspace = true
 

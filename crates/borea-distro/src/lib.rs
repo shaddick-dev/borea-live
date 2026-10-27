@@ -13,10 +13,10 @@ pub mod secure_boot;
 
 use std::fmt;
 
-use borea_catalog::Distro;
-use borea_core::{Architecture, Fact, FirmwareMode, SupportStatus};
 use borea_hardware::{DiskUsage, GpuVendor, HardwareSnapshot, Microcode};
 use borea_host::{HostCapability, HostEnvironment};
+use borea_live_catalog::Distro;
+use borea_live_core::{Architecture, Fact, FirmwareMode, SupportStatus};
 
 /// Where the target's native package tooling comes from. Never the host's PATH.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -375,10 +375,10 @@ pub fn machine_findings(hw: &HardwareSnapshot) -> Vec<Finding> {
 mod tests {
     use super::*;
     use HostCapability::*;
-    use borea_catalog::Catalog;
-    use borea_core::{DeviceClass, X86Level};
     use borea_hardware::{Cpu, Gpu};
     use borea_host::{HostKind, OsIdentity};
+    use borea_live_catalog::Catalog;
+    use borea_live_core::{DeviceClass, X86Level};
 
     fn host(kind: HostKind, os_id: &str) -> HostEnvironment {
         HostEnvironment {

@@ -6,9 +6,9 @@
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 
-use borea_catalog::Catalog;
-use borea_core::{Fact, Family};
 use borea_hardware::{DiskUsage, HardwareSnapshot};
+use borea_live_catalog::Catalog;
+use borea_live_core::{Fact, Family};
 use eframe::egui::{
     self, Align, CentralPanel, ComboBox, CornerRadius, Frame, Id, Layout, Margin, Modal, RichText,
     ScrollArea, Stroke, Ui, UiBuilder, text::LayoutJob,

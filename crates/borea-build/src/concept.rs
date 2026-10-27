@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use borea_catalog::{Catalog, Source};
+use borea_live_catalog::{Catalog, Source};
 use serde_json::{Map, Value, json};
 
 use crate::Result;
@@ -30,7 +30,7 @@ fn via(source: &Source) -> &'static str {
     }
 }
 
-fn on<'a>(sources: impl Iterator<Item = (&'a borea_core::DistroId, &'a Source)>) -> Value {
+fn on<'a>(sources: impl Iterator<Item = (&'a borea_live_core::DistroId, &'a Source)>) -> Value {
     let map: Map<String, Value> = sources
         .map(|(distro, source)| {
             (distro.to_string(), json!({ "via": via(source), "label": source.to_string() }))

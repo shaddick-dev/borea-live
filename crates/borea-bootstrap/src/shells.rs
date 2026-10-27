@@ -5,7 +5,7 @@
 
 use std::io::Write;
 
-use borea_catalog::{Catalog, Compositor, Distro, Offer, Source};
+use borea_live_catalog::{Catalog, Compositor, Distro, Offer, Source};
 
 use crate::Result;
 use crate::ui::{Out, list, section};

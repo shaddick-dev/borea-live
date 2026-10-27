@@ -1,7 +1,7 @@
 //! Nerd Font icons the interface uses, by meaning. Each is one glyph of the bundled
 //! JetBrains Mono Nerd Font; names follow nerdfonts.com's cheat sheet.
 
-use borea_core::Family;
+use borea_live_core::Family;
 
 // Distributions and desktops (nf-linux-*).
 pub const ARCH: &str = "\u{f303}";
