@@ -305,7 +305,7 @@ pub const PKGS: &[(&str, [&str; 4])] = &[
     ("btop", ["btop", "btop", "btop", "btop"]),
     ("smartmontools", ["smartmontools", "smartmontools", "smartmontools", "smartmontools"]),
     ("lm-sensors", ["lm_sensors", "lm-sensors", "lm_sensors", "sensors"]),
-    ("iotop", ["iotop", "iotop", "iotop", "iotop"]),
+    ("iotop", ["iotop", "iotop", "iotop-c", "iotop"]),
     ("nmap", ["nmap", "nmap", "nmap", "nmap"]),
     ("tcpdump", ["tcpdump", "tcpdump", "tcpdump", "tcpdump"]),
     ("mtr", ["mtr", "mtr-tiny", "mtr", "mtr"]),

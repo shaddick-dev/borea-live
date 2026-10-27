@@ -53,6 +53,9 @@ chroot '/run/borea/tools/fedora' '/usr/bin/dnf' 'environment' 'info' 'kde-deskto
 '/usr/sbin/blkid' '-s' 'UUID' '-o' 'value' '/dev/mapper/${MAPPER_NAME}'
 
 # Installing Fedora.
+# write target:/etc/kernel/cmdline mode 644
+# rd.luks.name=${LUKS_UUID}=borea-root root=/dev/mapper/borea-root rootflags=subvol=root
+#
 chroot '/run/borea/tools/fedora' '/usr/bin/dnf' '--installroot=/mnt' '--releasever=43' '--use-host-config' 'install' '-y' '@core' '@kde-desktop-environment' 'NetworkManager' 'amd-ucode-firmware' 'bluez' 'btrfs-progs' 'cryptsetup' 'cups' 'dracut' 'efibootmgr' 'firewalld' 'glibc-langpack-en' 'grub2-efi-x64' 'grub2-tools' 'grubby' 'kbd' 'kernel' 'kernel-core' 'kernel-modules' 'linux-firmware' 'nano' 'os-prober' 'pipewire' 'policycoreutils' 'sddm' 'selinux-policy-targeted' 'shim-x64' 'sudo' 'systemd' 'zram-generator'
 'mount' '-t' 'proc' '-o' 'nosuid,nodev,noexec' 'proc' '/run/borea/target/proc'
 'mount' '-o' 'rbind,ro' '/sys' '/run/borea/target/sys'
@@ -65,20 +68,25 @@ chroot /run/borea/target '/usr/bin/dnf' '--setopt=localpkg_gpgcheck=1' 'install'
 chroot /run/borea/target '/usr/bin/dnf' 'install' '-y' 'akmod-nvidia-580xx' 'xorg-x11-drv-nvidia-580xx' 'xorg-x11-drv-nvidia-580xx-cuda'
 # write target:/etc/modprobe.d/borea.conf mode 644
 # options nvidia NVreg_PreserveVideoMemoryAllocations=1
-# 
+#
 
 # Configuring your system and account.
 # Install the static Rust first-boot/updater helper, an empty root-owned queue, and its systemd units.
 chroot /run/borea/target '/usr/bin/systemctl' 'enable' 'borea-firstboot.service'
 # write target:/etc/hostname mode 644
 # borea-test
-# 
+#
+# write target:/etc/hosts mode 644
+# 127.0.0.1 localhost
+# 127.0.1.1 borea-test
+# ::1 localhost ip6-localhost ip6-loopback
+#
 # write target:/etc/locale.conf mode 644
 # LANG=en_GB.UTF-8
-# 
+#
 # write target:/etc/vconsole.conf mode 644
 # KEYMAP=uk
-# 
+#
 # write target:/etc/X11/xorg.conf.d/00-keyboard.conf mode 644
 # Section "InputClass"
 #  Identifier "borea-keyboard"
@@ -86,24 +94,24 @@ chroot /run/borea/target '/usr/bin/systemctl' 'enable' 'borea-firstboot.service'
 #  Option "XkbLayout" "gb"
 #  Option "XkbVariant" ""
 # EndSection
-# 
+#
 chroot /run/borea/target '/usr/bin/ln' '-sf' '/usr/share/zoneinfo/Europe/London' '/etc/localtime'
 # write target:/etc/systemd/zram-generator.conf mode 644
 # [zram0]
 # zram-size = min(ram / 2, 8192)
 # compression-algorithm = zstd
-# 
+#
 '/usr/sbin/blkid' '-s' 'UUID' '-o' 'value' '/dev/vda1'
 '/usr/sbin/blkid' '-s' 'UUID' '-o' 'value' '/dev/vda2'
 # Write fstab and crypttab from discovered filesystem/LUKS UUIDs and the reviewed btrfs layout.
 chroot /run/borea/target '/usr/sbin/useradd' '--create-home' '--user-group' '--shell' '/bin/bash' '--groups' 'wheel' '--comment' 'Test User' 'tester'
 # stdin: <redacted secret>
-chroot /run/borea/target '/usr/sbin/chpasswd' 
+chroot /run/borea/target '/usr/sbin/chpasswd'
 # stdin: <redacted secret>
-chroot /run/borea/target '/usr/sbin/chpasswd' 
+chroot /run/borea/target '/usr/sbin/chpasswd'
 # write target:/etc/sudoers.d/10-borea mode 440
 # %wheel ALL=(ALL:ALL) ALL
-# 
+#
 chroot /run/borea/target '/usr/sbin/visudo' '-cf' '/etc/sudoers.d/10-borea'
 chroot /run/borea/target '/usr/bin/systemctl' 'enable' 'NetworkManager.service'
 chroot /run/borea/target '/usr/bin/systemctl' 'enable' 'bluetooth.service'
@@ -117,22 +125,39 @@ chroot /run/borea/target '/usr/bin/systemctl' 'set-default' 'graphical.target'
 
 # Finishing up.
 # write target:/etc/kernel/cmdline mode 644
-# rd.luks.name=${LUKS_UUID}=borea-root root=/dev/mapper/borea-root rootflags=subvol=root 
-# 
+# rd.luks.name=${LUKS_UUID}=borea-root root=/dev/mapper/borea-root rootflags=subvol=root
+#
+# write target:/etc/default/grub mode 644
+# GRUB_DEFAULT=saved
+# GRUB_TIMEOUT=4
+# GRUB_ENABLE_BLSCFG=true
+# GRUB_DISABLE_OS_PROBER=false
+# GRUB_CMDLINE_LINUX="rd.luks.name=${LUKS_UUID}=borea-root root=/dev/mapper/borea-root rootflags=subvol=root "
+#
+chroot /run/borea/target '/usr/bin/mkdir' '-p' '/boot/loader/entries' '/boot/grub2'
+# write target:/etc/kernel/install.conf mode 644
+# layout=bls
+#
+chroot /run/borea/target '/usr/bin/kernel-install' '--boot-path=/boot' '--esp-path=/boot/efi' 'add-all'
 chroot /run/borea/target '/usr/sbin/grubby' '--update-kernel=ALL' '--remove-args=root rootflags rd.luks.uuid rd.luks.name' '--args=rd.luks.name=${LUKS_UUID}=borea-root root=/dev/mapper/borea-root rootflags=subvol=root '
 chroot /run/borea/target '/usr/bin/grub2-editenv' '-' 'set' 'kernelopts=rd.luks.name=${LUKS_UUID}=borea-root root=/dev/mapper/borea-root rootflags=subvol=root '
 chroot /run/borea/target '/usr/bin/dracut' '--regenerate-all' '--force'
 chroot /run/borea/target '/usr/sbin/grub2-mkconfig' '-o' '/boot/grub2/grub.cfg'
+# write target:/boot/efi/EFI/fedora/grub.cfg mode 644
+# search --no-floppy --fs-uuid --set=root ${BOOT_UUID}
+# set prefix=($root)/grub2
+# configfile $prefix/grub.cfg
+#
 # write target:/.autorelabel mode 600
 # -F
-# 
+#
 '/usr/sbin/efibootmgr' '--create' '--disk' '/dev/vda' '--part' '1' '--label' 'Fedora' '--loader' '\EFI\fedora\shimx64.efi'
 chroot /run/borea/target '/usr/bin/find' '/usr/lib/modules' '-mindepth' '1' '-maxdepth' '1' '-printf' '%f
 '
 chroot /run/borea/target '/usr/sbin/akmods' '--force' '--kernels' '${KERNEL_VERSION}'
 chroot /run/borea/target '/usr/bin/dracut' '--regenerate-all' '--force'
 # Restore the target's native DNS file/symlink and refresh the selected Wi-Fi profile before unmounting.
-'/usr/bin/sync' 
+'/usr/bin/sync'
 
 # Cleanup: stop child processes only in the job-owned private namespace,
 # unmount owned trees deepest first and close only this job's encrypted mapping.

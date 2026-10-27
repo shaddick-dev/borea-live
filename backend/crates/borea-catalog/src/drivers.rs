@@ -40,6 +40,15 @@ pub struct Pkg {
     pub source: Source,
     pub name: &'static str,
 }
+pub fn debian_gaming_compat(plan: &DriverPlan) -> Vec<Pkg> {
+    if plan.packages.iter().any(|package| {
+        package.name == "nvidia-driver" && package.source == Source::Repo("debian.non-free")
+    }) {
+        vec![Pkg { source: Source::Repo("debian.non-free"), name: "nvidia-driver-libs:i386" }]
+    } else {
+        Vec::new()
+    }
+}
 
 /// One line for the installer to show: what was found, and what Borea does about it.
 #[derive(Clone, Debug, PartialEq, Eq)]

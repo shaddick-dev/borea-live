@@ -104,6 +104,30 @@ fn passphrase_limits_match_interactive_disk_unlock_bytes() {
         );
     }
 }
+#[test]
+fn native_debian_gaming_uses_contrib_and_matching_32_bit_driver_libraries() {
+    let mut plan = common::plan(Distribution::Debian, true);
+    plan.apps.insert("steam".into());
+    plan.sources.insert("debian.contrib".into(), true);
+    plan.sources.insert("flathub".into(), false);
+    for (_, hw) in borea_catalog::hardware::samples() {
+        let result = review(&plan, &hw).unwrap();
+        assert!(
+            result
+                .packages
+                .iter()
+                .any(|p| p.name == "steam-installer" && p.source == "debian.contrib")
+        );
+        if result.packages.iter().any(|p| p.name == "nvidia-driver") {
+            assert!(
+                result
+                    .packages
+                    .iter()
+                    .any(|p| p.name == "nvidia-driver-libs:i386" && p.source == "debian.non-free")
+            );
+        }
+    }
+}
 
 #[test]
 fn arch_signed_boot_requires_an_explicit_choice_and_setup_mode() {

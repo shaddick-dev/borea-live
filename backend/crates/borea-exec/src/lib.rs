@@ -435,6 +435,13 @@ impl Session {
     }
     fn cmd(&mut self, c: &CommandSpec, emit: &mut impl FnMut(Event)) -> Result<String, Hint> {
         self.command_failure = None;
+        if c.stdin_text.is_some()
+            && (c.stdin.is_some() || c.root != Root::Live || c.program != "/usr/sbin/sfdisk")
+        {
+            return Err(err(
+                "Public stdin is reserved for the approved native partition-size operation.",
+            ));
+        }
         if !c.program.starts_with('/') || c.program.contains("/../") {
             return Err(err("Commands must use an absolute executable path."));
         }
@@ -552,7 +559,11 @@ impl Session {
         io(writeln!(self.log, "{line}"))?;
         emit(Event::Line { stderr: false, text: line });
         let mut child = ChildGuard(io(command
-            .stdin(if c.stdin.is_some() { Stdio::piped() } else { Stdio::null() })
+            .stdin(if c.stdin.is_some() || c.stdin_text.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn())?);
@@ -590,6 +601,11 @@ impl Session {
             };
             let mut stdin =
                 child.stdin.take().ok_or_else(|| err("A secret input pipe was not created."))?;
+            io(stdin.write_all(input.as_bytes()))?;
+        }
+        if let Some(input) = &c.stdin_text {
+            let mut stdin =
+                child.stdin.take().ok_or_else(|| err("The public input pipe is missing."))?;
             io(stdin.write_all(input.as_bytes()))?;
         }
         let stdout =
@@ -733,6 +749,7 @@ impl Session {
                 args,
                 root,
                 stdin: None,
+                stdin_text: None,
                 capture: None,
                 timeout: 3600,
                 retry: true,
@@ -949,6 +966,7 @@ impl Session {
                     args: std::iter::once("--import".into()).chain(paths).collect(),
                     root: Root::Target,
                     stdin: Some(SecretRef::Mok),
+                    stdin_text: None,
                     capture: None,
                     timeout: 120,
                     retry: false,
@@ -1547,7 +1565,7 @@ impl Session {
         if matches!(self.job.plan.disk, borea_core::DiskPlan::Alongside { .. }) {
             for tool in [
                 "/usr/sbin/ntfsresize",
-                "/usr/sbin/parted",
+                "/usr/sbin/sfdisk",
                 "/usr/bin/ntfsinfo",
                 "/usr/bin/ntfsls",
                 "/usr/bin/ntfscat",

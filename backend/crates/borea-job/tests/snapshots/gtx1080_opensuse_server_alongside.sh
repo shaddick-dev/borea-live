@@ -22,7 +22,8 @@ chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--non-interactive' 'info' 
 
 # Making space.
 '/usr/sbin/ntfsresize' '--no-progress-bar' '--force' '--size' '48318382080' '/dev/vda3'
-'/usr/sbin/parted' '--script' '/dev/vda' 'unit' 's' 'resizepart' '3' '100663295s'
+# public stdin: size=94371840
+'/usr/sbin/sfdisk' '--no-reread' '--no-tell-kernel' '--wipe=never' '--wipe-partitions=never' '-N' '3' '/dev/vda'
 '/usr/sbin/sgdisk' '--new=4:100663296:195035135' '--typecode=4:8309' '--change-name=4:borea_root' '/dev/vda'
 '/usr/sbin/partprobe' '/dev/vda'
 '/usr/bin/udevadm' 'settle'
@@ -75,6 +76,9 @@ chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--non-interactive' 'info' 
 '/usr/sbin/blkid' '-s' 'UUID' '-o' 'value' '/dev/mapper/${MAPPER_NAME}'
 
 # Installing openSUSE.
+# write target:/etc/kernel/cmdline mode 644
+# rd.luks.name=${LUKS_UUID}=borea-root root=/dev/mapper/borea-root rootflags=subvol=@
+#
 # Copy native openSUSE repository definitions from the authenticated tool root into the target.
 chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--root' '/mnt' '--gpg-auto-import-keys' '--non-interactive' 'install' '--auto-agree-with-licenses' '--type' 'pattern' 'minimal_base'
 chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--root' '/mnt' '--non-interactive' 'install' '--auto-agree-with-licenses' 'NetworkManager' 'btrfsprogs' 'chrony' 'cockpit' 'cryptsetup' 'dracut' 'fail2ban' 'firewalld' 'glibc-locale' 'kbd' 'kernel-default' 'kernel-firmware-all' 'nano' 'openssh-server' 'rsync' 'sdbootutil' 'shim' 'snapper' 'sudo' 'systemd' 'systemd-boot' 'tmux' 'ucode-amd' 'zram-generator'
@@ -89,20 +93,25 @@ chroot /run/borea/target '/usr/bin/zypper' '--non-interactive' 'install' 'openSU
 chroot /run/borea/target '/usr/bin/zypper' '--non-interactive' 'install' '--auto-agree-with-licenses' 'nvidia-compute-utils-G06' 'nvidia-driver-G06-kmp-meta' 'nvidia-gl-G06' 'nvidia-video-G06'
 # write target:/etc/modprobe.d/borea.conf mode 644
 # options nvidia NVreg_PreserveVideoMemoryAllocations=1
-# 
+#
 
 # Configuring your system and account.
 # Install the static Rust first-boot/updater helper, an empty root-owned queue, and its systemd units.
 chroot /run/borea/target '/usr/bin/systemctl' 'enable' 'borea-firstboot.service'
 # write target:/etc/hostname mode 644
 # borea-test
-# 
+#
+# write target:/etc/hosts mode 644
+# 127.0.0.1 localhost
+# 127.0.1.1 borea-test
+# ::1 localhost ip6-localhost ip6-loopback
+#
 # write target:/etc/locale.conf mode 644
 # LANG=en_GB.UTF-8
-# 
+#
 # write target:/etc/vconsole.conf mode 644
 # KEYMAP=uk
-# 
+#
 # write target:/etc/X11/xorg.conf.d/00-keyboard.conf mode 644
 # Section "InputClass"
 #  Identifier "borea-keyboard"
@@ -110,18 +119,18 @@ chroot /run/borea/target '/usr/bin/systemctl' 'enable' 'borea-firstboot.service'
 #  Option "XkbLayout" "gb"
 #  Option "XkbVariant" ""
 # EndSection
-# 
+#
 chroot /run/borea/target '/usr/bin/ln' '-sf' '/usr/share/zoneinfo/Europe/London' '/etc/localtime'
 # write target:/etc/systemd/zram-generator.conf mode 644
 # [zram0]
 # zram-size = min(ram / 2, 8192)
 # compression-algorithm = zstd
-# 
+#
 '/usr/sbin/blkid' '-s' 'UUID' '-o' 'value' '/dev/vda1'
 # Write fstab and crypttab from discovered filesystem/LUKS UUIDs and the reviewed btrfs layout.
 # write target:/etc/ssh/sshd_config.d/90-borea-root.conf mode 644
 # PermitRootLogin no
-# 
+#
 # write target:/etc/snapper/configs/root mode 640
 # SUBVOLUME="/"
 # FSTYPE="btrfs"
@@ -129,19 +138,19 @@ chroot /run/borea/target '/usr/bin/ln' '-sf' '/usr/share/zoneinfo/Europe/London'
 # TIMELINE_CLEANUP="yes"
 # NUMBER_CLEANUP="yes"
 # NUMBER_LIMIT="50"
-# 
+#
 # write target:/etc/sysconfig/snapper mode 644
 # SNAPPER_CONFIGS="root"
-# 
+#
 chroot /run/borea/target '/usr/bin/systemctl' 'enable' 'snapper-timeline.timer' 'snapper-cleanup.timer'
 chroot /run/borea/target '/usr/sbin/useradd' '--create-home' '--user-group' '--shell' '/bin/bash' '--groups' 'wheel' '--comment' 'Test User' 'tester'
 # stdin: <redacted secret>
-chroot /run/borea/target '/usr/sbin/chpasswd' 
+chroot /run/borea/target '/usr/sbin/chpasswd'
 # stdin: <redacted secret>
-chroot /run/borea/target '/usr/sbin/chpasswd' 
+chroot /run/borea/target '/usr/sbin/chpasswd'
 # write target:/etc/sudoers.d/10-borea mode 440
 # %wheel ALL=(ALL:ALL) ALL
-# 
+#
 chroot /run/borea/target '/usr/sbin/visudo' '-cf' '/etc/sudoers.d/10-borea'
 chroot /run/borea/target '/usr/bin/systemctl' 'enable' 'NetworkManager.service'
 chroot /run/borea/target '/usr/bin/systemctl' 'enable' 'chronyd.service'
@@ -157,20 +166,20 @@ chroot /run/borea/target '/usr/bin/firewall-offline-cmd' '--add-service=cockpit'
 
 # Finishing up.
 # write target:/etc/kernel/cmdline mode 644
-# rd.luks.name=${LUKS_UUID}=borea-root root=/dev/mapper/borea-root rootflags=subvol=@ 
-# 
+# rd.luks.name=${LUKS_UUID}=borea-root root=/dev/mapper/borea-root rootflags=subvol=@
+#
 chroot /run/borea/target '/usr/bin/dracut' '--regenerate-all' '--force'
 # write target:/etc/sysconfig/bootloader mode 644
 # LOADER_TYPE="systemd-boot"
 # SECURE_BOOT="no"
 # UPDATE_NVRAM="yes"
-# 
+#
 chroot /run/borea/target '/usr/bin/sdbootutil' '--esp-path' '/boot' '--arch' 'x64' 'install'
 chroot /run/borea/target '/usr/bin/sdbootutil' '--esp-path' '/boot' '--arch' 'x64' 'add-all-kernels'
 # Restore every existing EFI/BOOT file verbatim before unmounting, also on failure.
 # Unmount the temporary hashed transport CA directory and regenerate the installed system's native certificate cache. Session proxy trust is never persisted.
 # Restore the target's native DNS file/symlink and refresh the selected Wi-Fi profile before unmounting.
-'/usr/bin/sync' 
+'/usr/bin/sync'
 
 # Cleanup: stop child processes only in the job-owned private namespace,
 # unmount owned trees deepest first and close only this job's encrypted mapping.

@@ -88,7 +88,13 @@ fn inventory(distro: Distro) -> BTreeSet<Entry> {
                 for gpu in &mut hw.gpus {
                     gpu.family = family;
                 }
-                for package in catalog::plan_drivers(&hw, distro).packages {
+                let drivers = catalog::plan_drivers(&hw, distro);
+                let compat = if distro == Distro::Debian {
+                    catalog::drivers::debian_gaming_compat(&drivers)
+                } else {
+                    Vec::new()
+                };
+                for package in drivers.packages.into_iter().chain(compat) {
                     add(package.source.key(), package.name);
                 }
             }
@@ -153,6 +159,25 @@ fn query(distro: Distro, entry: &Entry) -> Result<(), Hint> {
             "verify",
             format!("{}: {} is missing or its repository is unavailable", entry.source, entry.name),
         ));
+    }
+    if distro == Distro::Debian {
+        let component = entry
+            .source
+            .strip_prefix("debian.")
+            .ok_or_else(|| hint("verify", "Invalid Debian component."))?;
+        if !String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| line.strip_prefix("Filename: "))
+            .any(|filename| filename.split('/').any(|part| part == component))
+        {
+            return Err(hint(
+                "verify",
+                format!(
+                    "{}: {} is not published in its declared Debian component",
+                    entry.source, entry.name
+                ),
+            ));
+        }
     }
     Ok(())
 }

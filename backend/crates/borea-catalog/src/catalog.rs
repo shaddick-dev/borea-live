@@ -81,7 +81,6 @@ const AE: &str = "arch.core-extra";
 const AM: &str = "arch.multilib";
 const DM: &str = "debian.main";
 const DC: &str = "debian.contrib";
-const DN: &str = "debian.non-free";
 const FF: &str = "fedora.fedora";
 const RF: &str = "fedora.rpmfusion-free";
 const RN: &str = "fedora.rpmfusion-nonfree";
@@ -478,7 +477,7 @@ pub const APPS: &[App] = &[
         mb: 900,
         native: &[
             n(Arch, "steam", AM),
-            n(Debian, "steam-installer", DN),
+            n(Debian, "steam-installer", DC),
             n(Fedora, "steam", RN),
             n(OpenSuse, "steam", ON),
         ],
@@ -664,3 +663,10 @@ pub const PRESETS: &[(&str, &[&str], &[&str])] = &[
     ("Creator", &["gimp", "krita", "inkscape", "kdenlive", "obs", "audacity"], &[]),
     ("Developer", &["vscodium", "neovim"], &["dev", "containers"]),
 ];
+
+pub fn requires_debian_i386(package: &str) -> bool {
+    APPS.iter().any(|app| {
+        matches!(app.id, "steam" | "lutris")
+            && app.native.iter().any(|native| native.distro == Debian && native.pkg == package)
+    })
+}

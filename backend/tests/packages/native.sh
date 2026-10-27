@@ -12,6 +12,7 @@ case "$BOREA_AUDIT_DISTRO" in
   apt-get update
   apt-get install -y --no-install-recommends ca-certificates
   sed -i -e 's|http:|https:|g' -e 's/Components: main$/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources
+  dpkg --add-architecture i386
   apt-get update
   ;;
  fedora)

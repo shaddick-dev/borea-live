@@ -11,7 +11,8 @@ set -euo pipefail
 
 # Making space.
 '/usr/sbin/ntfsresize' '--no-progress-bar' '--force' '--size' '48318382080' '/dev/vda3'
-'/usr/sbin/parted' '--script' '/dev/vda' 'unit' 's' 'resizepart' '3' '100663295s'
+# public stdin: size=94371840
+'/usr/sbin/sfdisk' '--no-reread' '--no-tell-kernel' '--wipe=never' '--wipe-partitions=never' '-N' '3' '/dev/vda'
 '/usr/sbin/sgdisk' '--new=4:100663296:102760447' '--typecode=4:8300' '--change-name=4:Linux boot' '/dev/vda'
 '/usr/sbin/sgdisk' '--new=5:102760448:195035135' '--typecode=5:8309' '--change-name=5:borea_root' '/dev/vda'
 '/usr/sbin/partprobe' '/dev/vda'
@@ -59,20 +60,20 @@ set -euo pipefail
 # Suites: trixie trixie-updates
 # Components: main non-free-firmware
 # Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
-# 
+#
 # Types: deb
 # URIs: https://security.debian.org/debian-security
 # Suites: trixie-security
 # Components: main non-free-firmware
 # Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
-# 
+#
 chroot /run/borea/target '/usr/bin/apt-get' 'update'
 chroot '/run/borea/target' '/usr/bin/dpkg-divert' '--add' '--rename' '--divert' '/usr/sbin/update-initramfs.borea-real' '/usr/sbin/update-initramfs'
 # Temporarily install the static Rust initramfs guard; final boot configuration restores the native tool.
 # write target:/etc/initramfs-tools/update-initramfs.conf mode 644
 # update_initramfs=no
 # backup_initramfs=no
-# 
+#
 chroot /run/borea/target '/usr/bin/apt-get' '-o' 'Dpkg::Options::=--force-confold' 'install' '-y' '--no-install-recommends' 'btrfs-progs' 'chrony' 'cockpit' 'console-data' 'console-setup' 'cryptsetup-initramfs' 'efibootmgr' 'fail2ban' 'firewalld' 'grub-efi-amd64-signed' 'initramfs-tools' 'kbd' 'linux-image-amd64' 'locales' 'mesa-va-drivers' 'mesa-vulkan-drivers' 'nano' 'network-manager' 'openssh-server' 'os-prober' 'rsync' 'shim-signed' 'sudo' 'systemd-sysv' 'systemd-zram-generator' 'tmux'
 chroot /run/borea/target '/usr/bin/apt-get' 'install' '-y' '--no-install-recommends' 'amd64-microcode' 'firmware-amd-graphics' 'firmware-linux'
 
@@ -81,13 +82,18 @@ chroot /run/borea/target '/usr/bin/apt-get' 'install' '-y' '--no-install-recomme
 chroot /run/borea/target '/usr/bin/systemctl' 'enable' 'borea-firstboot.service'
 # write target:/etc/hostname mode 644
 # borea-test
-# 
+#
+# write target:/etc/hosts mode 644
+# 127.0.0.1 localhost
+# 127.0.1.1 borea-test
+# ::1 localhost ip6-localhost ip6-loopback
+#
 # write target:/etc/locale.conf mode 644
 # LANG=en_GB.UTF-8
-# 
+#
 # write target:/etc/default/locale mode 644
 # LANG=en_GB.UTF-8
-# 
+#
 # write target:/etc/X11/xorg.conf.d/00-keyboard.conf mode 644
 # Section "InputClass"
 #  Identifier "borea-keyboard"
@@ -95,13 +101,13 @@ chroot /run/borea/target '/usr/bin/systemctl' 'enable' 'borea-firstboot.service'
 #  Option "XkbLayout" "gb"
 #  Option "XkbVariant" ""
 # EndSection
-# 
+#
 chroot /run/borea/target '/usr/bin/ln' '-sf' '/usr/share/zoneinfo/Europe/London' '/etc/localtime'
 # write target:/etc/systemd/zram-generator.conf mode 644
 # [zram0]
 # zram-size = min(ram / 2, 8192)
 # compression-algorithm = zstd
-# 
+#
 '/usr/sbin/blkid' '-s' 'UUID' '-o' 'value' '/dev/vda1'
 '/usr/sbin/blkid' '-s' 'UUID' '-o' 'value' '/dev/vda4'
 # Write fstab and crypttab from discovered filesystem/LUKS UUIDs and the reviewed btrfs layout.
@@ -111,23 +117,23 @@ chroot /run/borea/target '/usr/bin/ln' '-sf' '/usr/share/zoneinfo/Europe/London'
 # XKBVARIANT=
 # XKBOPTIONS=
 # BACKSPACE=guess
-# 
+#
 chroot /run/borea/target '/usr/bin/setupcon' '--save-only'
 # write target:/etc/locale.gen mode 644
 # en_GB.UTF-8 UTF-8
-# 
-chroot /run/borea/target '/usr/bin/locale-gen' 
+#
+chroot /run/borea/target '/usr/bin/locale-gen'
 # write target:/etc/ssh/sshd_config.d/90-borea-root.conf mode 644
 # PermitRootLogin no
-# 
+#
 chroot /run/borea/target '/usr/sbin/useradd' '--create-home' '--user-group' '--shell' '/bin/bash' '--groups' 'sudo' '--comment' 'Test User' 'tester'
 # stdin: <redacted secret>
-chroot /run/borea/target '/usr/sbin/chpasswd' 
+chroot /run/borea/target '/usr/sbin/chpasswd'
 # stdin: <redacted secret>
-chroot /run/borea/target '/usr/sbin/chpasswd' 
+chroot /run/borea/target '/usr/sbin/chpasswd'
 # write target:/etc/sudoers.d/10-borea mode 440
 # %sudo ALL=(ALL:ALL) ALL
-# 
+#
 chroot /run/borea/target '/usr/sbin/visudo' '-cf' '/etc/sudoers.d/10-borea'
 chroot /run/borea/target '/usr/bin/systemctl' 'enable' 'NetworkManager.service'
 chroot /run/borea/target '/usr/bin/systemctl' 'enable' 'chrony.service'
@@ -143,20 +149,20 @@ chroot /run/borea/target '/usr/bin/firewall-offline-cmd' '--add-service=cockpit'
 
 # Finishing up.
 # write target:/etc/kernel/cmdline mode 644
-# rd.luks.name=${LUKS_UUID}=borea-root root=/dev/mapper/borea-root rootflags=subvol=@ 
-# 
+# rd.luks.name=${LUKS_UUID}=borea-root root=/dev/mapper/borea-root rootflags=subvol=@
+#
 # write target:/etc/default/grub mode 644
 # GRUB_DEFAULT=0
 # GRUB_TIMEOUT=4
 # GRUB_CMDLINE_LINUX="root=/dev/mapper/borea-root rootflags=subvol=@ "
 # GRUB_DISABLE_OS_PROBER=false
-# 
+#
 chroot '/run/borea/target' '/usr/bin/dpkg-divert' '--remove' '--rename' '--divert' '/usr/sbin/update-initramfs.borea-real' '/usr/sbin/update-initramfs'
 # Remove the temporary guard and restore the native initramfs tool before building boot images.
 # write target:/etc/initramfs-tools/update-initramfs.conf mode 644
 # update_initramfs=yes
 # backup_initramfs=no
-# 
+#
 chroot /run/borea/target '/usr/sbin/update-initramfs' '-c' '-k' 'all'
 chroot /run/borea/target '/usr/bin/mkdir' '-p' '/boot/grub' '/boot/efi/EFI/debian' '/boot/efi/EFI/BOOT'
 chroot /run/borea/target '/usr/bin/cp' '/usr/lib/shim/shimx64.efi.signed' '/boot/efi/EFI/debian/shimx64.efi'
@@ -166,13 +172,13 @@ chroot /run/borea/target '/usr/bin/cp' '/usr/lib/grub/x86_64-efi-signed/grubx64.
 # search --no-floppy --fs-uuid --set=root ${BOOT_UUID}
 # set prefix=($root)/grub
 # configfile $prefix/grub.cfg
-# 
+#
 # Only when EFI/BOOT contains none of BOOTX64.EFI, grubx64.efi, mmx64.efi or grub.cfg: copy /boot/efi/EFI/debian/shimx64.efi, /boot/efi/EFI/debian/grubx64.efi, /boot/efi/EFI/debian/mmx64.efi and the UUID-based loader configuration. Preserve existing fallback files.
 '/usr/sbin/efibootmgr' '--create' '--disk' '/dev/vda' '--part' '1' '--label' 'Debian' '--loader' '\EFI\debian\shimx64.efi'
-chroot /run/borea/target '/usr/sbin/update-grub' 
+chroot /run/borea/target '/usr/sbin/update-grub'
 # Restore every existing EFI/BOOT file verbatim before unmounting, also on failure.
 # Restore the target's native DNS file/symlink and refresh the selected Wi-Fi profile before unmounting.
-'/usr/bin/sync' 
+'/usr/bin/sync'
 
 # Cleanup: stop child processes only in the job-owned private namespace,
 # unmount owned trees deepest first and close only this job's encrypted mapping.

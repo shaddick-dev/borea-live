@@ -29,6 +29,8 @@ pub struct CommandSpec {
     pub args: Vec<String>,
     pub root: Root,
     pub stdin: Option<SecretRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stdin_text: Option<String>,
     pub capture: Option<String>,
     pub timeout: u64,
     pub retry: bool,
@@ -64,7 +66,7 @@ pub enum Action {
 impl Action {
     pub fn preparation_only(&self) -> bool {
         matches!(self, Self::PrepareExternal | Self::AcquireToolRoot { .. } | Self::PreflightNative)
-            || matches!(self, Self::Run(command) if command.root == Root::Live && command.program == "/usr/sbin/debootstrap" && command.args.first().is_some_and(|arg| arg == "--print-debs") && command.stdin.is_none())
+            || matches!(self, Self::Run(command) if command.root == Root::Live && command.program == "/usr/sbin/debootstrap" && command.args.first().is_some_and(|arg| arg == "--print-debs") && command.stdin.is_none() && command.stdin_text.is_none())
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -103,6 +105,9 @@ impl Job {
                         if c.stdin.is_some() {
                             out.push_str("# stdin: <redacted secret>\n");
                         }
+                        if let Some(input) = &c.stdin_text {
+                            out.push_str(&format!("# public stdin: {}\n", input.trim_end()));
+                        }
                         out.push_str(&format!(
                             "{}{} {}\n",
                             match c.root {
@@ -128,7 +133,7 @@ impl Job {
             }
         }
         out.push_str("\n# Cleanup: stop child processes only in the job-owned private namespace,\n# unmount owned trees deepest first and close only this job's encrypted mapping.\n# Restore saved EFI/DNS configuration and preserve the redacted install log.\n");
-        out
+        out.lines().map(str::trim_end).collect::<Vec<_>>().join("\n") + "\n"
     }
 }
 pub fn quote(s: &str) -> String {
@@ -140,6 +145,7 @@ fn run(root: Root, program: &str, args: impl IntoIterator<Item = impl Into<Strin
         args: args.into_iter().map(Into::into).collect(),
         root,
         stdin: None,
+        stdin_text: None,
         capture: None,
         timeout: if program == "/usr/sbin/debootstrap" { 14400 } else { 3600 },
         retry: true,
@@ -262,7 +268,7 @@ pub fn compile(
             .packages
             .iter()
             .filter(|p| p.source.starts_with("debian."))
-            .map(|p| p.name.as_str())
+            .map(|p| p.name.split(':').next().unwrap_or(&p.name))
             .collect::<Vec<_>>();
         prepare.push(run(
             Root::Live,
@@ -298,7 +304,7 @@ pub fn compile(
                 }
                 storage.push(a);
             }
-            Change::ResizeNtfs { path, new_size, number, end_sector } => {
+            Change::ResizeNtfs { path, new_size, number, .. } => {
                 storage.push(run(
                     Root::Live,
                     "/usr/sbin/ntfsresize",
@@ -310,19 +316,25 @@ pub fn compile(
                         path.display().to_string(),
                     ],
                 ));
-                storage.push(run(
+                let mut resize = run(
                     Root::Live,
-                    "/usr/sbin/parted",
+                    "/usr/sbin/sfdisk",
                     [
-                        "--script".into(),
-                        disk.clone(),
-                        "unit".into(),
-                        "s".into(),
-                        "resizepart".into(),
+                        "--no-reread".into(),
+                        "--no-tell-kernel".into(),
+                        "--wipe=never".into(),
+                        "--wipe-partitions=never".into(),
+                        "-N".into(),
                         number.to_string(),
-                        format!("{end_sector}s"),
+                        disk.clone(),
                     ],
-                ));
+                );
+                if let Action::Run(command) = &mut resize {
+                    command.stdin_text =
+                        Some(format!("size={}\n", new_size / layout.disk.logical_sector));
+                    command.retry = false;
+                }
+                storage.push(resize);
             }
             Change::Create { number, start_sector, end_sector, type_code, label, .. } => storage
                 .push(run(
@@ -480,6 +492,11 @@ pub fn compile(
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();
+    let cmdline = format!(
+        "rd.luks.name=${{LUKS_UUID}}=borea-root root=/dev/mapper/borea-root rootflags=subvol={} {}",
+        layout.root_subvol,
+        review.kernel_args.join(" ")
+    );
     let mut bootstrap_actions = match plan.distro {
         Distro::Debian => vec![run(
             Root::Live,
@@ -547,6 +564,9 @@ pub fn compile(
             ),
         );
     }
+    if plan.distro != Distro::Debian {
+        bootstrap_actions.insert(0, write("/etc/kernel/cmdline", cmdline.clone() + "\n", 0o644));
+    }
     // Bind pseudo-filesystems only after a target root exists.
     for (src, path, fs, options) in [
         ("proc", "/proc", Some("proc"), "nosuid,nodev,noexec"),
@@ -596,6 +616,13 @@ pub fn compile(
                 borea_backend::apt_sources(&components),
                 0o644,
             ));
+            if review.packages.iter().any(|package| {
+                package.source.starts_with("debian.")
+                    && (package.name.ends_with(":i386")
+                        || borea_catalog::catalog::requires_debian_i386(&package.name))
+            }) {
+                repos.push(target("/usr/bin/dpkg", ["--add-architecture", "i386"]));
+            }
             repos.push(target("/usr/bin/apt-get", ["update"]));
             repos.push(Action::DeferInitramfs);
             // Generate initramfs once, after UUIDs, encryption and keyboard are configured.
@@ -668,6 +695,14 @@ pub fn compile(
         Action::InstallHelpers,
         target("/usr/bin/systemctl", ["enable", "borea-firstboot.service"]),
         write("/etc/hostname", format!("{}\n", plan.user.hostname), 0o644),
+        write(
+            "/etc/hosts",
+            format!(
+                "127.0.0.1 localhost\n127.0.1.1 {}\n::1 localhost ip6-localhost ip6-loopback\n",
+                plan.user.hostname
+            ),
+            0o644,
+        ),
         write("/etc/locale.conf", format!("LANG={}\n", plan.locale.lang), 0o644),
         write(
             if plan.distro == Distro::Debian {
@@ -848,11 +883,6 @@ pub fn compile(
         apps.push(Action::InstallAppImages { releases: releases.clone() });
     }
     stages.push(Stage { title: "Adding your apps.".into(), weight: 15, actions: apps });
-    let cmdline = format!(
-        "rd.luks.name=${{LUKS_UUID}}=borea-root root=/dev/mapper/borea-root rootflags=subvol={} {}",
-        layout.root_subvol,
-        review.kernel_args.join(" ")
-    );
     let mut boot = vec![write("/etc/kernel/cmdline", cmdline.clone() + "\n", 0o644)];
     match plan.distro {
         Distro::Arch => {
@@ -926,6 +956,13 @@ pub fn compile(
             boot.push(target("/usr/sbin/update-grub", Vec::<String>::new()));
         }
         Distro::Fedora => {
+            boot.push(write("/etc/default/grub", format!("GRUB_DEFAULT=saved\nGRUB_TIMEOUT=4\nGRUB_ENABLE_BLSCFG=true\nGRUB_DISABLE_OS_PROBER=false\nGRUB_CMDLINE_LINUX=\"{cmdline}\"\n"), 0o644));
+            boot.push(target("/usr/bin/mkdir", ["-p", "/boot/loader/entries", "/boot/grub2"]));
+            boot.push(write("/etc/kernel/install.conf", "layout=bls\n".into(), 0o644));
+            boot.push(target(
+                "/usr/bin/kernel-install",
+                ["--boot-path=/boot", "--esp-path=/boot/efi", "add-all"],
+            ));
             boot.push(target(
                 "/usr/sbin/grubby",
                 [
@@ -940,6 +977,7 @@ pub fn compile(
             ));
             boot.push(target("/usr/bin/dracut", ["--regenerate-all", "--force"]));
             boot.push(target("/usr/sbin/grub2-mkconfig", ["-o", "/boot/grub2/grub.cfg"]));
+            boot.push(write("/boot/efi/EFI/fedora/grub.cfg", "search --no-floppy --fs-uuid --set=root ${BOOT_UUID}\nset prefix=($root)/grub2\nconfigfile $prefix/grub.cfg\n".into(), 0o644));
             boot.push(write("/.autorelabel", "-F\n".into(), 0o600));
             boot.push(run(
                 Root::Live,

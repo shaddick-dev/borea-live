@@ -14,6 +14,9 @@ use std::{
 use zeroize::Zeroizing;
 #[path = "../media.rs"]
 mod media;
+fn marker(buffer: &str, expected: &str) -> bool {
+    buffer.lines().any(|line| line.trim() == expected)
+}
 fn run() -> Result<(), String> {
     if fs::read_to_string("/work/.borea-test-workdir").ok().as_deref().map(str::trim)
         != Some("BOREA_TEST_WORK")
@@ -218,7 +221,7 @@ fn run() -> Result<(), String> {
         ""
     };
     let checks = format!(
-        ". /etc/os-release; test \"$ID\" = {expected_distro} && echo BOREA_DISTRO_OK; test \"$(id -un)\" = boreatest && echo BOREA_USER_OK; test -b /dev/mapper/borea-root && echo BOREA_LUKS_OK; nm-online -q --timeout=60 && echo BOREA_NET_OK; {firmware_check}sudo -S -p '[BOREA_SUDO]' id -u\n"
+        "echo; . /etc/os-release; test \"$ID\" = {expected_distro} && echo BOREA_DISTRO_OK; test \"$(id -un)\" = boreatest && echo BOREA_USER_OK; test -b /dev/mapper/borea-root && echo BOREA_LUKS_OK; nm-online -q --timeout=60 && echo BOREA_NET_OK; {firmware_check}sudo -k; sudo -S -p '[BOREA_SUDO]' id -u && echo BOREA_SUDO_OK\n"
     );
     loop {
         if start.elapsed() > Duration::from_secs(if boot { 1800 } else { 14400 }) {
@@ -261,11 +264,11 @@ fn run() -> Result<(), String> {
                     install_exit_ok |= buffer.contains("BOREA_VM_INSTALL_EXIT_0");
                     continue;
                 }
-                distro_ok |= buffer.contains("BOREA_DISTRO_OK");
-                user_ok |= buffer.contains("BOREA_USER_OK");
-                firmware_ok |= buffer.contains("BOREA_SECURE_BOOT_OK");
-                luks |= buffer.contains("BOREA_LUKS_OK");
-                net |= buffer.contains("BOREA_NET_OK");
+                distro_ok |= marker(&buffer, "BOREA_DISTRO_OK");
+                user_ok |= marker(&buffer, "BOREA_USER_OK");
+                firmware_ok |= marker(&buffer, "BOREA_SECURE_BOOT_OK");
+                luks |= marker(&buffer, "BOREA_LUKS_OK");
+                net |= marker(&buffer, "BOREA_NET_OK");
                 let input = match stage {
                     0 if buffer.contains("Please unlock disk")
                         || buffer.contains("Enter passphrase") =>
@@ -283,20 +286,20 @@ fn run() -> Result<(), String> {
                     }
                     3 if buffer.contains("boreatest@borea-test-vm") => {
                         stage = 4;
-                        Some("stty -echo\n")
+                        Some("stty -echo; echo; echo BOREA_CONSOLE_READY\n")
                     }
-                    4 if buffer.contains("boreatest@borea-test-vm") => {
+                    4 if marker(&buffer, "BOREA_CONSOLE_READY") => {
                         stage = 5;
                         Some(checks.as_str())
                     }
-                    5 if buffer.contains("[BOREA_SUDO]") => {
+                    5 if buffer.lines().any(|line| line.trim_end().ends_with("[BOREA_SUDO]")) => {
                         stage = 6;
                         Some("borea-disposable-vm-ONLY\n")
                     }
-                    6 if buffer.contains("\n0\r\n") || buffer.contains("\n0\n") => {
+                    6 if marker(&buffer, "BOREA_SUDO_OK") => {
                         sudo = true;
                         stage = 7;
-                        Some("echo BOREA_VM_BOOT_OK; sudo /usr/bin/systemctl poweroff\n")
+                        Some("echo; echo BOREA_VM_BOOT_OK; sudo /usr/bin/systemctl poweroff\n")
                     }
                     _ => None,
                 };
@@ -305,7 +308,7 @@ fn run() -> Result<(), String> {
                     stdin.flush().map_err(|e| e.to_string())?;
                     buffer.clear();
                 }
-                complete |= buffer.contains("BOREA_VM_BOOT_OK");
+                complete |= marker(&buffer, "BOREA_VM_BOOT_OK");
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -331,5 +334,16 @@ fn main() -> std::process::ExitCode {
             eprintln!("{e}");
             std::process::ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn console_markers_ignore_echoed_commands_and_accept_crlf_output() {
+        assert!(!marker("sudo id -u && echo BOREA_SUDO_OK\r\n", "BOREA_SUDO_OK"));
+        assert!(marker("0\r\nBOREA_SUDO_OK\r\n", "BOREA_SUDO_OK"));
+        assert!(!marker("not BOREA_SUDO_OK\r\n", "BOREA_SUDO_OK"));
     }
 }

@@ -161,6 +161,7 @@ fn review_script_cannot_execute_without_the_privileged_service() {
             args: vec![marker.display().to_string()],
             root: Root::Live,
             stdin: None,
+            stdin_text: None,
             capture: None,
             timeout: 5,
             retry: false,

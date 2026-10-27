@@ -66,6 +66,10 @@
     },
     {
       "source": "arch.core-extra",
+      "name": "mkinitcpio"
+    },
+    {
+      "source": "arch.core-extra",
       "name": "nano"
     },
     {

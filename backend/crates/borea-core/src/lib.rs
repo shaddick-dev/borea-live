@@ -552,6 +552,15 @@ pub fn review(plan: &Plan, hw: &catalog::Hardware) -> Result<Review, Hint> {
             packages.insert((src.key().into(), p.into()));
         }
     }
+    if plan.distro == Distro::Debian
+        && packages.iter().any(|(source, name)| {
+            source.starts_with("debian.") && catalog::catalog::requires_debian_i386(name)
+        })
+    {
+        for package in catalog::drivers::debian_gaming_compat(&driver) {
+            packages.insert((package.source.key().into(), package.name.into()));
+        }
+    }
     let mut services = driver.services.iter().map(|s| (*s).to_owned()).collect::<BTreeSet<_>>();
     services.insert("NetworkManager.service".into());
     if let Some((_, manager)) = groups.desktop {

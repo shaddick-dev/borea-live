@@ -53,6 +53,7 @@ pub fn boot_packages(d: Distro) -> &'static [&'static str] {
     match d {
         Distro::Arch => &[
             "linux",
+            "mkinitcpio",
             "linux-firmware",
             "systemd",
             "cryptsetup",

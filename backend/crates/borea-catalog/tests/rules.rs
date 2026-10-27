@@ -46,7 +46,7 @@ fn steam_comes_from_each_distros_own_repo() {
     let steam = app("steam").unwrap();
     let want = [
         (Distro::Arch, "arch.multilib"),
-        (Distro::Debian, "debian.non-free"),
+        (Distro::Debian, "debian.contrib"),
         (Distro::OpenSuse, "opensuse.non-oss"),
     ];
     for (d, repo) in want {
@@ -100,7 +100,7 @@ fn plan_groups_by_source_and_flags_stranded_apps() {
     let sel = Selection::with(&["firefox", "discord", "steam", "gimp"]);
     let p = plan(&sel, &s, Prefer::Native);
     assert_eq!(p.batches[&Source::Repo("debian.main")], vec!["firefox-esr", "gimp"]);
-    assert_eq!(p.batches[&Source::Repo("debian.non-free")], vec!["steam-installer"]);
+    assert_eq!(p.batches[&Source::Repo("debian.contrib")], vec!["steam-installer"]);
     assert_eq!(p.batches[&Source::Flathub], vec!["com.discordapp.Discord"]);
     assert_eq!(p.count(), 4);
     // Switch Flathub off after picking: Discord is stranded rather than silently dropped.
