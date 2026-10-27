@@ -35,7 +35,7 @@ cargo run -p borea-flash --bin borea-rataTUI
 ## Workflow
 
 1. Prepare the ISO. Missing or changed sources start the build with progress and
-   a log. The first build can take hours; subsequent builds are incremental.
+   a log. The first build can take up to a few hours, depending on your machine; later builds are incremental.
 2. Check the ISO and its adjacent SHA-256 when present.
 3. Select a USB drive. **r** rescans; **u** unmounts a mounted candidate.
 4. Type the selected device name to confirm erasing it.
