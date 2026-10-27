@@ -112,27 +112,27 @@ packages=()
 case "$family" in
 arch)
     packages=(base-devel git curl)
-    [ "$FLASH_ONLY" -eq 1 ] || packages+=(perl python rsync cpio unzip bc wget file tar xz bzip2 which)
+    [ "$FLASH_ONLY" -eq 1 ] || packages+=(perl python rsync cpio unzip bc wget file tar xz bzip2 which bison flex)
     install=(sudo pacman -S --needed --noconfirm)
     ;;
 fedora)
     packages=(gcc git curl)
-    [ "$FLASH_ONLY" -eq 1 ] || packages+=(make gcc-c++ patch perl python3 rsync cpio unzip bc wget file tar xz bzip2 which diffutils findutils)
+    [ "$FLASH_ONLY" -eq 1 ] || packages+=(make gcc-c++ patch perl python3 rsync cpio unzip bc wget file tar xz bzip2 which diffutils findutils bison flex)
     install=(sudo dnf install -y)
     ;;
 debian)
     packages=(build-essential git curl ca-certificates)
-    [ "$FLASH_ONLY" -eq 1 ] || packages+=(patch perl python3 rsync cpio unzip bc wget file tar xz-utils bzip2)
+    [ "$FLASH_ONLY" -eq 1 ] || packages+=(patch perl python3 rsync cpio unzip bc wget file tar xz-utils bzip2 bison flex)
     install=(sudo apt-get install -y)
     ;;
 suse)
     packages=(gcc git curl)
-    [ "$FLASH_ONLY" -eq 1 ] || packages+=(make gcc-c++ patch perl python3 rsync cpio unzip bc wget file tar xz bzip2 which diffutils)
+    [ "$FLASH_ONLY" -eq 1 ] || packages+=(make gcc-c++ patch perl python3 rsync cpio unzip bc wget file tar xz bzip2 which diffutils bison flex)
     install=(sudo zypper --non-interactive install)
     ;;
 *)
     warn "no package list for '$ID'. Install a C compiler, git and curl yourself"
-    [ "$FLASH_ONLY" -eq 1 ] || warn "for the ISO build also: make g++ patch perl python3 rsync cpio unzip bc wget file tar xz bzip2 (or install Nix, which the build uses for anything missing)"
+    [ "$FLASH_ONLY" -eq 1 ] || warn "for the ISO build also: make g++ patch perl python3 rsync cpio unzip bc wget file tar xz bzip2 bison flex (or install Nix, which the build uses for anything missing)"
     ;;
 esac
 

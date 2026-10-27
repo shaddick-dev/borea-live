@@ -22,6 +22,16 @@ SYSTEMD_CONF_OPTS := $(filter-out -Dpolkit=disabled,$(SYSTEMD_CONF_OPTS)) \
 	-Dpolkit=enabled
 endif
 
+# Linux-PAM 1.7 (meson) generates its pam_conv1 parser with bison, or byacc,
+# but Buildroot's package doesn't depend on host-bison: it only built where the
+# build machine had bison installed ("Program 'byacc' not found", seen on
+# Debian once per-package directories stopped packages borrowing undeclared
+# tools). Give it Buildroot's own bison, and order its configure after it.
+ifeq ($(BR2_PACKAGE_LINUX_PAM),y)
+LINUX_PAM_DEPENDENCIES += host-bison
+$(LINUX_PAM_TARGET_CONFIGURE): | host-bison
+endif
+
 # Every Intel Wi-Fi card. Buildroot's per-generation options leave out some of the
 # most common laptop cards: the AX200 (cc), the AX201 in Alder and Raptor Lake
 # laptops (so-hr), and the AX211 and BE200 families of Meteor Lake and later (ma,
