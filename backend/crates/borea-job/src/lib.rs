@@ -416,6 +416,19 @@ pub fn compile(
         },
     ];
     for (sub, _) in &layout.subvolumes {
+        if let Some(parent) =
+            std::path::Path::new(sub).parent().filter(|p| !p.as_os_str().is_empty())
+        {
+            locking.push(run(
+                Root::Live,
+                "/usr/bin/mkdir",
+                [
+                    "--parents".into(),
+                    "--mode=0755".into(),
+                    format!("{TARGET}/{}", parent.display()),
+                ],
+            ));
+        }
         locking.push(run(
             Root::Live,
             "/usr/bin/btrfs",

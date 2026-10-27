@@ -1359,10 +1359,14 @@ impl Session {
                 let found = self.command(
                     Root::Tools,
                     "/usr/bin/dnf",
-                    vec!["repoquery".into(), "--available".into(), "--queryformat=%{name}".into()]
-                        .into_iter()
-                        .chain(packages.iter().filter(|name| !name.starts_with('@')).cloned())
-                        .collect(),
+                    vec![
+                        "repoquery".into(),
+                        "--available".into(),
+                        "--queryformat=%{name}\\n".into(),
+                    ]
+                    .into_iter()
+                    .chain(packages.iter().filter(|name| !name.starts_with('@')).cloned())
+                    .collect(),
                     emit,
                 )?;
                 for package in packages {

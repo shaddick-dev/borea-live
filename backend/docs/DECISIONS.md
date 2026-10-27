@@ -39,3 +39,4 @@
 - `bootctl --boot-path` selects XBOOTLDR and is supplied only when the layout has that separate partition. With a single ESP mounted at /boot, the ESP is sufficient.
 - Native certificate-directory symlinks are canonicalized and must stay inside the owned authenticated root. Their actual mount path is recorded for restoration; native directory links are preserved.
 - The synthetic post-resize NTFS check uses read-only ntfscat --force because ntfsresize deliberately schedules chkdsk. Production NTFS discovery/refusal rules are unchanged.
+- DNF5 repoquery formats explicitly terminate package names with a newline; native multi-package preflight must not interpret concatenated names as missing packages. Nested Btrfs subvolume parents are created explicitly. Disposable boot automation accepts both cryptsetup and systemd passphrase prompt capitalization.

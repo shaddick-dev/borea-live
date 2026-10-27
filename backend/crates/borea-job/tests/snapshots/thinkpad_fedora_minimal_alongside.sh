@@ -17,7 +17,7 @@ set -euo pipefail
 # For container archives move the verified bundle/rootfs into the tool root. Mount proc, sys and dev there; native tooling must exist. Temporary session CA trust is copied into /run.
 # Check live utilities and the static x86-64 target helper before disk changes.
 chroot '/run/borea/tools/fedora' '/usr/bin/dnf' 'makecache' '--refresh'
-chroot '/run/borea/tools/fedora' '/usr/bin/dnf' 'repoquery' '--available' '--queryformat=%{name}' 'NetworkManager' 'alsa-sof-firmware' 'btrfs-progs' 'cryptsetup' 'dracut' 'efibootmgr' 'fprintd' 'fprintd-pam' 'glibc-langpack-en' 'grub2-efi-x64' 'grub2-tools' 'grubby' 'kbd' 'kernel' 'kernel-core' 'kernel-modules' 'libva-intel-media-driver' 'linux-firmware' 'mesa-dri-drivers' 'mesa-vulkan-drivers' 'microcode_ctl' 'nano' 'os-prober' 'policycoreutils' 'selinux-policy-targeted' 'shim-x64' 'sudo' 'systemd' 'tuned-ppd' 'zram-generator'
+chroot '/run/borea/tools/fedora' '/usr/bin/dnf' 'repoquery' '--available' '--queryformat=%{name}\n' 'NetworkManager' 'alsa-sof-firmware' 'btrfs-progs' 'cryptsetup' 'dracut' 'efibootmgr' 'fprintd' 'fprintd-pam' 'glibc-langpack-en' 'grub2-efi-x64' 'grub2-tools' 'grubby' 'kbd' 'kernel' 'kernel-core' 'kernel-modules' 'libva-intel-media-driver' 'linux-firmware' 'mesa-dri-drivers' 'mesa-vulkan-drivers' 'microcode_ctl' 'nano' 'os-prober' 'policycoreutils' 'selinux-policy-targeted' 'shim-x64' 'sudo' 'systemd' 'tuned-ppd' 'zram-generator'
 
 # Making space.
 '/usr/sbin/ntfsresize' '--no-progress-bar' '--force' '--size' '48318382080' '/dev/vda3'

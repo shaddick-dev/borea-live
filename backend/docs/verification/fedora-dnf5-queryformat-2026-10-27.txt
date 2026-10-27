@@ -1,0 +1,11 @@
+Native Fedora 44 DNF5 formatting check
+Date: 2026-10-27 UTC
+
+Before: dnf repoquery --installed --queryformat=%{name} bash glibc
+Actual stdout bytes: bashglibc
+
+After: dnf repoquery --installed --queryformat=%{name}\n bash glibc
+Actual stdout bytes: bash\nglibc\n
+
+The preflight, review renderer and inventory audit now use the explicit newline.
+The native query was read-only and used already-installed packages.

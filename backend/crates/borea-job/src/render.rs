@@ -247,7 +247,7 @@ pub(crate) fn helper(job: &Job, action: &Action, out: &mut String) {
                         job,
                         Root::Tools,
                         "/usr/bin/dnf",
-                        args(&["repoquery", "--available", "--queryformat=%{name}"])
+                        args(&["repoquery", "--available", "--queryformat=%{name}\\n"])
                             .into_iter()
                             .chain(
                                 job.review

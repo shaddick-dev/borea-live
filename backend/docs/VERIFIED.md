@@ -4,9 +4,9 @@ Date: 2026-10-27. This is an evidence ledger, not a completion certificate.
 
 ## Passing checks
 
-- Workspace compilation, formatting, all 83 default unit/integration tests and Clippy with warnings denied pass under Rust 1.85 and stable. The static musl helper also builds under Rust 1.85. GitHub CI independently passes both Rust 1.85 and stable at `15f6f8b` ([run](https://github.com/shaddick-dev/shaddick.dev/actions/runs/40448714631)).
+- Workspace compilation, formatting, all 84 default unit/integration tests and Clippy with warnings denied pass under Rust 1.85 and stable. The static musl helper also builds under Rust 1.85. GitHub CI independently passes both Rust 1.85 and stable at `15f6f8b` ([run](https://github.com/shaddick-dev/shaddick.dev/actions/runs/40448714631)).
 - Native daemon/CLI Unix-socket smoke test passes in a disposable container: live-user access, unrelated-user refusal, directory/socket ownership and modes, and valid initial event polling. [Results](verification/service-socket-2026-10-27.txt).
-- All 83 default workspace unit/integration tests pass, including catalog rules, validation/navigation, locale, layout, journal consistency, EFI preservation, power, executor redaction, mount cleanup, stdin, console markers, static-helper, native audit and service protocol tests. The native NTFS fixture is separately invoked.
+- All 84 default workspace unit/integration tests pass, including catalog rules, validation/navigation, locale, layout, journal consistency, EFI preservation, power, executor redaction, mount cleanup, stdin, console markers, static-helper, native audit and service protocol tests. The native NTFS fixture is separately invoked.
 - Pure job matrix: 120 combinations, four distributions × workstation/Plasma, server, minimal × whole/alongside × five hardware fixtures. Jobs serialize round-trip and retain the Review package selection; destructive and secret commands are checked. The 240 checked-in Review/script snapshots make changes reviewable. Rendered scripts exit before execution; only the approved service executes jobs.
 - 512-byte and 4096-byte sector geometry; refusal of live/mounted/read-only/replaced disks and unsafe NTFS.
 - Generated locale data: 327 UTF-8 locales, 590 keyboard layout/variant entries, 485 time zones, 247 country suggestions. Every country suggestion validates. Host-specific `localtime` and `posixrules` are excluded. Generation provenance is in `LOCALE-DATA.md`.
@@ -26,12 +26,14 @@ Date: 2026-10-27. This is an evidence ledger, not a completion certificate.
 
 - A fresh nightly audit independently passes all four native distro inventories and external sources at `64f1140`. [Run](https://github.com/shaddick-dev/shaddick.dev/actions/runs/40484473113).
 
+- Fresh Debian Secure Boot/alongside install and automatic boot pass end to end at `cc6b670`, without repair: original NTFS UUID/data, approved resized GPT geometry, both EFI sentinels, encrypted-root unlock, account, network, sudo and enforced firmware policy. [CI evidence](verification/debian-clean-secure-alongside-2026-10-27.json).
+
 ## Checks in progress / release gates
 
-- Debian alongside installation completed and its installed system boots with enforced Secure Boot, encrypted-root unlock, account, network and sudo assertions, without a repair. Offline checks confirm NTFS and both EFI sentinels plus approved geometry. The old fixture falsely rejected ntfsresize’s scheduled-chkdsk flag; only the read-only fixture check was corrected. A fresh uninterrupted full harness rerun remains outstanding, including its original UUID comparison. [Evidence](verification/debian-secure-alongside-2026-10-27.json).
+
 - Arch's signed tool-root, native preflight and package installation reached bootloader setup. `bootctl --boot-path` incorrectly required XBOOTLDR when the ESP itself was `/boot`; it is now emitted only for a separate boot partition. Installed boot rerun pending.
-- Fedora archive discovery now accepts native OCI archive suffixes, architecture-first names and relative listing links, with release and path validation. Installed bootstrap/boot rerun pending.
-- Tumbleweed uses a relative native certificate-directory symlink. Transport trust now resolves it inside the authenticated system root, rejecting escaping/cyclic symlinks, and tracks the actual target mount for restoration. Native install/boot rerun pending.
+- Fedora now passes signed archive discovery and reaches native preflight. A native DNF5 check proved that `%{name}` concatenates multi-package output without separators; the explicit newline format fixes false missing-package results. Install/boot rerun pending.
+- Tumbleweed now passes its native certificate-directory handling and reaches filesystem setup. Nested subvolume parents are explicitly created before `btrfs subvolume create`; native install/boot rerun pending.
 - Cloud-local Fedora mirror redirection, Tumbleweed CDN metadata and NVIDIA's repository have returned proxy CONNECT 403 denials. Remote CI can reach these upstreams; no unsigned substitute is used.
 - Arch/Fedora/Tumbleweed complete native install and boot runs. The nightly `backend-vm.yml` workflow exercises whole-drive Secure Boot-off installs for all four bases; manual selection expands to both layouts and firmware policies. A workflow definition is not a passing result.
 - Whole/alongside × Secure Boot off/on QEMU matrix for every distro, real Windows boot preservation, NVIDIA module signing/MOK and real Wi-Fi hardware activation/carry-over. The harness now supports synthetic NTFS/EFI preservation and Microsoft-enrolled firmware scenarios with a genuine signed live boot chain; implemented entry points do not count as passing installed-system results. Arch owner-key enrollment requires separate Setup Mode automation.

@@ -50,7 +50,7 @@ jobs:
     timeout-minutes: 300
     strategy:
       fail-fast: false
-      max-parallel: 2
+      max-parallel: 4
       matrix:
         distro: ${{ fromJSON(inputs.distro == 'arch' && '["arch"]' || inputs.distro == 'debian' && '["debian"]' || inputs.distro == 'fedora' && '["fedora"]' || inputs.distro == 'opensuse' && '["opensuse"]' || '["arch","debian","fedora","opensuse"]') }}
         layout: ${{ fromJSON(inputs.layout == 'both' && '["whole","alongside"]' || inputs.layout == 'alongside' && '["alongside"]' || '["whole"]') }}
@@ -102,7 +102,7 @@ jobs:
         if: failure()
         run: |
           if [ -f vm-console.log ]; then
-            failures=$(grep -E 'BOREA_TEST_ERROR|BOREA_COMMAND_STDERR|VM assertion failed|fatal error:|time limit' vm-console.log || tail -n 8 vm-console.log)
+            failures=$(grep -E 'BOREA_TEST_ERROR|BOREA_COMMAND|VM assertion failed|fatal error:|time limit' vm-console.log || tail -n 8 vm-console.log)
             failures=${failures//%/%25}
             failures=${failures//$'\r'/%0D}
             failures=${failures//$'\n'/%0A}

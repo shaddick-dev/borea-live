@@ -168,6 +168,7 @@ fn run() -> Result<(), Hint> {
         borea_exec::Event::Line { text, .. } => println!("{text}"),
         borea_exec::Event::Failed { fault } => {
             println!("BOREA_FAILED {}", fault.title);
+            println!("BOREA_COMMAND {}", fault.command);
             for line in fault.stderr_tail {
                 println!("BOREA_COMMAND_STDERR {line}");
             }

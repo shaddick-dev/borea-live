@@ -18,7 +18,7 @@ set -euo pipefail
 # Check live utilities and the static x86-64 target helper before disk changes.
 chroot '/run/borea/tools/fedora' '/usr/bin/dnf' '--setopt=localpkg_gpgcheck=1' 'install' '-y' 'https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-43.noarch.rpm'
 chroot '/run/borea/tools/fedora' '/usr/bin/dnf' 'makecache' '--refresh'
-chroot '/run/borea/tools/fedora' '/usr/bin/dnf' 'repoquery' '--available' '--queryformat=%{name}' 'NetworkManager' 'amd-ucode-firmware' 'btrfs-progs' 'cryptsetup' 'dracut' 'efibootmgr' 'glibc-langpack-en' 'grub2-efi-x64' 'grub2-tools' 'grubby' 'kbd' 'kernel' 'kernel-core' 'kernel-modules' 'linux-firmware' 'mesa-dri-drivers' 'mesa-vulkan-drivers' 'nano' 'os-prober' 'policycoreutils' 'selinux-policy-targeted' 'shim-x64' 'sudo' 'systemd' 'zram-generator' 'mesa-va-drivers-freeworld'
+chroot '/run/borea/tools/fedora' '/usr/bin/dnf' 'repoquery' '--available' '--queryformat=%{name}\n' 'NetworkManager' 'amd-ucode-firmware' 'btrfs-progs' 'cryptsetup' 'dracut' 'efibootmgr' 'glibc-langpack-en' 'grub2-efi-x64' 'grub2-tools' 'grubby' 'kbd' 'kernel' 'kernel-core' 'kernel-modules' 'linux-firmware' 'mesa-dri-drivers' 'mesa-vulkan-drivers' 'nano' 'os-prober' 'policycoreutils' 'selinux-policy-targeted' 'shim-x64' 'sudo' 'systemd' 'zram-generator' 'mesa-va-drivers-freeworld'
 
 # Clearing the drive.
 '/usr/sbin/sgdisk' '--zap-all' '/dev/vda'

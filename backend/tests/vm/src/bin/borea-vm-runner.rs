@@ -17,6 +17,10 @@ mod media;
 fn marker(buffer: &str, expected: &str) -> bool {
     buffer.lines().any(|line| line.trim() == expected)
 }
+fn unlock_prompt(buffer: &str) -> bool {
+    let text = buffer.to_ascii_lowercase();
+    text.contains("please unlock disk") || text.contains("enter passphrase")
+}
 fn fatal_error(buffer: &str) -> Option<&str> {
     buffer.split_inclusive('\n').find(|line| {
         line.ends_with('\n')
@@ -278,9 +282,7 @@ fn run() -> Result<(), String> {
                 luks |= marker(&buffer, "BOREA_LUKS_OK");
                 net |= marker(&buffer, "BOREA_NET_OK");
                 let input = match stage {
-                    0 if buffer.contains("Please unlock disk")
-                        || buffer.contains("Enter passphrase") =>
-                    {
+                    0 if unlock_prompt(&buffer) => {
                         stage = 1;
                         Some("borea-disposable-vm-ONLY\n")
                     }
@@ -349,6 +351,13 @@ fn main() -> std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_cryptsetup_and_systemd_passphrase_prompts_are_supported() {
+        assert!(unlock_prompt("Please unlock disk borea-root: "));
+        assert!(unlock_prompt("Enter passphrase for /dev/vda2: "));
+        assert!(unlock_prompt("🔐 Please enter passphrase for disk borea_root: "));
+        assert!(!unlock_prompt("borea-test-vm login: "));
+    }
     #[test]
     fn console_markers_ignore_echoed_commands_and_accept_crlf_output() {
         assert!(!marker("sudo id -u && echo BOREA_SUDO_OK\r\n", "BOREA_SUDO_OK"));

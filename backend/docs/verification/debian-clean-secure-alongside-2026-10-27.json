@@ -1,0 +1,31 @@
+{
+  "commit": "cc6b670cfd46c2f3baa3ee3fb2a4cfffee8a0523",
+  "run": "https://github.com/shaddick-dev/shaddick.dev/actions/runs/40503478374",
+  "jobs": [
+    {
+      "completed_at": "2026-10-27T12:28:15Z",
+      "conclusion": "success",
+      "html_url": "https://github.com/shaddick-dev/shaddick.dev/actions/runs/40503478374/job/122186767250",
+      "name": "build"
+    },
+    {
+      "completed_at": "2026-10-27T12:33:34Z",
+      "conclusion": "success",
+      "html_url": "https://github.com/shaddick-dev/shaddick.dev/actions/runs/40503478374/job/122188517437",
+      "name": "install (debian, alongside, 1)"
+    }
+  ],
+  "assertions": [
+    "fresh online install completed",
+    "original NTFS UUID preserved",
+    "approved GPT resize",
+    "NTFS data sentinel preserved",
+    "Microsoft and fallback EFI sentinels preserved",
+    "installed disk booted without repair",
+    "LUKS root unlocked",
+    "correct distribution and account",
+    "network and sudo",
+    "Secure Boot enabled in live and installed OS",
+    "automatic shutdown"
+  ]
+}

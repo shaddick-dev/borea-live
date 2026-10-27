@@ -163,7 +163,7 @@ fn query(distro: Distro, entry: &Entry, debian: Option<&DebianMetadata>) -> Resu
         ),
         Distro::Fedora => (
             "/usr/bin/dnf",
-            vec!["repoquery", "--available", "--queryformat=%{name}", entry.name.as_str()],
+            vec!["repoquery", "--available", "--queryformat=%{name}\\n", entry.name.as_str()],
         ),
         Distro::OpenSuse => (
             "/usr/bin/zypper",
