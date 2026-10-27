@@ -11,6 +11,7 @@ curl -fsSL https://raw.githubusercontent.com/shaddick-dev/borea-live/main/script
 It downloads the ready-made borea-rataTUI from the latest release, checks it, and starts it. The app then downloads the ready-made Borea Live image (checked against its published SHA-256, resumed if interrupted, kept for next time) and writes it to your stick. The whole thing takes as long as the download and the write: minutes, not hours.
 
 - Next time, open **borea-rataTUI** from your app launcher or run `borea-rataTUI`. It only downloads again when a newer release is out.
+- Update the app itself with `borea-rataTUI --update`: it downloads the latest ready-made build in seconds, with nothing to compile.
 - In the app: pick the stick, type its device name to confirm, and it writes then reads every byte back. Only USB or removable drives are offered.
 - Want to see every step first? Add `--dry-run` to the setup script.
 
@@ -177,7 +178,7 @@ The one-command setup is at [the top of this page](#write-borea-live-to-a-usb-st
 To install **borea-rataTUI** as a terminal command and app launcher:
 
 ```sh
-cargo run --release -p borea-flash -- --install     # once: commands + launcher
+cargo run --profile app -p borea-flash -- --install     # once: commands + launcher
 borea-rataTUI             # prepare ISO, choose USB, raw write, sync and verify
 borea-rataTUI IMAGE.iso   # use an existing ISO without rebuilding
 borea-rataTUI --list      # show USB candidates without writing or building

@@ -17,9 +17,9 @@ Ctrl+Alt+F2 opens a rescue console: log in as `root`, with no password. Ctrl+Alt
 ## One command: build and write a stick
 
 ```sh
-cargo run --release -p borea-flash -- --install            # once: adds borea-flash to ~/.local/bin
+cargo run --profile app -p borea-flash -- --install            # once: adds borea-flash to ~/.local/bin
 borea-flash --make                                         # from any terminal
-cargo run --release -p borea-flash -- --install-launcher   # optional: a "borea-rataTUI" app launcher entry
+cargo run --profile app -p borea-flash -- --install-launcher   # optional: a "borea-rataTUI" app launcher entry
 ```
 
 The installed copy remembers this checkout, so `borea-flash --make` works from any directory. Plain `borea-flash` helps too: when this checkout has changed since the newest image, its Image panel says so, and **b** rebuilds before writing (with no image yet, it starts building straight away). It runs in any terminal, the Linux console included. The launcher entry opens a terminal running the same thing. `borea-flash --make`:
@@ -36,7 +36,7 @@ Typing the name is the one deliberate step. Everything else is automatic, and it
 cargo run --release -p borea-build -- iso                    # target/live/out/borea-live-<version>-<date>.iso (+ .sha256)
 cargo run --release -p borea-build -- iso --configure-only   # prepare and check the configuration only
 cargo run --release -p borea-build -- iso --jobs 4           # fewer parallel jobs than the default
-cargo run --release -p borea-flash                           # write the newest build to a USB stick
+cargo run --profile app -p borea-flash                       # write the newest build to a USB stick
 ```
 
 No root needed. The first build downloads a prebuilt Bootlin compiler toolchain, then compiles the kernel, LLVM, Mesa, Borea's Rust, and the rest. It can take up to a few hours, depending on your machine, and about 30 GB. Later builds reuse everything unchanged, including Borea's compiled Rust dependencies (`target/live/output/borea-cargo`). `borea-build iso` (Rust, `crates/borea-build`):

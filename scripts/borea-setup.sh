@@ -239,7 +239,7 @@ else
 fi
 
 # ── 5. borea-rataTUI ───────────────────────────────────────────────────────
-say "Building and installing borea-rataTUI (a few minutes the first time)"
-run cargo run --release --locked --manifest-path "$DIR/Cargo.toml" -p borea-flash -- --install
+say "Building and installing borea-rataTUI (under a minute on most machines the first time, seconds after)"
+run cargo run --profile app --locked --manifest-path "$DIR/Cargo.toml" -p borea-flash -- --install
 
 finish

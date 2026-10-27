@@ -6,6 +6,8 @@ interface. The commands share the same writer:
 - `borea-rataTUI`: download the latest release's ISO (or reuse the copy already
   downloaded when it's still the latest), then flash. Minutes, not hours.
 - `borea-rataTUI IMAGE.iso`: flash an existing image directly.
+- `borea-rataTUI --update`: replace the app with the latest release's ready-made
+  build, in seconds.
 - `borea-rataTUI --make`: developers, in a checkout: build the ISO from source if
   the sources changed, then flash. `--build` always rebuilds.
 - `borea-rataTUI --list [IMAGE.iso]`: list USB candidates without building or writing.
@@ -13,10 +15,12 @@ interface. The commands share the same writer:
 
 ## Install and launch
 
-From this checkout, as your ordinary user:
+From this checkout, as your ordinary user (the `app` profile skips the release
+profile's whole-program LTO: a first build takes well under a minute on most
+machines, and rebuilding after a change about a second):
 
 ```sh
-cargo run --release -p borea-flash -- --install
+cargo run --profile app -p borea-flash -- --install
 borea-rataTUI
 ```
 
