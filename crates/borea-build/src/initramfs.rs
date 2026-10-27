@@ -151,7 +151,7 @@ fn write_member(out: &mut Vec<u8>, ino: u32, mode: u32, name: &str, data: &[u8],
 
 /// newc aligns every header and every file body to 4 bytes.
 fn pad(out: &mut Vec<u8>) {
-    while out.len() % 4 != 0 {
+    while !out.len().is_multiple_of(4) {
         out.push(0);
     }
 }
@@ -190,7 +190,13 @@ mod tests {
 
     #[test]
     fn real_programs_bring_their_libraries() {
-        // This machine's own /usr/bin/true is a dynamically linked ELF program.
+        // This machine's own /usr/bin/true is a dynamically linked ELF program. The
+        // resolver searches the Buildroot target layout (/lib, /usr/lib), so the
+        // host must share it; Debian-family multiarch hosts (and CI runners) do not.
+        if !Path::new("/usr/lib/libc.so.6").exists() && !Path::new("/lib/libc.so.6").exists() {
+            eprintln!("skipped: host libc is not in /lib or /usr/lib");
+            return;
+        }
         let mut image = Image::new();
         image.program(Path::new("/"), "/usr/bin/true", "/init").unwrap();
         let names: Vec<_> = image.entries.keys().cloned().collect();

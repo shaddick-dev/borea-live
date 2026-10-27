@@ -3,7 +3,7 @@ import sys,json,xml.etree.ElementTree as ET,hashlib
 from pathlib import Path
 from babel import Locale
 from babel.core import get_global
-r=Path(__file__).resolve().parents[1];out=r/'crates/borea-locale/src/generated.rs'
+r=Path(__file__).resolve().parents[2];out=r/'crates/borea-locale/src/generated.rs'
 q=lambda s:json.dumps(s,ensure_ascii=False)
 glibc=(r/'crates/borea-locale/data/glibc-SUPPORTED').read_text()
 locales=[]

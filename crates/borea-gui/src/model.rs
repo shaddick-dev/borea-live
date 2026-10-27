@@ -5,8 +5,8 @@
 
 use std::collections::BTreeMap;
 
-use borea_catalog::{Catalog, DesktopChoice, Distro, Edition, Offered, Source};
-use borea_core::Family;
+use borea_live_catalog::{Catalog, DesktopChoice, Distro, Edition, Offered, Source};
+use borea_live_core::Family;
 
 /// Whether a desktop-free edition gets a composed desktop or stays bare.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -374,8 +374,8 @@ pub fn compose_teaser(catalog: &Catalog, distro: &Distro) -> String {
 /// (the reason goes on a line of its own where there is room).
 pub fn device_name(hw: &borea_hardware::HardwareSnapshot) -> String {
     match &hw.device_class {
-        borea_core::Fact::Known(class) => capitalize(&class.to_string()),
-        borea_core::Fact::Unknown { .. } => "Unknown device".into(),
+        borea_live_core::Fact::Known(class) => capitalize(&class.to_string()),
+        borea_live_core::Fact::Unknown { .. } => "Unknown device".into(),
     }
 }
 

@@ -9,11 +9,11 @@
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 
-use borea_catalog::{Catalog, Distro, Edition};
-use borea_core::{Fact, Family, FirmwareMode};
 use borea_distro::secure_boot::{self, Readiness};
 use borea_distro::{Finding, adapter, machine_findings};
 use borea_hardware::{DiskUsage, HardwareSnapshot};
+use borea_live_catalog::{Catalog, Distro, Edition};
+use borea_live_core::{Fact, Family, FirmwareMode};
 use eframe::egui::{
     self, Align, CentralPanel, CornerRadius, Frame, Key, Layout, Margin, Panel, RichText,
     ScrollArea, Stroke, Ui,
@@ -1061,7 +1061,7 @@ impl LiveInstaller {
         section(ui, &p, &format!("{} Shell", icon::TWO));
         let compositor = choice.compositor.clone().unwrap_or_default();
         let compositor_name = s.compositor_name(catalog, family).unwrap_or_default().to_owned();
-        let mut shells: Vec<Option<borea_catalog::Offer<'_, borea_catalog::Shell>>> =
+        let mut shells: Vec<Option<borea_live_catalog::Offer<'_, borea_live_catalog::Shell>>> =
             catalog.desktops.ranked(&distro.id, &compositor).map(Some).collect();
         shells.push(None);
         let suggested = catalog.desktops.suggested(&distro.id, &compositor).map(|s| s.id.clone());

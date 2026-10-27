@@ -1,6 +1,6 @@
 //! Small building blocks Windpad repeats: cards you can choose, badges, buttons.
 
-use borea_catalog::{Catalog, Distro, Source};
+use borea_live_catalog::{Catalog, Distro, Source};
 use eframe::egui::{
     self, Align, Button, CornerRadius, Frame, Layout, Margin, Response, RichText, Role, Sense,
     Stroke, Ui, WidgetInfo,

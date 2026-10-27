@@ -1,5 +1,10 @@
 # Arch installation VM test
 
+> **Not currently runnable end to end.** It drove `borea-worker`, which was
+> retired in favour of `borea-installd`. The boot, login and network stages
+> still work; the install stage stops with a message until it is ported to
+> `borea-cli` and LUKS unlock. Install coverage today: `backend/tests/vm`.
+
 Run as an ordinary user with KVM access. Requires Python 3.11+, QEMU, xorriso,
 OVMF and an already-built Borea Live ISO. Internet access is needed in the VM.
 

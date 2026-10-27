@@ -1,0 +1,36 @@
+[package]
+name = "borea-exec"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+rust-version = "1.85"
+license = "GPL-3.0-or-later"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+[dependencies]
+borea-core.workspace = true
+borea-job.workspace = true
+borea-disk.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+zeroize.workspace = true
+nix.workspace = true
+thiserror.workspace = true
+ureq.workspace = true
+borea-backend.workspace = true
+
+borea-http.workspace = true
+borea-catalog.workspace = true
+
+borea-net.workspace = true
+
+borea-platform.workspace = true
+rustix.workspace = true

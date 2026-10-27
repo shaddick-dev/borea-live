@@ -4,9 +4,9 @@ mod common;
 
 use common::machine;
 
-use borea_core::Family;
 use borea_gui::Windpad;
 use borea_gui::app::{Dialog, Step};
+use borea_live_core::Family;
 use eframe::egui::{self, accesskit::Role};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;

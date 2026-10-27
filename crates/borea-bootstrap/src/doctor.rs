@@ -2,11 +2,11 @@
 
 use std::io::{self, Write};
 
-use borea_catalog::Catalog;
-use borea_core::{Fact, Family};
 use borea_distro::{Finding, adapter, assess, machine_findings};
 use borea_hardware::{DiskUsage, HardwareSnapshot};
 use borea_host::{HostCapability, HostEnvironment, HostKind};
+use borea_live_catalog::Catalog;
+use borea_live_core::{Fact, Family};
 
 use crate::Result;
 use crate::ui::{GIB, Out, list, row, section};

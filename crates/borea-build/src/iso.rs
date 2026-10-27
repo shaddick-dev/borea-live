@@ -274,7 +274,7 @@ fn pack_source(repo: &Path, work: &Path) -> Result {
     if staging.exists() {
         fs::remove_dir_all(&staging).map_err(|e| e.to_string())?;
     }
-    for item in ["Cargo.toml", "Cargo.lock", "rustfmt.toml", "crates"] {
+    for item in ["Cargo.toml", "Cargo.lock", "rustfmt.toml", "crates", "backend"] {
         copy_tree(&repo.join(item), &tree.join(item))?;
     }
     let vendor = tree.join("VENDOR");
