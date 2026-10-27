@@ -4,6 +4,7 @@ Date: 2026-10-27. This is an evidence ledger, not a completion certificate.
 
 ## Passing checks
 
+- Firmware footer update: all 87 backend tests and all 44 native GUI tests pass on stable; the 18 tests in the changed backend packages also pass on Rust 1.85. Formatting and Clippy with warnings denied pass for the backend workspace and GUI. Tests cover firmware-variable decoding, reboot refusal during installation, confirmation/cancellation, disabled legacy-BIOS shortcut, preview isolation, and explicit Secure Boot-off plans for all four base distributions. These checks do not reboot physical firmware.
 - Workspace compilation, formatting, all 84 default unit/integration tests and Clippy with warnings denied pass under Rust 1.85 and stable. The static musl helper also builds under Rust 1.85. GitHub CI independently passes both Rust 1.85 and stable at `15f6f8b` ([run](https://github.com/shaddick-dev/shaddick.dev/actions/runs/40448714631)).
 - Native daemon/CLI Unix-socket smoke test passes in a disposable container: live-user access, unrelated-user refusal, directory/socket ownership and modes, and valid initial event polling. [Results](verification/service-socket-2026-10-27.txt).
 - All 84 default workspace unit/integration tests pass, including catalog rules, validation/navigation, locale, layout, journal consistency, EFI preservation, power, executor redaction, mount cleanup, stdin, console markers, static-helper, native audit and service protocol tests. The native NTFS fixture is separately invoked.
@@ -30,6 +31,7 @@ Date: 2026-10-27. This is an evidence ledger, not a completion certificate.
 
 ## Checks in progress / release gates
 
+- The firmware setup shortcut needs a real-machine reboot check. It requires firmware advertising OS-to-setup support; unsupported machines use their firmware startup key. Secure Boot-off installation remains supported on UEFI; legacy BIOS target boot is not implemented.
 
 - Arch installs and boots to the selected user; full console assertions confirm distribution, LUKS, network and sudo. The harness missed the sudo marker because of OSC 3008 terminal controls and timed out before shutdown. Console parsing is corrected; full clean rerun pending. [Evidence](verification/arch-installed-assertions-2026-10-27.txt).
 - Fedora now passes signed discovery, preflight, installation and account configuration. DNF5 output uses explicit newlines. Kernel installation uses native BOOT_ROOT=/boot for GRUB BLS entries. A completed install reached boot but unlabeled files left PID1 in kernel_t under enforcing SELinux. Native offline setfiles labeling is now included; enforcing-state boot assertion and rerun pending.

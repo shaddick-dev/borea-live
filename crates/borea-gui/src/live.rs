@@ -10,7 +10,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread;
 
 use borea_catalog::{Catalog, Distro, Edition};
-use borea_core::{Fact, Family};
+use borea_core::{Fact, Family, FirmwareMode};
 use borea_distro::secure_boot::{self, Readiness};
 use borea_distro::{Finding, adapter, machine_findings};
 use borea_hardware::{DiskUsage, HardwareSnapshot};
@@ -19,11 +19,12 @@ use eframe::egui::{
     ScrollArea, Stroke, Ui,
 };
 
+use crate::firmware::FirmwareLink;
 use crate::icon;
 use crate::model::{DesktopMode, Selection, ShellPick, capitalize, compose_teaser, device_name};
 use crate::theme::{self, DARK, LIGHT, Palette, RADIUS, size};
 use crate::widgets::{
-    self, badge, caption, choice_card, eyebrow, glyph, notice, primary, quiet, rows, segmented, tag,
+    self, badge, caption, choice_card, eyebrow, glyph, notice, primary, quiet, rows, tag,
 };
 use crate::wifi::{WifiForm, WifiLink};
 use crate::wind;
@@ -116,6 +117,9 @@ pub enum Action {
     SecureBoot(bool),
     ToggleTheme,
     ToggleMotion,
+    OpenFirmware,
+    CancelFirmware,
+    RestartFirmware,
 }
 
 enum Scan {
@@ -143,6 +147,8 @@ pub struct LiveInstaller {
     picked_mode: bool,
     picked_compositor: bool,
     picked_shell: bool,
+    firmware: FirmwareLink,
+    firmware_dialog: bool,
 }
 
 impl LiveInstaller {
@@ -158,7 +164,10 @@ impl LiveInstaller {
             })
             .expect("spawn hardware scan");
         let dark = ctx.system_theme() != Some(egui::Theme::Light);
-        Self::assemble(&ctx, Scan::Pending(rx), WifiLink::spawn(ctx.clone()), dark, false)
+        let mut installer =
+            Self::assemble(&ctx, Scan::Pending(rx), WifiLink::spawn(ctx.clone()), dark, false);
+        installer.firmware = FirmwareLink::system(ctx);
+        installer
     }
 
     /// A still installer with fixed hardware and no network backend, for tests.
@@ -203,6 +212,8 @@ impl LiveInstaller {
             picked_mode: false,
             picked_compositor: false,
             picked_shell: false,
+            firmware: FirmwareLink::preview(),
+            firmware_dialog: false,
         }
     }
 
@@ -254,6 +265,7 @@ impl LiveInstaller {
             self.scan = Scan::Done(Box::new(snapshot));
         }
         self.wifi.poll();
+        self.firmware.poll();
         self.automate();
     }
 
@@ -433,6 +445,14 @@ impl LiveInstaller {
                 theme::apply(ctx, &self.palette);
             }
             Action::ToggleMotion => self.still = !self.still,
+            Action::OpenFirmware => self.firmware_dialog = true,
+            Action::CancelFirmware if !self.firmware.restarting => self.firmware_dialog = false,
+            Action::CancelFirmware => {}
+            Action::RestartFirmware => {
+                if self.firmware_dialog && self.uefi() {
+                    self.firmware.reboot(ctx.clone());
+                }
+            }
         }
         if resets {
             self.reached = self.reached.min(Step::Distribution);
@@ -514,7 +534,7 @@ impl LiveInstaller {
         );
 
         // Enter moves on and Escape goes back, unless a control has keyboard focus.
-        let free = ui.ctx().memory(|m| m.focused().is_none());
+        let free = !self.firmware_dialog && ui.ctx().memory(|m| m.focused().is_none());
         if free && ui.input(|i| i.key_pressed(Key::Enter)) {
             actions.push(Action::Next);
         }
@@ -525,6 +545,7 @@ impl LiveInstaller {
         if moving {
             ui.ctx().request_repaint_after(wind::FRAME);
         }
+        self.firmware_confirmation(ui.ctx(), &mut actions);
         actions
     }
 
@@ -552,7 +573,7 @@ impl LiveInstaller {
         // Six steps must remain reachable on short laptop displays as well.
         ScrollArea::vertical()
             .id_salt("step-rail")
-            .max_height((ui.available_height() - 140.0).max(100.0))
+            .max_height((ui.available_height() - 176.0).max(100.0))
             .show(ui, |ui| {
                 for step in Step::ALL {
                     let done = step < self.step || (step < self.reached && step != self.step);
@@ -594,6 +615,21 @@ impl LiveInstaller {
             });
 
         ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
+            let available = self.uefi() && self.firmware.available && !self.firmware.restarting;
+            let hint = if !self.uefi() {
+                "Restarting into firmware setup requires a UEFI session. Use your firmware's startup key instead."
+            } else if !self.firmware.available {
+                &self.firmware.reason
+            } else {
+                "Restart into UEFI Firmware Setup to change Secure Boot settings."
+            };
+            let button = ui.add_enabled_ui(available, |ui| {
+                quiet(ui, &p, &format!("{}  UEFI setup", icon::CPU))
+            }).inner.on_disabled_hover_text(hint).on_hover_text(hint);
+            if button.clicked() {
+                actions.push(Action::OpenFirmware);
+            }
+            ui.add_space(4.0);
             ui.horizontal(|ui| {
                 let theme = if p.dark { "Light" } else { "Dark" };
                 if quiet(ui, &p, theme).clicked() {
@@ -609,6 +645,49 @@ impl LiveInstaller {
                 ui.label(caption(line, &p));
             }
         });
+    }
+
+    fn uefi(&self) -> bool {
+        self.hardware()
+            .is_some_and(|hw| matches!(hw.firmware, Fact::Known(FirmwareMode::Uefi { .. })))
+    }
+
+    fn firmware_confirmation(&self, ctx: &egui::Context, actions: &mut Vec<Action>) {
+        if !self.firmware_dialog {
+            return;
+        }
+        let p = self.palette;
+        let response = egui::Modal::new(egui::Id::unique("firmware-confirmation"))
+            .frame(Frame::new().fill(p.paper).stroke(Stroke::new(1.0, p.line))
+                .corner_radius(CornerRadius::same(RADIUS)).inner_margin(Margin::same(26)))
+            .show(ctx, |ui| {
+                ui.set_width(420.0_f32.min(ctx.content_rect().width() - 56.0));
+                ui.label(RichText::new("Restart into UEFI setup?").size(size::HEADING));
+                ui.add_space(8.0);
+                ui.label("The computer will restart into its firmware settings, where you can change Secure Boot. Return to the BOREA USB afterwards to continue installation.");
+                ui.label(caption("Your current installer choices are not saved across this restart.", &p));
+                if let Some(error) = &self.firmware.error {
+                    ui.add_space(8.0);
+                    notice(ui, &p, error);
+                }
+                ui.add_space(16.0);
+                ui.add_enabled_ui(!self.firmware.restarting, |ui| {
+                    ui.horizontal(|ui| {
+                        if quiet(ui, &p, "Cancel").clicked() {
+                            actions.push(Action::CancelFirmware);
+                        }
+                        if primary(ui, &p, "Restart into firmware", false).clicked() {
+                            actions.push(Action::RestartFirmware);
+                        }
+                    });
+                });
+                if self.firmware.restarting {
+                    ui.label(caption("Restarting into firmware setup…", &p));
+                }
+            });
+        if response.should_close() && !self.firmware.restarting {
+            actions.push(Action::CancelFirmware);
+        }
     }
 
     /// What each completed step decided, shown under its name in the rail.
@@ -1109,16 +1188,24 @@ impl LiveInstaller {
                     &p,
                 ));
                 ui.add_space(6.0);
-                match self.secure_boot() {
+                let readiness = self.secure_boot();
+                if ui.radio(!self.selection.secure_boot, "Leave Secure Boot off").clicked() {
+                    actions.push(Action::SecureBoot(false));
+                }
+                let available = matches!(readiness, Some(Readiness::Available { .. }));
+                if ui.add_enabled(available, egui::RadioButton::new(self.selection.secure_boot, "Turn Secure Boot on")).clicked() {
+                    actions.push(Action::SecureBoot(true));
+                }
+                if !self.selection.secure_boot {
+                    ui.label(caption(
+                        "Install without Secure Boot. No key enrollment is required; this also works on UEFI machines without Secure Boot support.",
+                        &p,
+                    ));
+                }
+                match readiness {
                     Some(Readiness::Available { enrollment }) => {
-                        let mut on = self.selection.secure_boot;
-                        let options =
-                            [(false, "Leave Secure Boot off"), (true, "Turn Secure Boot on")];
-                        if segmented(ui, &p, &mut on, &options) {
-                            actions.push(Action::SecureBoot(on));
-                        }
                         ui.add_space(4.0);
-                        if on {
+                        if self.selection.secure_boot {
                             for step in secure_boot::STEPS {
                                 ui.label(
                                     RichText::new(format!("{}  {step}", icon::CHECK))
@@ -1127,15 +1214,10 @@ impl LiveInstaller {
                             }
                             ui.add_space(4.0);
                             ui.label(caption(enrollment.describe(), &p));
-                        } else {
-                            ui.label(caption(
-                                "The default. You can turn it on later from the installed system.",
-                                &p,
-                            ));
                         }
                     }
                     Some(Readiness::Unavailable(why)) => {
-                        ui.label(caption(format!("Not available here: {why}."), &p));
+                        ui.label(caption(format!("Signed boot is not available here: {why}."), &p));
                     }
                     None => {}
                 }
@@ -1143,6 +1225,7 @@ impl LiveInstaller {
                     ui.add_space(6.0);
                     let text = RichText::new(warning).size(size::SMALL);
                     tag(ui, p.wash, Stroke::new(1.0, p.accent), text);
+                    ui.label(caption("Use the CPU icon in the footer to restart into UEFI setup.", &p));
                 }
             });
     }

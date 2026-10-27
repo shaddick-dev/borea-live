@@ -4,6 +4,10 @@ Independent Rust 2024 workspace, MSRV 1.85. The existing design/GUI workspace re
 
 Targets: Arch Linux rolling, Debian 13/trixie, explicit Fedora stable release, openSUSE Tumbleweed. UEFI x86_64; encrypted LUKS2/btrfs; whole drive or alongside an existing healthy Windows NTFS installation. Profiles, add-ons, apps and automatic drivers share `borea-catalog`.
 
+Secure Boot is optional on every base target. Set `secure_boot = false` explicitly to install without key enrollment; firmware Secure Boot must be off before that installation begins. Older UEFI machines without Secure Boot support can use this path. Legacy BIOS installation is not implemented.
+
+The installer footer's CPU icon opens a confirmation to restart into UEFI Firmware Setup. This lets the user change Secure Boot settings themselves and then boot the live USB again. Unsupported firmware keeps the shortcut disabled. `system.info` exposes `firmware_setup`; `system.reboot` accepts `{"firmware_setup":true}` and refuses to restart during an installation.
+
 ## Build and check
 
 ```sh

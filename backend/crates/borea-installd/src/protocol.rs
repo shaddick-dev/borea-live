@@ -10,7 +10,7 @@ pub const METHODS: &[Method] = &[
     Method {
         name: "system.info",
         parameters: "none",
-        result: "version, UEFI, Secure Boot, motion, power facts and low-battery warning",
+        result: "version, UEFI, Secure Boot, firmware_setup restart capability, motion, power facts and low-battery warning",
     },
     Method { name: "system.methods", parameters: "none", result: "this method registry" },
     Method {
@@ -97,8 +97,8 @@ pub const METHODS: &[Method] = &[
     Method { name: "install.log", parameters: "none", result: "redacted install log" },
     Method {
         name: "system.reboot",
-        parameters: "none",
-        result: "null; refuses while an installation is active",
+        parameters: "firmware_setup? (boolean, default false)",
+        result: "null; refuses while an installation is active; firmware setup requires supported UEFI",
     },
 ];
 pub fn markdown() -> String {

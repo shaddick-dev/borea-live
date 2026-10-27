@@ -5,6 +5,7 @@ use std::{
     os::unix::fs::PermissionsExt,
     path::{Component, Path},
 };
+pub mod firmware;
 pub mod power;
 pub fn program(root: &Path, canonical: &str) -> Result<String, Hint> {
     let path = Path::new(canonical);

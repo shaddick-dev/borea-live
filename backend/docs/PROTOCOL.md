@@ -6,7 +6,7 @@ JSON-RPC 2.0, one JSON object per line, at `/run/borea/installd.sock`. Socket mo
 
 | Method | Parameters | Result |
 |---|---|---|
-| `system.info` | none | version, UEFI, Secure Boot, motion, power facts and low-battery warning |
+| `system.info` | none | version, UEFI, Secure Boot, firmware_setup restart capability, motion, power facts and low-battery warning |
 | `system.methods` | none | this method registry |
 | `hardware.get` | none | hardware report and automatic driver facts |
 | `net.scan` | none | deduplicated SSIDs, security, strength, known/active |
@@ -26,7 +26,7 @@ JSON-RPC 2.0, one JSON object per line, at `/run/borea/installd.sock`. Socket mo
 | `install.subscribe` | after? | ack, then install.events notifications until worker ends |
 | `install.retry` | action_id | null; only the current recoverable action is allowed |
 | `install.log` | none | redacted install log |
-| `system.reboot` | none | null; refuses while an installation is active |
+| `system.reboot` | firmware_setup? (boolean, default false) | null; refuses while an installation is active; firmware setup requires supported UEFI |
 
 Errors use `{code:-32000,message,data:{field}}`; malformed JSON-RPC uses -32600. Never log request bodies containing secrets.
 

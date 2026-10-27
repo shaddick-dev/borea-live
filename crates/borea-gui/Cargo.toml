@@ -21,6 +21,8 @@ borea-distro.workspace = true
 borea-hardware.workspace = true
 borea-host.workspace = true
 borea-network.workspace = true
+zbus.workspace = true
+serde_json = "1"
 eframe = { version = "0.37.0", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11"] }
 
 [dev-dependencies]

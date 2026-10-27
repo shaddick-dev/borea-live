@@ -1,14 +1,16 @@
 // Borea Live: the installer acts for whoever is at this machine, without asking for
 // a password that does not exist. Only the live session's user, only on the local
 // active session, and only for networking, disks, and switching to the rescue
-// console (Ctrl+Alt+F2, which cage asks logind for).
+// console (Ctrl+Alt+F2, which cage asks logind for), and restarting into firmware.
 polkit.addRule(function (action, subject) {
     if (subject.user !== "borea" || !subject.local || !subject.active) {
         return polkit.Result.NOT_HANDLED;
     }
     if (action.id.indexOf("org.freedesktop.NetworkManager.") === 0 ||
         action.id.indexOf("org.freedesktop.udisks2.") === 0 ||
-        action.id === "org.freedesktop.login1.chvt") {
+        action.id === "org.freedesktop.login1.chvt" ||
+        action.id === "org.freedesktop.login1.set-reboot-to-firmware-setup" ||
+        action.id === "org.freedesktop.login1.reboot") {
         return polkit.Result.YES;
     }
     return polkit.Result.NOT_HANDLED;

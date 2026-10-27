@@ -766,6 +766,8 @@ dependencies = [
  "borea-network",
  "eframe",
  "egui_kittest",
+ "serde_json",
+ "zbus",
 ]
 
 [[package]]

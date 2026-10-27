@@ -13,11 +13,15 @@ use egui_kittest::kittest::Queryable;
 type Installer = Harness<'static, Option<LiveInstaller>>;
 
 fn harness(dark: bool) -> Installer {
+    with_hardware(dark, machine())
+}
+
+fn with_hardware(dark: bool, hardware: borea_hardware::HardwareSnapshot) -> Installer {
     let mut harness = Harness::builder().with_size(egui::vec2(1280.0, 860.0)).build_ui_state(
         move |ui, app: &mut Option<LiveInstaller>| {
             let ctx = ui.ctx().clone();
-            let app =
-                app.get_or_insert_with(|| LiveInstaller::with_hardware(&ctx, machine(), dark));
+            let app = app
+                .get_or_insert_with(|| LiveInstaller::with_hardware(&ctx, hardware.clone(), dark));
             for action in app.frame(ui) {
                 app.apply(&ctx, action);
             }
@@ -26,6 +30,36 @@ fn harness(dark: bool) -> Installer {
     );
     harness.run();
     harness
+}
+
+#[test]
+fn firmware_footer_requires_confirmation_and_preview_never_reboots_host() {
+    let mut h = harness(false);
+    if let Ok(dir) = std::env::var("WINDPAD_SHOTS") {
+        h.render().unwrap().save(format!("{dir}/firmware-footer.png")).unwrap();
+    }
+    press(&mut h, "UEFI setup");
+    assert!(h.query_by_label("Restart into UEFI setup?").is_some());
+    if let Ok(dir) = std::env::var("WINDPAD_SHOTS") {
+        h.render().unwrap().save(format!("{dir}/firmware-confirmation.png")).unwrap();
+    }
+    press(&mut h, "Cancel");
+    assert!(h.query_by_label("Restart into UEFI setup?").is_none());
+    assert_eq!(app(&h).step(), Step::Connect);
+    press(&mut h, "UEFI setup");
+    press(&mut h, "Restart into firmware");
+    assert!(h.query_by_label_contains("Firmware restart is unavailable in this preview").is_some());
+    press(&mut h, "Cancel");
+}
+
+#[test]
+fn legacy_bios_cannot_request_a_firmware_restart() {
+    let mut hardware = machine();
+    hardware.firmware = borea_core::Fact::Known(borea_core::FirmwareMode::Bios);
+    let mut h = with_hardware(false, hardware);
+    press(&mut h, "UEFI setup");
+    assert!(h.query_by_label("Restart into UEFI setup?").is_none());
+    assert_eq!(app(&h).step(), Step::Connect);
 }
 
 fn press(h: &mut Installer, label: &str) {
@@ -312,6 +346,13 @@ fn secure_boot_is_off_unless_chosen_and_safe_to_choose() {
     press(&mut h, "Fedora family");
     press(&mut h, "Bazzite");
     assert!(!app(&h).selection().secure_boot);
+    press(&mut h, "KDE Plasma");
+    press(&mut h, "Next");
+    press(&mut h, "Review");
+    h.get_by_role_and_label(Role::RadioButton, "Leave Secure Boot off").scroll_to_me();
+    h.run();
+    assert!(h.query_by_role_and_label(Role::RadioButton, "Leave Secure Boot off").is_some());
+    assert!(h.query_by_label_contains("Install without Secure Boot").is_some());
 }
 
 #[test]

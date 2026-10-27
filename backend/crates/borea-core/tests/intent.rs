@@ -145,3 +145,18 @@ fn arch_signed_boot_requires_an_explicit_choice_and_setup_mode() {
     hw.secure_boot = true;
     assert!(plan.validate_firmware(&hw).is_err());
 }
+
+#[test]
+fn all_bases_accept_explicit_unsigned_installation_without_setup_mode() {
+    let (_, mut hw) = borea_catalog::hardware::samples().remove(0);
+    hw.secure_boot = false;
+    hw.setup_mode = None;
+    for distro in
+        [Distribution::Arch, Distribution::Debian, Distribution::Fedora, Distribution::OpenSuse]
+    {
+        let mut plan = common::plan(distro, false);
+        plan.secure_boot = Some(false);
+        assert!(!plan.target_secure_boot(&hw));
+        assert!(plan.validate_firmware(&hw).is_ok());
+    }
+}

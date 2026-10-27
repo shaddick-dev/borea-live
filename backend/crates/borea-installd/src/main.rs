@@ -29,6 +29,12 @@ use std::{
 use zeroize::Zeroizing;
 const SOCKET: &str = "/run/borea/installd.sock";
 const MAX_REQUEST: u64 = 1024 * 1024;
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RebootOptions {
+    #[serde(default)]
+    firmware_setup: bool,
+}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Request<'a> {
@@ -214,7 +220,7 @@ impl Backend {
                 let hw = borea_catalog::probe::probe().map_err(|e| fail(e.to_string()))?;
                 let cmdline = fs::read_to_string("/proc/cmdline").unwrap_or_default();
                 Ok(
-                    json!({"version":env!("CARGO_PKG_VERSION"),"architecture":std::env::consts::ARCH,"uefi":Path::new("/sys/firmware/efi").is_dir(),"secure_boot":hw.secure_boot,"motion":!cmdline.split_whitespace().any(|s|s=="borea.motion=0"),"power":borea_platform::power::probe(Path::new("/"))}),
+                    json!({"version":env!("CARGO_PKG_VERSION"),"architecture":std::env::consts::ARCH,"uefi":Path::new("/sys/firmware/efi").is_dir(),"secure_boot":hw.secure_boot,"firmware_setup":borea_platform::firmware::setup_supported(Path::new("/")),"motion":!cmdline.split_whitespace().any(|s|s=="borea.motion=0"),"power":borea_platform::power::probe(Path::new("/"))}),
                 )
             }
             "hardware.get" => {
@@ -459,21 +465,38 @@ impl Backend {
                 Ok(json!({"log":String::from_utf8_lossy(&bytes),"truncated":offset != 0}))
             }
             "system.reboot" => {
-                if self
+                let options =
+                    if input == "null" { RebootOptions::default() } else { params(input)? };
+                // Keep the lock through the request so install.start cannot race it.
+                let mut state = self
                     .state
                     .lock()
-                    .map_err(|_| fail("The installation state is unavailable."))?
-                    .busy
-                {
+                    .map_err(|_| fail("The installation state is unavailable."))?;
+                if state.busy {
                     return Err(fail("An installation is still running."));
                 }
-                let status = std::process::Command::new("/usr/bin/systemctl")
-                    .arg("reboot")
-                    .status()
-                    .map_err(|e| fail(e.to_string()))?;
-                if !status.success() {
-                    return Err(fail("The reboot request failed."));
+                if options.firmware_setup
+                    && !borea_platform::firmware::setup_supported(Path::new("/"))
+                {
+                    return Err(fail(
+                        "This firmware cannot restart directly into setup. Use its startup key instead.",
+                    ));
                 }
+                let mut command = std::process::Command::new("/usr/bin/systemctl");
+                command.arg("reboot");
+                if options.firmware_setup {
+                    command.arg("--firmware-setup");
+                }
+                let output = command.output().map_err(|e| fail(e.to_string()))?;
+                if !output.status.success() {
+                    return Err(fail(if options.firmware_setup {
+                        "The firmware restart request failed. No ordinary reboot was requested."
+                    } else {
+                        "The reboot request failed."
+                    }));
+                }
+                // Reject new installation work after logind accepted shutdown.
+                state.busy = true;
                 Ok(Value::Null)
             }
             _ => Err(fail("Unknown backend method.")),
@@ -623,6 +646,20 @@ fn main() -> std::process::ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn firmware_and_ordinary_reboots_cannot_interrupt_installation() {
+        let backend = Backend {
+            state: Arc::new(Mutex::new(State { busy: true, ..State::default() })),
+            allowed_uid: 0,
+        };
+        for input in ["null", "{}", r#"{"firmware_setup":true}"#] {
+            assert!(
+                matches!(backend.call("system.reboot", input), Err(error) if error.message.contains("still running"))
+            );
+        }
+        assert!(backend.call("system.reboot", r#"{"firmware_setup":"yes"}"#).is_err());
+        assert!(backend.call("system.reboot", r#"{"force":true}"#).is_err());
+    }
     #[test]
     fn event_cursors_remain_absolute_and_memory_is_bounded() {
         let mut state = State::default();

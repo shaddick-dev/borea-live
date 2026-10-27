@@ -53,7 +53,11 @@ Try it in a VM: `qemu-system-x86_64 -enable-kvm -m 4G -cdrom target/live/out/bor
 
 ## Secure Boot (optional, off by default)
 
-The default image is unsigned: boot it with Secure Boot turned off in firmware. To build one that boots with Secure Boot on:
+The default image is unsigned: boot it with Secure Boot turned off in firmware.
+
+Secure Boot remains optional for the installed system as well. Choose **Leave Secure Boot off** to install without key enrollment. The installer's footer has a CPU-icon **UEFI setup** shortcut, with confirmation, to restart into firmware settings when supported. After changing the setting, boot the BOREA USB again; installer selections are not retained across that restart. Legacy BIOS target installation remains outside the current UEFI backend.
+
+To build an optionally signed live image:
 
 ```sh
 cargo run --release -p borea-build -- keys ~/borea-keys              # once: db.key (private), db.crt, db.cer
