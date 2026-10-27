@@ -235,9 +235,73 @@ impl BuildView {
     }
 }
 
+/// What failed in the latest build, from its log: "package: error". With
+/// packages building side by side, the log's last lines are usually another
+/// package still finishing, so this looks for the first failed step instead.
+pub fn failure(log: &str) -> Option<String> {
+    let run = log.rsplit("── borea-flash --make ──").next().unwrap_or(log);
+    let lines: Vec<&str> = run.lines().collect();
+    let failed = lines
+        .iter()
+        .position(|l| l.starts_with("make[") && l.contains("]: *** ") && l.contains("/build/"))?;
+    let package = lines[failed]
+        .split("/build/")
+        .nth(1)
+        .and_then(|rest| rest.split('/').next())
+        .unwrap_or("a package");
+    let error = lines[failed.saturating_sub(60)..failed]
+        .iter()
+        .rev()
+        .map(|l| l.trim())
+        .find(|l| l.contains("error:") || l.contains("ERROR:") || l.starts_with("Error"))
+        .map(|l| l.chars().take(240).collect::<String>());
+    Some(match error {
+        Some(error) => format!("{package} failed: {error}"),
+        None => {
+            format!("{package} failed; its error is just above the first `***` line in the log")
+        }
+    })
+}
+
+/// The end of a possibly very large log, at most `limit` bytes.
+pub fn log_tail(path: &Path, limit: u64) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).ok()?;
+    let length = file.metadata().ok()?.len();
+    file.seek(SeekFrom::Start(length.saturating_sub(limit))).ok()?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).ok()?;
+    Some(String::from_utf8_lossy(&bytes).into_owned())
+}
+
 fn clock(elapsed: Duration) -> String {
     let s = elapsed.as_secs();
     format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
+}
+
+#[cfg(test)]
+mod failure_tests {
+    use super::failure;
+
+    #[test]
+    fn names_the_package_that_failed_not_the_last_one_printed() {
+        let log = "── borea-flash --make ──\n\
+            make[1]: *** [package/pkg-generic.mk:263: /x/output/build/polkit-126/.stamp_configured] Error 1\n\
+            ── borea-flash --make ──\n\
+            checking for clang... no\n\
+            configure: error: clang invalid, set CC_FOR_TARGET to a valid program\n\
+            make[1]: *** [package/pkg-generic.mk:263: /x/output/build/host-limine-12.9.4/.stamp_configured] Error 1\n\
+            make[1]: *** Waiting for unfinished jobs....\n\
+            [100%] Built target spirv-reduce\n\
+            make: *** [Makefile:83: _all] Error 2\n";
+        assert_eq!(
+            failure(log).as_deref(),
+            Some(
+                "host-limine-12.9.4 failed: configure: error: clang invalid, set CC_FOR_TARGET to a valid program"
+            )
+        );
+        assert_eq!(failure("all good\n"), None);
+    }
 }
 
 #[cfg(test)]
