@@ -1,4 +1,4 @@
-# Borea: current status (27 October 2026)
+# Borea: current status (27 October 2026, evening)
 
 What is true in the repository today. Earlier session handovers are in
 [`docs/archive/`](archive/); the backend's design decisions are in
@@ -26,16 +26,18 @@ One Cargo workspace (`Cargo.toml`, one `Cargo.lock`), every crate under `crates/
 | --- | --- |
 | Installer backend | Arch rolling, Debian 13, Fedora stable, Tumbleweed. UEFI only, LUKS2 + Btrfs, whole disk or alongside Windows, optional Secure Boot. Review pins sources and returns an approval digest; install re-checks it and the disk before writing. Verified in disposable VMs (`backend/docs/VERIFIED.md`). |
 | Borea Live GUI | Connect → Machine → System → Desktop → Review, as a preview. Firmware-setup restart goes through `borea-installd`, which refuses while an install runs. |
-| Borea Live ISO | Ships `borea-installd` (enabled service), `borea-cli`, the static `borea-firstboot` helper, the pinned Arch/Fedora/openSUSE keyrings, and cryptsetup, btrfs-progs, ntfsprogs, gnupg, efibootmgr, parted, openssl. |
-| borea-flash | USB writer; removable devices only, typed confirmation, read-back verification. |
+| Borea Live ISO | Built with Bootlin's prebuilt glibc toolchain and per-package directories (packages build in parallel); Borea's Rust is cached between builds. Ships `borea-installd` (enabled service), `borea-cli`, the static `borea-firstboot` helper, the pinned Arch/Fedora/openSUSE keyrings, and cryptsetup, btrfs-progs, ntfsprogs, gnupg, efibootmgr, parted, openssl. |
+| borea-rataTUI | The USB writer (crate `borea-flash`; `borea-helper` and `borea-flash` remain as aliases). Builds the ISO when needed, then removable devices only, typed confirmation, read-back verification. On a failed build it names the package that broke. `scripts/borea-setup.sh` installs it and everything it needs on Arch, Fedora, Debian/Ubuntu and openSUSE families. |
 | CI | Whole workspace on stable (fmt, clippy `-D warnings`, tests); backend crates on 1.85; cargo-deny advisories and sources; one disposable Arch install and boot on every PR touching installer code; all distributions nightly. |
 
 ## Not done / next
 
-1. **Rebuild and boot the ISO.** This change set was not built into an ISO. The
-   Buildroot options, the static glibc `borea-firstboot` build and the overlay
-   service link are unverified until `borea-build iso` runs; its option and
-   file checks fail the build loudly if any are wrong.
+1. **Finish a full ISO build and boot it.** The first build on Debian found two
+   hidden dependencies, now fixed: Limine needs clang and ld.lld (host-clang,
+   host-lld), and polkit needs systemd built first. Not yet confirmed by a
+   finished build: the static glibc `borea-firstboot` link, the overlay service
+   link, and per-package directories across every package. All defconfig
+   options are accepted by Buildroot 2026.08.1.
 2. **Wire the GUI Review step to `borea-installd`** through `borea-protocol`
    (`plan.review` → approval → `install.start` → `install.subscribe`). The GUI
    selection model (`borea-live-catalog`) must first be mapped onto the

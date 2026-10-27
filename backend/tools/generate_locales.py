@@ -1,5 +1,5 @@
 """Build-time only; emits Rust tables from glibc, xkeyboard-config, tzdata and Babel/CLDR."""
-import sys,json,xml.etree.ElementTree as ET,hashlib
+import json,xml.etree.ElementTree as ET,hashlib
 from pathlib import Path
 from babel import Locale
 from babel.core import get_global
