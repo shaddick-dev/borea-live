@@ -1,0 +1,52 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  CARGO_TERM_COLOR: always
+  # Installer backend crates keep Rust 1.85 (Debian 13's compiler). The live GUI
+  # crates need newer (eframe/egui 0.37 require 1.95), so only stable builds them.
+  BACKEND: >-
+    -p borea-core -p borea-catalog -p borea-locale -p borea-net -p borea-disk
+    -p borea-backend -p borea-job -p borea-exec -p borea-http -p borea-platform
+    -p borea-protocol -p borea-installd -p borea-cli -p borea-vm-test
+jobs:
+  workspace:
+    name: fmt, clippy, test (whole workspace, stable)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo test --locked --workspace
+      - name: VM harness unit tests
+        run: python3 -m unittest discover -s tests/vm -v
+
+  backend-msrv:
+    name: backend on Rust 1.85
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.85.0
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --locked --all-targets $BACKEND -- -D warnings
+      - run: cargo test --locked $BACKEND
+
+  dependencies:
+    name: advisories and sources (cargo-deny)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories sources
