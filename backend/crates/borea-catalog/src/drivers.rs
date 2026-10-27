@@ -301,7 +301,7 @@ pub fn plan_drivers(hw: &Hardware, d: Distro) -> DriverPlan {
                         base,
                         &[
                             "libvulkan_intel",
-                            if va_new { "intel-media-driver" } else { "libva-intel-driver" },
+                            if va_new { "intel-media-driver" } else { "intel-vaapi-driver" },
                         ],
                     ),
                 }

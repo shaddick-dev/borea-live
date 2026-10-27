@@ -3,6 +3,13 @@ umask 077
 /bin/busybox mount -t proc proc /proc
 /bin/busybox mount -t sysfs sysfs /sys
 /bin/busybox mount -t devtmpfs devtmpfs /dev
+/bin/busybox mkdir -p /dev/pts /dev/shm
+/bin/busybox mount -t devpts -o mode=0620,gid=5,ptmxmode=0666 devpts /dev/pts
+/bin/busybox mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs /dev/shm
+/bin/busybox ln -sf /proc/self/fd /dev/fd
+/bin/busybox ln -sf fd/0 /dev/stdin
+/bin/busybox ln -sf fd/1 /dev/stdout
+/bin/busybox ln -sf fd/2 /dev/stderr
 /bin/busybox mkdir -p /run /sys/firmware/efi/efivars
 /bin/busybox mount -t tmpfs tmpfs /run
 /bin/busybox mount -t efivarfs efivarfs /sys/firmware/efi/efivars

@@ -309,7 +309,7 @@ pub const PKGS: &[(&str, [&str; 4])] = &[
     ("nmap", ["nmap", "nmap", "nmap", "nmap"]),
     ("tcpdump", ["tcpdump", "tcpdump", "tcpdump", "tcpdump"]),
     ("mtr", ["mtr", "mtr-tiny", "mtr", "mtr"]),
-    ("iperf3", ["iperf3", "iperf3", "iperf3", "iperf3"]),
+    ("iperf3", ["iperf3", "iperf3", "iperf3", "iperf"]),
     ("tshark", ["wireshark-cli", "tshark", "wireshark-cli", "wireshark"]),
     ("gamemode", ["gamemode", "gamemode", "gamemode", "gamemode"]),
     ("mangohud", ["mangohud", "mangohud", "mangohud", "mangohud"]),
@@ -436,7 +436,7 @@ pub const DESKTOPS: &[(&str, [(&str, &str); 4])] = &[
             ("cosmic", "cosmic-greeter"),
             ("cosmic-session", "cosmic-greeter"),
             ("@cosmic-desktop-environment", "cosmic-greeter"),
-            ("patterns-cosmic-cosmic", "cosmic-greeter"),
+            ("cosmic-session", "cosmic-greeter"),
         ],
     ),
     (
