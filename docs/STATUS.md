@@ -1,79 +1,53 @@
-# Borea: current status (23 October 2026)
+# Borea: current status (27 October 2026)
 
-A short handoff for whoever picks this up next. The full history is in
-`docs/handover.txt` (sessions 1–30). The plan for the product is in `README.md`
-and the rest of `docs/`.
+What is true in the repository today. Earlier session handovers are in
+[`docs/archive/`](archive/); the backend's design decisions are in
+[`backend/docs/DECISIONS.md`](../backend/docs/DECISIONS.md).
 
-## What Borea is
+## Layout
 
-Borea is an independent Linux installer that isn't tied to any one
-distribution's ISO.
+One Cargo workspace (`Cargo.toml`, one `Cargo.lock`), every crate under `crates/`:
 
-- **Borea Live:** its own live image, built from upstream sources by
-  Buildroot, which boots with Limine.
-- **Windpad:** the interface where you choose a distribution and edition.
-- **Adapters:** one per distribution. Each installs its target from that
-  target's own upstream tools.
-- **Language and licence:** Rust 2024 workspace. The licence (Apache-2.0 OR
-  MIT) is proposed but not yet adopted.
+- **Installer backend** (MSRV 1.85, GPL-3.0-or-later): `borea-core`,
+  `borea-catalog`, `borea-backend`, `borea-job`, `borea-exec`, `borea-disk`,
+  `borea-net`, `borea-http`, `borea-locale`, `borea-platform`, plus
+  `borea-installd` (the root service), `borea-cli` (its command line) and
+  `borea-protocol` (the socket contract both clients share). Docs, service
+  files, signing keys and the disposable-VM harness are in `backend/`.
+- **Live front end** (needs Rust 1.95 for eframe/egui 0.37): `borea-gui`
+  (`borea-live`, `windpad`), `borea-bootstrap` (`borea`), `borea-flash`,
+  `borea-build`, `borea-init`, `borea-hardware`, `borea-host`, `borea-network`,
+  `borea-distro`, `borea-live-core`, `borea-live-catalog`, `borea-testkit`.
+- **Borea Live image:** `live/buildroot`, built by `borea-build iso`.
 
-## Works today
+## Works
 
 | Area | State |
 | --- | --- |
-| Hardware and Wi-Fi | Read-only scan of CPU, GPUs, disks, firmware, displays and more. NetworkManager Wi-Fi through D-Bus. |
-| Catalog | Validated data covering editions, compositors and shells, and extras. One naming convention; Minimal comes last. |
-| Windpad / Borea Live GUI | egui interface in a Nerd Font look. Responsive cards, an offer to compose your own desktop, and extras as checkboxes. The live installer runs Connect → Machine → System → Desktop → Review, marked as a preview, and doesn't install. |
-| Borea Live ISO | `cargo run --release -p borea-build -- iso`, then `target/live/out/borea-live-*.iso`. Boots under BIOS and UEFI and starts the installer automatically. The build checks that keymaps, polkit with logind, the efivars mount and the installer tools are present. |
-| borea-flash | Terminal USB writer. `borea-flash --install` puts it in `~/.local/bin`. Press **b** to rebuild the ISO. Typing the device name is mandatory. |
-| **Arch install** | `borea plan` verifies Arch's signed bootstrap archive and writes a plan with a digest. `sudo borea-worker PLAN --approve DIGEST --bootstrap FILE` installs Arch Minimal to a GPT/ext4 disk with Limine. |
-
-**VM-verified:** `python tests/vm/arch_install.py` passed (run `target/vm/arch-7lc2tv_e`):
-1. Installed in 11 steps in about 1 minute.
-2. Booted through its own UEFI entry and Limine.
-3. The new user logged in.
-4. `pacman -Syu linux` ran a kernel package transaction.
-5. It rebooted and the user logged in again.
+| Installer backend | Arch rolling, Debian 13, Fedora stable, Tumbleweed. UEFI only, LUKS2 + Btrfs, whole disk or alongside Windows, optional Secure Boot. Review pins sources and returns an approval digest; install re-checks it and the disk before writing. Verified in disposable VMs (`backend/docs/VERIFIED.md`). |
+| Borea Live GUI | Connect → Machine → System → Desktop → Review, as a preview. Firmware-setup restart goes through `borea-installd`, which refuses while an install runs. |
+| Borea Live ISO | Ships `borea-installd` (enabled service), `borea-cli`, the static `borea-firstboot` helper, the pinned Arch/Fedora/openSUSE keyrings, and cryptsetup, btrfs-progs, ntfsprogs, gnupg, efibootmgr, parted, openssl. |
+| borea-flash | USB writer; removable devices only, typed confirmation, read-back verification. |
+| CI | Whole workspace on stable (fmt, clippy `-D warnings`, tests); backend crates on 1.85; cargo-deny advisories and sources; one disposable Arch install and boot on every PR touching installer code; all distributions nightly. |
 
 ## Not done / next
 
-1. **Kernel-version upgrade:** prove an upgrade between two distinct kernel
-   versions. That needs a fixture pinned to an older kernel; today's run only
-   reinstalls the current kernel.
-2. **GUI integration:** connect the Review step in Windpad and Borea Live to
-   `borea_engine::arch::plan` and the worker. That needs polkit-mediated
-   launch and IPC for progress; the worker is currently run directly as root.
-3. **More editions:** Arch KDE Plasma, GNOME and Xfce, each gated by its own VM
-   pass (`TESTED_EDITIONS` in `crates/borea-engine/src/arch.rs`).
-4. **Wider support:** extras that need extra repositories (Gaming needs
-   multilib), the BIOS boot path, and Secure Boot execution.
-5. **Other distributions:** Fedora and Debian adapters, then the derivatives.
-6. **Release work:** signed catalog and release hosting, CI, and a first boot
-   on real hardware.
-
-## Changes since dfd6ed3 (uncommitted, to push)
-
-1. **Wi-Fi fix for Borea Live** (`live/buildroot/external.mk`): ships every
-   Intel iwlwifi firmware (AX200, AX201, AX211, BE200 and others that
-   Buildroot's per-generation options miss) plus Qualcomm WCN7850 (ath12k).
-   Only the three newest firmware versions of each card are kept to hold the
-   image size down. Without the firmware, NetworkManager had no Wi-Fi adapter
-   and the installer couldn't get past Connect.
-2. **Nord blue theme:** `crates/borea-gui/src/theme.rs`, `design/windpad.html`,
-   `docs/product.md` and `docs/windpad.md` move from ivory/charcoal and
-   blue-green to Nord snow storm / polar night with a frost-blue accent.
-3. **Borea TUI Helper** (Codex): `borea-helper` binary
-   (`crates/borea-flash/src/helper.rs`, `src/install.rs`, `README.md`) builds
-   the ISO when it's missing or stale, then flashes. The ISO freshness check
-   now includes the root `Cargo.toml`.
-
-Verified: `cargo test -p borea-flash -p borea-gui` passes. The ISO
-`borea-live-0.1.0-20261023.iso` was rebuilt with the firmware and theme and
-boot-checked under OVMF (Machine step renders in Nord dark). Wi-Fi on real
-Intel hardware hasn't been tested yet.
-
-Suggested commit: "Ship Intel and WCN7850 Wi-Fi firmware, Nord theme, Borea
-TUI Helper".
+1. **Rebuild and boot the ISO.** This change set was not built into an ISO. The
+   Buildroot options, the static glibc `borea-firstboot` build and the overlay
+   service link are unverified until `borea-build iso` runs; its option and
+   file checks fail the build loudly if any are wrong.
+2. **Wire the GUI Review step to `borea-installd`** through `borea-protocol`
+   (`plan.review` → approval → `install.start` → `install.subscribe`). The GUI
+   selection model (`borea-live-catalog`) must first be mapped onto the
+   backend `Plan` (`borea-catalog`); that mapping is a product decision.
+3. **Fedora and Debian from the ISO.** Fedora's tool root is a container image
+   and needs skopeo and umoci, which Buildroot does not package. Debian needs
+   debootstrap and debian-archive-keyring. Without them those installs stop
+   before any disk write.
+4. **Port `tests/vm/arch_install.py`** (ISO-level end-to-end) from the retired
+   `borea-worker` to `borea-cli` with LUKS unlock at first boot.
+5. **Licence.** `LICENSE` is Apache-2.0, the backend crates declare
+   GPL-3.0-or-later, and `borea.mk` says "Apache-2.0 OR MIT (proposed)". Pick one.
 
 ## Rules the owner set
 
@@ -88,11 +62,8 @@ TUI Helper".
 - `/tmp` here is a 7.7 GB tmpfs. Put VM disks under `target/vm`.
 - Under OVMF, direct kernel boot doesn't detect QEMU's emulated CD drive.
   Attach the ISO as a read-only virtio disk instead.
-- If Buildroot package options change, run `make <pkg>-dirclean` once.
-  Buildroot doesn't rebuild a package when its options change.
-- `target/` (about 70 GB) holds Buildroot's build cache. Keep it: it's what
-  makes rebuilds incremental.
-- Uncommitted at handoff, ready to commit and push (see "Changes since
-  dfd6ed3" below). The repository has no remote yet: add the GitHub one
-  before pushing.
-- Codex's coordination notes are in `docs/CODEX_CLAUDE_COORDINATION.md`.
+- Package options changed in this change set (`borea_live_defconfig`): run
+  `make <pkg>-dirclean` for any rebuilt package. Buildroot doesn't rebuild a
+  package when its options change.
+- `target/` holds Buildroot's build cache. Keep it: it's what makes rebuilds
+  incremental.

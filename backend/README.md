@@ -1,6 +1,6 @@
 # Borea Rust online installation backend
 
-Independent Rust 2024 workspace, MSRV 1.85. The existing design/GUI workspace remains available at the repository root. This backend does not embed distribution payloads in the live ISO: it verifies and downloads the selected upstream system online.
+Rust 2024, MSRV 1.85. The backend crates live in the repository's single Cargo workspace (`crates/`) alongside the live GUI crates, which need a newer compiler; `backend/` holds the backend's docs, service files, keys and VM tests. This backend does not embed distribution payloads in the live ISO: it verifies and downloads the selected upstream system online.
 
 Targets: Arch Linux rolling, Debian 13/trixie, explicit Fedora stable release, openSUSE Tumbleweed. UEFI x86_64; encrypted LUKS2/btrfs; whole drive or alongside an existing healthy Windows NTFS installation. Profiles, add-ons, apps and automatic drivers share `borea-catalog`.
 
@@ -11,12 +11,13 @@ The installer footer's CPU icon opens a confirmation to restart into UEFI Firmwa
 ## Build and check
 
 ```sh
-cd backend
-cargo build --locked --release --workspace
+cargo build --locked --release -p borea-installd -p borea-cli
 cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked --workspace
 ```
+
+CI also builds and tests the backend crates alone on Rust 1.85 (`.github/workflows/ci.yml`).
 
 Pure libraries compile without root or access to real disks. Tests use generated disk and hardware facts. Never run the installer on a development host. The explicitly marked QEMU test guest is the place for destructive integration tests.
 

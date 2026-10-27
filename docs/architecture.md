@@ -11,8 +11,8 @@ borea/
     borea-bootstrap/     # `borea`: downloader TUI
     borea-gui/           # Windpad: the same interface for every target
     borea-core/          # domain types, errors, capability model
-    borea-engine/        # planning, state machine, execution coordination
-    borea-worker/        # privileged operation service
+    borea-installd/      # privileged installation service (see backend/README.md)
+    borea-protocol/      # its socket contract, shared by the GUI and borea-cli
     borea-ipc/           # versioned requests and events
     borea-storage/       # block topology, layout, mounts, filesystem operations
     borea-fetch/         # metadata, downloads, cache, authenticity checks
