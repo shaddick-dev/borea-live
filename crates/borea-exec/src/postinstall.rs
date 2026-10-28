@@ -66,6 +66,46 @@ fn command(program: &str, args: &[String]) -> Result<(), Hint> {
     }
     Ok(())
 }
+
+fn allowed(action: &Deferred) -> bool {
+    action.program == "/usr/bin/flatpak"
+        && (action.args.starts_with(&[
+            "install".into(),
+            "--system".into(),
+            "--noninteractive".into(),
+            "-y".into(),
+            "flathub".into(),
+        ]) || action.args
+            == [
+                "remote-add",
+                "--system",
+                "--noninteractive",
+                "--if-not-exists",
+                "flathub",
+                "https://dl.flathub.org/repo/flathub.flatpakrepo",
+            ])
+}
+
+/// Save each successful step before continuing; a later failure retains only the
+/// remaining work. Flatpak's noninteractive operations are safe to repeat if power
+/// is lost after an install but before its checkpoint is committed.
+fn run_queue(path: &Path, mut run: impl FnMut(&Deferred) -> Result<(), Hint>) -> Result<(), Hint> {
+    let mut queue: Vec<Deferred> =
+        serde_json::from_slice(&fs::read(path).map_err(|e| err(e.to_string()))?)
+            .map_err(|_| err("The first-boot queue is invalid."))?;
+    if !queue.iter().all(allowed) {
+        return Err(err("The first-boot queue contains an unexpected command."));
+    }
+    while let Some(action) = queue.first() {
+        println!("Borea: finishing selected apps ({} setup steps remaining).", queue.len());
+        run(action)?;
+        queue.remove(0);
+        let bytes = serde_json::to_vec(&queue).map_err(|e| err(e.to_string()))?;
+        persist(path, &bytes, 0o600)?;
+    }
+    println!("Borea: selected application setup is complete.");
+    Ok(())
+}
 /// This entry runs in its own helper process as the target user, never as root.
 pub fn extract_image(directory: &str, filename: &str) -> Result<(), Hint> {
     if nix::unistd::Uid::effective().is_root() {
@@ -85,20 +125,7 @@ pub fn extract_image(directory: &str, filename: &str) -> Result<(), Hint> {
 pub fn firstboot() -> Result<(), Hint> {
     let path = Path::new("/var/lib/borea/firstboot.json");
     trusted(path)?;
-    let mut queue: Vec<Deferred> =
-        serde_json::from_slice(&fs::read(path).map_err(|e| err(e.to_string()))?)
-            .map_err(|_| err("The first-boot queue is invalid."))?;
-    while let Some(action) = queue.first() {
-        if action.program != "/usr/bin/flatpak"
-            || action.args.first().is_none_or(|s| s != "install")
-        {
-            return Err(err("The first-boot queue contains an unexpected command."));
-        }
-        command(&action.program, &action.args)?;
-        queue.remove(0);
-        let bytes = serde_json::to_vec(&queue).map_err(|e| err(e.to_string()))?;
-        persist(path, &bytes, 0o600)?;
-    }
+    run_queue(path, |action| command(&action.program, &action.args))?;
     if Path::new("/usr/bin/fwupdmgr").is_file() {
         let _ = command("/usr/bin/fwupdmgr", &["refresh".into()]);
     }
@@ -186,4 +213,91 @@ fn update_one(config: &Path) -> Result<(), Hint> {
     persist(config, &serde_json::to_vec_pretty(&record).map_err(|e| err(e.to_string()))?, 0o644)?;
     fs::remove_dir_all(backup).map_err(|e| err(e.to_string()))?;
     Ok(())
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct Queue(std::path::PathBuf);
+    impl Queue {
+        fn new() -> Self {
+            static NEXT: AtomicUsize = AtomicUsize::new(0);
+            let dir = std::env::temp_dir().join(format!(
+                "borea-firstboot-{}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir(&dir).unwrap();
+            let path = dir.join("firstboot.json");
+            let queue = serde_json::json!([
+                {"program": "/usr/bin/flatpak", "args": [
+                    "remote-add", "--system", "--noninteractive", "--if-not-exists", "flathub",
+                    "https://dl.flathub.org/repo/flathub.flatpakrepo"
+                ]},
+                {"program": "/usr/bin/flatpak", "args": [
+                    "install", "--system", "--noninteractive", "-y", "flathub",
+                    "org.mozilla.firefox"
+                ]}
+            ]);
+            fs::write(&path, queue.to_string()).unwrap();
+            Self(path)
+        }
+    }
+    impl Drop for Queue {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(self.0.parent().unwrap());
+        }
+    }
+
+    #[test]
+    fn failed_download_resumes_without_repeating_completed_setup() {
+        let queue = Queue::new();
+        let mut calls = Vec::new();
+        let failed = run_queue(&queue.0, |action| {
+            calls.push(action.args[0].clone());
+            if action.args[0] == "install" { Err(err("Network disconnected")) } else { Ok(()) }
+        });
+        assert!(failed.is_err());
+        assert_eq!(calls, ["remote-add", "install"]);
+        let remaining: Vec<Deferred> =
+            serde_json::from_slice(&fs::read(&queue.0).unwrap()).unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].args[0], "install");
+        assert_eq!(fs::metadata(&queue.0).unwrap().permissions().mode() & 0o777, 0o600);
+        calls.clear();
+        run_queue(&queue.0, |action| {
+            calls.push(action.args[0].clone());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(calls, ["install"]);
+        assert_eq!(fs::read_to_string(&queue.0).unwrap(), "[]");
+        run_queue(&queue.0, |_| Err(err("An empty queue must not execute anything"))).unwrap();
+    }
+
+    #[test]
+    fn invalid_queue_is_rejected_before_any_command_executes() {
+        let queue = Queue::new();
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(&queue.0).unwrap()).unwrap();
+        value[1]["program"] = "/bin/sh".into();
+        fs::write(&queue.0, value.to_string()).unwrap();
+        let mut executed = false;
+        assert!(
+            run_queue(&queue.0, |_| {
+                executed = true;
+                Ok(())
+            })
+            .is_err()
+        );
+        assert!(!executed);
+        let other_remote = Deferred {
+            program: "/usr/bin/flatpak".into(),
+            args: vec!["remote-add".into(), "unreviewed".into(), "https://example.org".into()],
+        };
+        assert!(!allowed(&other_remote));
+    }
 }

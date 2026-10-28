@@ -561,7 +561,7 @@ impl LiveInstaller {
         wind::paint(&ui.painter_at(mark), mark, p.accent, time);
         ui.horizontal(|ui| {
             ui.label(RichText::new(icon::WIND).size(20.0).color(p.accent));
-            let name = RichText::new("BOREA").family(theme::display()).size(20.0);
+            let name = RichText::new("Borea").family(theme::display()).size(20.0);
             ui.label(name.extra_letter_spacing(3.5));
             ui.label(eyebrow("Live", p.sub));
         });

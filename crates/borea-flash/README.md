@@ -4,20 +4,31 @@ Get the Borea Live ISO and write it as a bootable USB drive from one terminal
 interface. The commands share the same writer:
 
 - `borea-rataTUI`: download the latest release's ISO (or reuse the copy already
-  downloaded when it's still the latest), then flash. Minutes, not hours.
+  downloaded when it's still the latest), then flash. No local compilation.
 - `borea-rataTUI IMAGE.iso`: flash an existing image directly.
+- `borea-rataTUI --cached`: use an existing local ISO without downloading or compiling.
 - `borea-rataTUI --update`: replace the app with the latest release's ready-made
   build, in seconds.
 - `borea-rataTUI --make`: developers, in a checkout: build the ISO from source if
   the sources changed, then flash. `--build` always rebuilds.
 - `borea-rataTUI --list [IMAGE.iso]`: list USB candidates without building or writing.
-- `borea-flash [IMAGE.iso]`: compatibility command; offers a rebuild with **b**.
+- `borea-flash [IMAGE.iso]`: compatibility command; writes an existing ISO or downloads one.
+
+An unavailable release is a download error, never an instruction to compile Linux.
+Retry or provide an existing ISO. Build controls are available only after explicitly
+starting developer mode with `--make` or `--build`, even when a checkout is present.
 
 ## Install and launch
 
-From this checkout, as your ordinary user (the `app` profile skips the release
-profile's whole-program LTO: a first build takes well under a minute on most
-machines, and rebuilding after a change about a second):
+Install the published app as your ordinary user, without Rust or build packages:
+
+```sh
+curl -fsSL https://shaddick-dev.github.io/borea-live/install | sh
+```
+
+Setup stops if the release is unavailable. `--from-source` explicitly enables
+developer setup; it is never an automatic fallback. Developers can also build
+from a checkout with the lighter `app` compilation profile:
 
 ```sh
 cargo run --profile app -p borea-flash -- --install

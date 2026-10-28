@@ -119,9 +119,8 @@ fn start() -> ExitCode {
     }
     if flag("--get") {
         let host = borea_host::detect().kind;
-        let repo = make::repo();
-        let start = Stage::Downloading(DownloadView::new().offer_build(repo.is_some()));
-        return report(run(start, repo, host).map_err(|e| e.to_string()));
+        let start = Stage::Downloading(DownloadView::new());
+        return report(run(start, None, host).map_err(|e| e.to_string()));
     }
     if flag("--make") || flag("--build") {
         let Some(repo) = make::repo() else {
@@ -145,7 +144,6 @@ fn start() -> ExitCode {
         return report(run(start, Some(repo), host).map_err(|e| e.to_string()));
     }
 
-    let repo = make::repo();
     let path = args.iter().find(|a| !a.starts_with("--")).map(PathBuf::from).or_else(find_image);
     let Some(path) = path else {
         if flag("--cached") {
@@ -157,8 +155,8 @@ fn start() -> ExitCode {
         if !list_only {
             // Nothing to write yet: get the latest release, in minutes.
             let host = borea_host::detect().kind;
-            let start = Stage::Downloading(DownloadView::new().offer_build(repo.is_some()));
-            return report(run(start, repo, host).map_err(|e| e.to_string()));
+            let start = Stage::Downloading(DownloadView::new());
+            return report(run(start, None, host).map_err(|e| e.to_string()));
         }
         eprintln!(
             "borea-flash: no Borea Live image found. Run borea-rataTUI to download the latest \
@@ -187,8 +185,8 @@ fn start() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    let app = writing_with(image, targets, repo.as_deref());
-    report(run(Stage::Writing(Box::new(app)), repo, host).map_err(|e| e.to_string()))
+    let app = writing_with(image, targets, None);
+    report(run(Stage::Writing(Box::new(app)), None, host).map_err(|e| e.to_string()))
 }
 
 /// Remove the launcher's flag, saying whether it was there. It never changes
@@ -341,13 +339,6 @@ fn run(mut stage: Stage, repo: Option<PathBuf>, host: HostKind) -> std::io::Resu
                 Stage::Downloading(view) => match view.key(key) {
                     Some(DownloadRequest::Stop) => fetching.store(true, Ordering::Relaxed),
                     Some(DownloadRequest::Retry) => fetching = start_download(&tx),
-                    Some(DownloadRequest::Build) => {
-                        if let Some(repo) = &repo {
-                            let mut view = BuildView::new(repo.join("target/live/build.log"));
-                            build = start_build(repo, &tx, &mut view);
-                            stage = Stage::Building(view);
-                        }
-                    }
                     Some(DownloadRequest::Quit) => return Ok(()),
                     None => {}
                 },
@@ -567,9 +558,6 @@ fn install_command() -> Result<PathBuf, String> {
         dir.join(install::NAMES[0]).display(),
         install::NAMES[1..].join(" and ")
     );
-    if let Some(repo) = make::repo() {
-        say!("It builds from the checkout at {}.", repo.display());
-    }
     let on_path =
         std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|p| p == dir));
     if on_path {

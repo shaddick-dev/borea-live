@@ -34,7 +34,7 @@ borea-flash --make                                         # from any terminal
 cargo run --profile app -p borea-flash -- --install-launcher   # optional: a "borea-rataTUI" app launcher entry
 ```
 
-The installed copy remembers this checkout, so `borea-flash --make` works from any directory. Plain `borea-flash` helps too: when this checkout has changed since the newest image, its Image panel says so, and **b** rebuilds before writing (with no image yet, it starts building straight away). It runs in any terminal, the Linux console included. The launcher entry opens a terminal running the same thing. `borea-flash --make`:
+The installed copy remembers this checkout, so `borea-flash --make` works from any directory. Plain `borea-flash` writes an existing image or downloads a release. Source-build controls are offered only with `--make` or `--build`. It runs in any terminal, the Linux console included. The launcher entry opens the download workflow. `borea-flash --make`:
 
 1. If the newest image is older than anything under `crates/`, `live/`, or `Cargo.lock` (or there is no image yet), it rebuilds Borea Live. The screen shows Buildroot's current package, how many packages are done, the elapsed time, and the latest output; everything also goes to `target/live/build.log`. Esc asks before stopping, and everything already built is kept. If the build fails, **r** picks up where it stopped.
 2. Once built (or straight away when already up to date), it moves on to writing. The image is checked against its `.sha256`, only USB sticks are listed, and a ready one is already selected.
@@ -67,7 +67,7 @@ Try it in a VM: `qemu-system-x86_64 -enable-kvm -m 4G -cdrom target/live/out/bor
 
 The default image is unsigned: boot it with Secure Boot turned off in firmware.
 
-Secure Boot remains optional for the installed system as well. Choose **Leave Secure Boot off** to install without key enrollment. The installer's footer has a CPU-icon **UEFI setup** shortcut, with confirmation, to restart into firmware settings when supported. After changing the setting, boot the BOREA USB again; installer selections are not retained across that restart. Legacy BIOS target installation remains outside the current UEFI backend.
+Secure Boot remains optional for the installed system as well. Choose **Leave Secure Boot off** to install without key enrollment. The installer's footer has a CPU-icon **UEFI setup** shortcut, with confirmation, to restart into firmware settings when supported. After changing the setting, boot the Borea USB again; installer selections are not retained across that restart. Legacy BIOS target installation remains outside the current UEFI backend.
 
 To build an optionally signed live image:
 

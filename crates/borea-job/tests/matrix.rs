@@ -134,6 +134,66 @@ fn render_escapes_shell_metacharacters() {
 }
 
 #[test]
+fn selected_flatpaks_are_queued_for_first_boot_on_every_distro() {
+    for distro in Distribution::ALL {
+        let mut plan = common::plan(distro, true);
+        plan.apps.insert("firefox".into());
+        plan.prefer = SourcePreference::Flatpak;
+        plan.sources.insert("flathub".into(), true);
+        let (_, hardware) = borea_catalog::hardware::samples().remove(0);
+        let facts = DiskFacts {
+            uefi: true,
+            disks: vec![Disk {
+                id: plan.disk.disk().clone(),
+                readonly: false,
+                in_use: false,
+                live: false,
+                removable: false,
+                transport: "virtio".into(),
+                parts: vec![],
+            }],
+        };
+        let bootstrap = Bootstrap {
+            distro,
+            release: plan.release.clone(),
+            artifact: (distro != Distribution::Debian).then(|| Artifact {
+                checksum: None,
+                url: "https://example.org/bootstrap.tar.xz".into(),
+                sha256: "a".repeat(64),
+                signature_url: "https://example.org/bootstrap.sig".into(),
+                keyring: format!("/usr/share/keyrings/borea/{}.gpg", distro.key()),
+            }),
+        };
+        let job = compile(&plan, &hardware, &facts, &bootstrap).unwrap();
+        let actions = job.stages.iter().flat_map(|stage| &stage.actions).collect::<Vec<_>>();
+        assert!(!actions.iter().any(|action| matches!(
+            action, Action::Run(command) if command.program == "/usr/bin/flatpak"
+        )));
+        let queue = actions
+            .iter()
+            .find_map(|action| match action {
+                Action::WriteFile { path, contents, mode }
+                    if path == "/var/lib/borea/firstboot.json" =>
+                {
+                    assert_eq!(*mode, 0o600);
+                    Some(serde_json::from_str::<serde_json::Value>(contents).unwrap())
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(queue[0]["args"][0], "remote-add");
+        assert_eq!(queue[1]["args"][0], "install");
+        assert!(
+            queue[1]["args"].as_array().unwrap().iter().any(|arg| arg == "org.mozilla.firefox")
+        );
+        // These choices and their delayed execution are part of the approved job.
+        assert!(job.review.packages.iter().any(|p| p.name == "flatpak"));
+        assert!(job.review.packages.iter().any(|p| p.name == "org.mozilla.firefox"));
+        assert!(job.render_script().contains("automatically in the background on first boot"));
+    }
+}
+
+#[test]
 fn review_script_cannot_execute_without_the_privileged_service() {
     let p = common::plan(Distribution::Debian, false);
     let (_, hw) = borea_catalog::hardware::samples().remove(0);

@@ -12,7 +12,7 @@
 # into ~/.local/bin with an app launcher, and starts it. No packages, no Rust, no
 # sudo. borea-rataTUI then downloads Borea Live itself and writes your USB stick.
 #
-# With --from-source (or when no release has been published yet) it builds
+# Only with --from-source it builds
 # instead: installs your distribution's packages (asks once, uses sudo), Rust
 # with rustup, clones Borea Live to ~/borea-live, and builds borea-rataTUI.
 #
@@ -111,7 +111,7 @@ finish() {
 }
 
 # ── The quick way: the ready-made program ─────────────────────────────────────
-# Returns non-zero when there is nothing to download, so the build path runs.
+# Returns non-zero when the release is unavailable. Never falls back to a build.
 install_ready_made() {
     local name=borea-rataTUI-x86_64-linux tmp
     [ "$(uname -m)" = x86_64 ] || { warn "no ready-made borea-rataTUI for $(uname -m)"; return 1; }
@@ -137,7 +137,8 @@ install_ready_made() {
 
 if [ "$FROM_SOURCE" -eq 0 ]; then
     install_ready_made && finish
-    say "Building borea-rataTUI from source instead"
+    die "the ready-made download is unavailable. Check your connection and the releases at $REPO_URL/releases, then retry.
+No compiler or build packages were installed. Developers can explicitly choose --from-source."
 fi
 
 [ -r "$OS_RELEASE" ] || die "can't read $OS_RELEASE to tell which distribution this is"

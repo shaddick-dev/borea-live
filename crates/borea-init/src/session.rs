@@ -49,13 +49,13 @@ fn launch(
     };
     let mut last_error = String::new();
     for mode in modes {
-        eprintln!("BOREA: starting installer with {mode:?} graphics.");
+        eprintln!("Borea: starting installer with {mode:?} graphics.");
         match run(*mode) {
             Ok(true) => return Ok(()),
             Ok(false) => last_error = format!("the {mode:?} compositor exited unsuccessfully"),
             Err(error) => last_error = error,
         }
-        eprintln!("BOREA: {last_error}");
+        eprintln!("Borea: {last_error}");
     }
     Err(format!(
         "The desktop could not start: {last_error}. Press Ctrl+Alt+F2 for the console, or reboot and choose Borea Live (safe graphics)."
@@ -72,7 +72,7 @@ fn main() -> ExitCode {
     }) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("BOREA: {error}");
+            eprintln!("Borea: {error}");
             ExitCode::FAILURE
         }
     }

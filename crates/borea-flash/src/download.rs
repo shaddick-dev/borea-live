@@ -251,8 +251,6 @@ pub fn fetch(
 pub enum DownloadRequest {
     Stop,
     Retry,
-    /// Build the image from this checkout instead.
-    Build,
     Quit,
 }
 
@@ -261,8 +259,6 @@ pub struct DownloadView {
     step: Option<Step>,
     failed: Option<String>,
     stop_asked: bool,
-    /// Running from a checkout, so a failed download can turn into a build.
-    can_build: bool,
 }
 
 impl Default for DownloadView {
@@ -273,19 +269,7 @@ impl Default for DownloadView {
 
 impl DownloadView {
     pub fn new() -> Self {
-        DownloadView {
-            started: Instant::now(),
-            step: None,
-            failed: None,
-            stop_asked: false,
-            can_build: false,
-        }
-    }
-
-    /// Offer building from this checkout when the download fails.
-    pub fn offer_build(mut self, can_build: bool) -> Self {
-        self.can_build = can_build;
-        self
+        DownloadView { started: Instant::now(), step: None, failed: None, stop_asked: false }
     }
 
     pub fn step(&mut self, step: Step) {
@@ -312,7 +296,6 @@ impl DownloadView {
                     self.started = Instant::now();
                     Some(DownloadRequest::Retry)
                 }
-                KeyCode::Char('b') if self.can_build => Some(DownloadRequest::Build),
                 KeyCode::Char('q') | KeyCode::Esc => Some(DownloadRequest::Quit),
                 _ if ctrl_c => Some(DownloadRequest::Quit),
                 _ => None,
@@ -339,9 +322,6 @@ impl DownloadView {
     pub fn render(&self, frame: &mut Frame) {
         let (note, keys): (Option<&str>, Vec<(&str, &str)>) = match (&self.failed, self.stop_asked)
         {
-            (Some(_), _) if self.can_build => {
-                (None, vec![("b", "build it here"), ("r", "try again"), ("q", "quit")])
-            }
             (Some(_), _) => (None, vec![("r", "try again"), ("q", "quit")]),
             (None, true) => (
                 Some("Stop the download? What has arrived is kept for next time."),
@@ -361,12 +341,11 @@ impl DownloadView {
             lines.push(Line::from(""));
             lines.extend(ui::text(why, width, Style::new()));
             lines.push(Line::from(""));
-            let instead = if self.can_build {
-                "Press b to build it from this checkout instead. That compiles a whole Linux system, so it takes an hour or more; later builds reuse what is unchanged."
-            } else {
-                "To build it yourself instead, run borea-rataTUI --build inside a Borea checkout. That takes an hour or more."
-            };
-            lines.extend(ui::text(instead, width, Style::new().fg(SUB)));
+            lines.extend(ui::text(
+                "Check your connection and retry, or use an existing ISO with borea-rataTUI IMAGE.iso. A ready-made ISO must be published before it can be downloaded.",
+                width,
+                Style::new().fg(SUB),
+            ));
             frame.render_widget(Paragraph::new(lines), area);
             return;
         }
@@ -566,14 +545,12 @@ pub(crate) mod tests {
     pub(crate) static TEST_URL: Mutex<Option<String>> = Mutex::new(None);
 
     #[test]
-    fn a_failed_download_offers_a_build_only_from_a_checkout() {
+    fn a_failed_download_never_starts_a_source_build() {
         let b = KeyEvent::from(KeyCode::Char('b'));
         let mut view = DownloadView::new();
         view.failed("No Borea Live release has been published yet.".into());
         assert_eq!(view.key(b), None);
-        let mut view = DownloadView::new().offer_build(true);
-        assert_eq!(view.key(b), None, "only once the download has failed");
-        view.failed("No Borea Live release has been published yet.".into());
-        assert_eq!(view.key(b), Some(DownloadRequest::Build));
+        assert_eq!(view.key(KeyEvent::from(KeyCode::Char('r'))), Some(DownloadRequest::Retry));
+        assert_eq!(view.key(b), None);
     }
 }

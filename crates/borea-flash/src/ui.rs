@@ -97,7 +97,7 @@ fn render_header(frame: &mut Frame, area: Rect, step: Step) {
     let lines = vec![
         Line::from(""),
         Line::from(vec![
-            Span::raw("BOREA").bold(),
+            Span::raw("Borea").bold(),
             Span::styled("  rataTUI", SUB),
             Span::styled(
                 "   ∼ go wherever the wind takes you",

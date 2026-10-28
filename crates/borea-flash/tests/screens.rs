@@ -24,7 +24,7 @@ fn show(name: &str, w: u16, h: u16, mut draw: impl FnMut(&mut ratatui::Frame)) {
         }
     }
     let text = rows.join("\n");
-    assert!(text.contains("BOREA"), "{name} {w}x{h}: no header\n{text}");
+    assert!(text.contains("Borea"), "{name} {w}x{h}: no header\n{text}");
     for hint in ["q quit", "Esc stop", "Esc back"] {
         let whole = text.contains(hint);
         let cut = rows.iter().any(|r| r.trim_end().ends_with(&hint[..hint.len() - 1]));
@@ -53,7 +53,7 @@ fn zz_dump() {
         return;
     }
     for (w, h) in [(80u16, 24u16), (60, 20)] {
-        let mut d = DownloadView::new().offer_build(true);
+        let mut d = DownloadView::new();
         show("download start", w, h, |f| d.render(f));
         d.step(Step::Receiving { done: 700_000_000, total: Some(2_100_000_000) });
         show("download progress", w, h, |f| d.render(f));

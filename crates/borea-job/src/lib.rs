@@ -875,29 +875,27 @@ pub fn compile(
         apps.push(Action::BuildAur { packages: pkgs.clone() });
     }
     if let Some(pkgs) = sources.get("flathub") {
-        apps.push(install(plan.distro, vec!["flatpak".into()]));
-        apps.push(target(
-            "/usr/bin/flatpak",
-            [
-                "remote-add",
-                "--system",
-                "--if-not-exists",
-                "flathub",
-                "https://dl.flathub.org/repo/flathub.flatpakrepo",
-            ],
-        ));
-        apps.push(target(
-            "/usr/bin/flatpak",
-            [
-                "install".into(),
-                "--system".into(),
-                "--noninteractive".into(),
-                "-y".into(),
-                "flathub".into(),
-            ]
+        // The Flatpak runtime is installed with the OS. Application downloads run
+        // on the installed system, where its network and system bus are available.
+        let args = ["install", "--system", "--noninteractive", "-y", "flathub"]
             .into_iter()
-            .chain(pkgs.clone()),
-        ));
+            .map(String::from)
+            .chain(pkgs.clone())
+            .collect::<Vec<_>>();
+        let queue = serde_json::json!([
+            {
+                "program": "/usr/bin/flatpak",
+                "args": [
+                    "remote-add", "--system", "--noninteractive", "--if-not-exists", "flathub",
+                    "https://dl.flathub.org/repo/flathub.flatpakrepo"
+                ]
+            },
+            { "program": "/usr/bin/flatpak", "args": args }
+        ]);
+        apps.push(write("/var/lib/borea/firstboot.json", queue.to_string(), 0o600));
+        apps.push(Action::Note {
+            message: "Selected Flatpak apps will download automatically in the background on first boot. Check progress with journalctl -u borea-firstboot.service.".into(),
+        });
     }
     if let Some(releases) = sources.get("appimage") {
         apps.push(Action::InstallAppImages { releases: releases.clone() });

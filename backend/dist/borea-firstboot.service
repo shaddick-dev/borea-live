@@ -6,7 +6,7 @@ Wants=network-online.target
 ConditionPathExists=/var/lib/borea/firstboot.json
 
 [Service]
-Type=oneshot
+Type=exec
 ExecStart=/usr/bin/borea-firstboot
 UMask=0077
 Restart=on-failure
