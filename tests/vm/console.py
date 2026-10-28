@@ -1,11 +1,12 @@
 """Drive a VM's serial console: send lines, wait for text. Used by the install test."""
-import socket, time, re, uuid
+import os, socket, time, re, uuid
 
 class Console:
     def __init__(self, path, log):
         for _ in range(100):
             try:
-                self.s = socket.socket(socket.AF_UNIX); self.s.connect(path); break
+                # connect() takes str or bytes for a Unix socket, never a pathlib.Path.
+                self.s = socket.socket(socket.AF_UNIX); self.s.connect(os.fspath(path)); break
             except OSError:
                 self.s.close()
                 time.sleep(0.2)
