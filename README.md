@@ -17,6 +17,20 @@ It downloads the ready-made borea-rataTUI from the latest release, checks it, an
 
 **Developers** build from source instead: `... | sh -s -- --from-source`, then `borea-rataTUI --build` to build the ISO itself (the first build can take up to a few hours). Publish a finished build for everyone with `scripts/publish-release.sh`. More detail: [crates/borea-flash/README.md](crates/borea-flash/README.md).
 
+**No ISO release yet? Compose it locally.** With Docker access and Rust 1.95+
+on an x86-64 Linux host, run this from the current checkout:
+
+```sh
+cargo run --locked --profile app -p borea-flash -- --compose
+```
+
+This downloads prebuilt kernel, graphics, firmware and live tools, compiles Borea's
+Rust apps, assembles the ISO, then opens USB selection. It does not need a Borea
+release or compile the kernel or Mesa. The runtime and Rust dependencies are cached
+for later runs. First-use downloads and app compilation take longer; a two-minute
+cold build is not guaranteed. The download error screen offers **b — compose ISO**
+when a checkout is available. See [the composition guide](live/compose/README.md).
+
 Borea installs upstream packages rather than rebuilding the chosen distribution. The backend installs the OS, drivers and desktop before rebooting. Selected Flatpak apps are saved in the reviewed plan and downloaded noninteractively by a Rust service on first boot; progress goes to `journalctl -fu borea-firstboot.service`, and failed work retries after 60 seconds. This currently applies to backend plans driven through `borea-cli`; the preview GUI still needs its backend integration. Native apps and AppImages remain installed before reboot. Explicitly enabling AUR can still build source packages.
 
 ---

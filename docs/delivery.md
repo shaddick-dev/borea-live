@@ -6,7 +6,10 @@ The product name is **Borea**. The normal user path downloads prebuilt artifacts
 compiling the live environment belongs to maintainers. Setup fails clearly if
 the release is unavailable, without installing development tools. Source builds
 require `--from-source` during setup or `--make`/`--build` in the USB helper.
-The download and ordinary write screens do not expose source-build shortcuts.
+After a failed ISO download, a checkout can explicitly compose an image with **b**
+or `borea-rataTUI --compose`. This downloads prebuilt Linux components and builds
+Borea's Rust apps, without a release or a kernel/Mesa source build. The ordinary
+write screen does not expose whole-runtime source-build shortcuts.
 
 The backend installs the chosen upstream OS, drivers, boot components and desktop
 before rebooting. It records selected Flatpak apps in a root-owned first-boot queue

@@ -167,15 +167,20 @@ fn unit_problems(target: &Path) -> Vec<String> {
 }
 
 pub fn post_build(target: &Path) -> Result {
+    check_root(target)?;
+    // The marker that tells Borea it runs in its own reference environment.
+    write(&target.join("etc/borea-live"), format!("{}\n", env("BOREA_LIVE_VERSION")?))?;
+    // Identifies this build, so the early boot finds its own medium and no other.
+    write(&target.join("etc/borea-live-build"), format!("{}\n", env("BOREA_LIVE_BUILD_ID")?))
+}
+
+pub(crate) fn check_root(target: &Path) -> Result {
     let mut missing = missing(target);
     missing.extend(unit_problems(target));
     if !missing.is_empty() {
         return Err(format!("the live session would be broken:\n  {}", missing.join("\n  ")));
     }
-    // The marker that tells Borea it runs in its own reference environment.
-    write(&target.join("etc/borea-live"), format!("{}\n", env("BOREA_LIVE_VERSION")?))?;
-    // Identifies this build, so the early boot finds its own medium and no other.
-    write(&target.join("etc/borea-live-build"), format!("{}\n", env("BOREA_LIVE_BUILD_ID")?))
+    Ok(())
 }
 
 struct Signing {
@@ -193,10 +198,31 @@ pub fn post_image(images: &Path) -> Result {
         (Ok(key), Ok(cert)) => Some(Signing { key, cert }),
         _ => None,
     };
+    image(images, &host, &target, &board, &build_id, signing.as_ref())
+}
 
+pub(crate) fn compose_image(
+    images: &Path,
+    host: &Path,
+    target: &Path,
+    board: &Path,
+    build_id: &str,
+) -> Result {
+    image(images, host, target, board, build_id, None)
+}
+
+fn image(
+    images: &Path,
+    host: &Path,
+    target: &Path,
+    board: &Path,
+    build_id: &str,
+    signing: Option<&Signing>,
+) -> Result {
     // ── Early boot ──────────────────────────────────────────────────────────
     let mut early = Image::new();
-    early.program(&target, "/usr/lib/borea/borea-init", "/init")?;
+    early.program(target, "/usr/lib/borea/borea-init", "/init")?;
+    early.kernel_modules(target)?;
     early.file("/build-id", 0o644, format!("{build_id}\n").into_bytes());
     match &signing {
         // Signed builds check the system image before trusting it, and carry no
@@ -207,7 +233,7 @@ pub fn post_image(images: &Path) -> Result {
             format!("{}\n", sha256(&images.join("rootfs.erofs"))?).into_bytes(),
         ),
         // Unsigned builds keep busybox's shell for rescue.
-        None => early.program(&target, "/bin/busybox", "/bin/busybox")?,
+        None => early.program(target, "/bin/busybox", "/bin/busybox")?,
     }
     write(&images.join("initramfs.img"), early.pack()?)?;
 
@@ -219,7 +245,12 @@ pub fn post_image(images: &Path) -> Result {
     let limine = host.join("share/limine");
     copy(&images.join("bzImage"), &root.join("boot/vmlinuz"))?;
     copy(&images.join("initramfs.img"), &root.join("boot/initramfs.img"))?;
-    copy(&images.join("rootfs.erofs"), &root.join("live/rootfs.erofs"))?;
+    let rootfs = root.join("live/rootfs.erofs");
+    fs::create_dir_all(rootfs.parent().ok_or("missing ISO live directory")?)
+        .map_err(|e| e.to_string())?;
+    if fs::hard_link(images.join("rootfs.erofs"), &rootfs).is_err() {
+        copy(&images.join("rootfs.erofs"), &rootfs)?;
+    }
     write(&root.join("live/build-id"), format!("{build_id}\n"))?;
     for file in ["limine-bios.sys", "limine-bios-cd.bin", "limine-uefi-cd.bin"] {
         copy(&limine.join(file), &root.join("boot/limine").join(file))?;
@@ -228,7 +259,7 @@ pub fn post_image(images: &Path) -> Result {
 
     let config = fs::read_to_string(board.join("limine.conf")).map_err(|e| e.to_string())?;
     match &signing {
-        Some(signing) => sign(&host, &root, &config, signing)?,
+        Some(signing) => sign(host, &root, &config, signing)?,
         None => write(&root.join("boot/limine/limine.conf"), config)?,
     }
 

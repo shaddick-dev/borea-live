@@ -89,6 +89,7 @@ pub enum BuildRequest {
 }
 
 pub struct BuildView {
+    compose: bool,
     started: Instant,
     /// The package Buildroot is working on.
     current: Option<String>,
@@ -102,6 +103,7 @@ pub struct BuildView {
 impl BuildView {
     pub fn new(log: PathBuf) -> Self {
         BuildView {
+            compose: false,
             started: Instant::now(),
             current: None,
             finished: BTreeSet::new(),
@@ -110,6 +112,16 @@ impl BuildView {
             failed: None,
             log,
         }
+    }
+
+    pub fn composition(log: PathBuf) -> Self {
+        let mut view = Self::new(log);
+        view.compose = true;
+        view
+    }
+
+    pub fn is_composing(&self) -> bool {
+        self.compose
     }
 
     /// One line of build output.
@@ -202,13 +214,19 @@ impl BuildView {
                     }
                     None => Line::from(Span::styled("Preparing…", SUB)),
                 });
-                lines.push(Line::from(Span::styled(
-                    format!("{} built", ui::count(self.finished.len(), "package", "packages")),
-                    SUB,
-                )));
+                if !self.compose {
+                    lines.push(Line::from(Span::styled(
+                        format!("{} built", ui::count(self.finished.len(), "package", "packages")),
+                        SUB,
+                    )));
+                }
                 lines.push(Line::from(""));
                 lines.extend(ui::text(
-                    "The first build compiles a whole Linux system from source: an hour or more, depending on your machine. Later builds reuse what is unchanged. When it finishes, Borea moves straight on to your USB stick.",
+                    if self.compose {
+                        "Assembling prebuilt Linux packages and Borea's Rust apps. No Borea release is needed. First use downloads the runtime and compiles the apps; later runs reuse both caches. When ready, choose your USB stick."
+                    } else {
+                        "The first build compiles a whole Linux system from source: an hour or more, depending on your machine. Later builds reuse what is unchanged. When it finishes, Borea moves straight on to your USB stick."
+                    },
                     width,
                     Style::new().fg(SUB),
                 ));

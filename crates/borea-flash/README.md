@@ -7,6 +7,8 @@ interface. The commands share the same writer:
   downloaded when it's still the latest), then flash. No local compilation.
 - `borea-rataTUI IMAGE.iso`: flash an existing image directly.
 - `borea-rataTUI --cached`: use an existing local ISO without downloading or compiling.
+- `borea-rataTUI --compose`: create the ISO from prebuilt Linux components and
+  the current Borea Rust apps; Docker, Rust and a checkout required. No release needed.
 - `borea-rataTUI --update`: replace the app with the latest release's ready-made
   build, in seconds.
 - `borea-rataTUI --make`: developers, in a checkout: build the ISO from source if
@@ -14,9 +16,9 @@ interface. The commands share the same writer:
 - `borea-rataTUI --list [IMAGE.iso]`: list USB candidates without building or writing.
 - `borea-flash [IMAGE.iso]`: compatibility command; writes an existing ISO or downloads one.
 
-An unavailable release is a download error, never an instruction to compile Linux.
-Retry or provide an existing ISO. Build controls are available only after explicitly
-starting developer mode with `--make` or `--build`, even when a checkout is present.
+An unavailable release offers local composition with **b** when a checkout is
+available. It downloads prebuilt Linux components rather than compiling Linux.
+Source builds of the whole runtime still require explicit `--make` or `--build`.
 
 ## Install and launch
 

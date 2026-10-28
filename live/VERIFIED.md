@@ -7,7 +7,7 @@
 - Native Buildroot 2026.08.1 configuration accepts the defconfig, including `BR2_PACKAGE_CAGE=y`, Wayland/EGL and `BR2_TARGET_ROOTFS_EROFS_COMPRESSION_ALGORITHMS="lz4"`. Configuration completed in six seconds. This is **not an ISO build time**.
 - Build-time guards reject invalid graphical-target startup links, missing session launcher, absent Wayland/EGL libraries, missing keymaps/PAM and a polkit without logind. Cache tests invalidate changed manifests/source and corrupted or interrupted archives.
 
-Not yet verified: a complete rebuilt ISO, its raw-USB UEFI boot in QEMU, or a boot on the reported physical laptop. The native compositor check does not certify those paths. No two-minute end-to-end build/download/write time is certified; first source builds still compile the kernel and graphics stack. No prebuilt Borea ISO release was available when checked on this date.
+At this stage the full Buildroot source image and physical laptop boot were unverified. The later composition verification below covers a separately assembled image. No two-minute cold end-to-end build/download/write time is certified; first Buildroot source builds still compile the kernel and graphics stack. No prebuilt Borea ISO release was available when checked on this date.
 
 ## Download and automatic app setup
 
@@ -18,3 +18,14 @@ Not yet verified: a complete rebuilt ISO, its raw-USB UEFI boot in QEMU, or a bo
 - Formatting and clippy with warnings denied pass for those crates, the GUI and early boot.
 
 The queue tests inject command results; they do not certify an actual Flatpak download on the installed systems. First-boot network/app installation in disposable VMs, GUI-to-backend selection mapping and a complete rebuilt ISO remain release gates. Native apps and AppImages still install before reboot; explicitly enabled AUR can compile packages. Download-only setup needs published artifacts, which are still unavailable at this check.
+
+## Local composition without a release
+
+2026-10-28, `codex/compose-live-iso`.
+
+- A 711 MiB ISO was composed from authenticated prebuilt runtime packages and compatible Borea binaries, with no Borea release. The final cached-runtime composition took approximately 72 seconds. This excludes compiling those Borea binaries and the first runtime download; the runtime preparation itself took about 2.5 minutes. It is not a two-minute cold-build claim.
+- The unmodified ISO booted as a read-only emulated USB storage device through OVMF UEFI in QEMU/TCG. The normal boot entry displayed the actual installer automatically, without console repairs. The prebuilt kernel was 6.12.113+deb13-amd64. The hardware renderer had left the virtual display blank; software rendering is now the normal path, with hardware explicitly selectable.
+- Overlay installation normalizes public directory/file modes to 0755/0644. A private checkout previously made /etc inaccessible to D-Bus; a regression test covers that failure. Early boot packs the prebuilt kernel's filesystem/storage modules, with read-only loop fallback for EROFS.
+- Selected builder, init/session and USB-helper tests pass, as do formatting and clippy with warnings denied. The composition workflow builds Borea inside the runtime and requires a disposable UEFI USB boot to present native GUI frames before uploading its ISO artifact.
+
+The local timed composition used `--bin-dir`, not a cold build of every Rust dependency inside Docker. The new workflow covers that normal source-compilation path. Physical USB hardware, the reported laptop, legacy BIOS live boot and actual distro installation from this image remain unverified. The GUI's backend integration remains pending. The artifact is a preview, not an installer release certification.
