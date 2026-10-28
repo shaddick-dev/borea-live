@@ -333,7 +333,7 @@ fn memory_bytes() -> Option<u64> {
 }
 
 /// Held for the whole build; released when the process ends, however it ends.
-fn lock(work: &Path) -> Result<fs::File> {
+pub(crate) fn lock(work: &Path) -> Result<fs::File> {
     let file = fs::File::create(work.join(".build.lock")).map_err(|e| e.to_string())?;
     rustix::fs::flock(&file, rustix::fs::FlockOperation::NonBlockingLockExclusive)
         .map_err(|_| "another Borea Live build is already running in this checkout".to_owned())?;
@@ -586,7 +586,7 @@ fn workspace_version(repo: &Path) -> String {
 }
 
 /// A random ID for this build; the early boot uses it to find its own medium.
-fn build_id() -> Result<String> {
+pub(crate) fn build_id() -> Result<String> {
     let mut bytes = [0u8; 16];
     fs::File::open("/dev/urandom")
         .and_then(|mut f| f.read_exact(&mut bytes))

@@ -11,14 +11,18 @@ enum Graphics {
 }
 
 fn software_requested(cmdline: &str) -> bool {
-    cmdline
-        .split_whitespace()
-        .any(|arg| matches!(arg, "borea.safe-graphics" | "borea.graphics=software" | "nomodeset"))
+    !cmdline.split_whitespace().any(|arg| arg == "borea.graphics=hardware")
+        || cmdline.split_whitespace().any(|arg| {
+            matches!(arg, "borea.safe-graphics" | "borea.graphics=software" | "nomodeset")
+        })
 }
 
-fn compositor(graphics: Graphics) -> Command {
+fn compositor(graphics: Graphics, smoke: bool) -> Command {
     let mut command = Command::new("/usr/bin/cage");
     command.args(["-d", "-s", "--", "/usr/bin/borea-live"]);
+    if smoke {
+        command.arg("--boot-smoke");
+    }
     // Ignore renderer overrides inherited from a developer's terminal.
     for key in [
         "WLR_RENDERER",
@@ -65,7 +69,7 @@ fn launch(
 fn main() -> ExitCode {
     let cmdline = fs::read_to_string("/proc/cmdline").unwrap_or_default();
     match launch(&cmdline, |graphics| {
-        compositor(graphics)
+        compositor(graphics, cmdline.split_whitespace().any(|arg| arg == "borea.boot-smoke"))
             .status()
             .map(|status| status.success())
             .map_err(|error| error.to_string())
@@ -95,8 +99,8 @@ mod tests {
             );
             assert_eq!(modes, [Graphics::Software]);
         }
-        assert!(!software_requested("notnomodeset borea.safe-graphics=0"));
-        let command = compositor(Graphics::Software);
+        assert!(!software_requested("borea.graphics=hardware notnomodeset borea.safe-graphics=0"));
+        let command = compositor(Graphics::Software, false);
         let values: std::collections::BTreeMap<_, _> = command.get_envs().collect();
         assert_eq!(
             values.get(std::ffi::OsStr::new("WLR_RENDERER")),
@@ -112,7 +116,7 @@ mod tests {
     fn failed_hardware_falls_back_once_and_failed_software_reports_an_error() {
         let mut modes = Vec::new();
         assert!(
-            launch("", |mode| {
+            launch("borea.graphics=hardware", |mode| {
                 modes.push(mode);
                 Ok(mode == Graphics::Software)
             })
@@ -121,12 +125,26 @@ mod tests {
         assert_eq!(modes, [Graphics::Hardware, Graphics::Software]);
         let mut count = 0;
         assert!(
-            launch("", |_| {
+            launch("borea.graphics=hardware", |_| {
                 count += 1;
                 Err("missing compositor".into())
             })
             .is_err()
         );
         assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn ordinary_boot_uses_software_without_trying_a_potentially_stalled_gpu() {
+        let mut modes = Vec::new();
+        assert!(
+            launch("console=tty0", |mode| {
+                modes.push(mode);
+                Ok(true)
+            })
+            .is_ok()
+        );
+        assert_eq!(modes, [Graphics::Software]);
+        assert!(software_requested("borea.graphics=hardware borea.safe-graphics"));
     }
 }

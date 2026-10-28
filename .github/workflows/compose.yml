@@ -1,0 +1,49 @@
+name: Compose Borea Live without a release
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ['live/compose/**', 'crates/borea-build/**', 'crates/borea-init/**', '.github/workflows/compose.yml']
+  push:
+    branches: [main]
+    paths: ['live/compose/**', 'crates/borea-build/**', 'crates/borea-init/**', '.github/workflows/compose.yml']
+permissions:
+  contents: read
+jobs:
+  iso:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: '4'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v4
+        with:
+          path: target/live/compose
+          key: compose-rust-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: compose-rust-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+      - name: Compose from prebuilt Linux packages and current Rust apps
+        run: cargo run --locked --profile app -p borea-build -- compose
+      - name: Verify the completed image checksum
+        working-directory: target/live/out
+        run: sha256sum --check borea-live-compose.iso.sha256
+      - name: Disposable UEFI USB boot reaches the installer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf
+          python3 tests/vm/compose_boot.py target/live/out/borea-live-compose.iso
+      - uses: actions/upload-artifact@v4
+        with:
+          name: borea-live-compose-x86_64
+          path: |
+            target/live/out/borea-live-compose.iso
+            target/live/out/borea-live-compose.iso.sha256
+          compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compose-boot-logs
+          path: target/vm/compose-smoke/*.log
+          retention-days: 7

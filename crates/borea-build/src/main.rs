@@ -10,6 +10,7 @@
 //! `target/live/hooks/post-build` and `post-image` to this binary, which then acts
 //! on the name it was started as.
 
+mod compose;
 mod concept;
 mod hooks;
 mod initramfs;
@@ -23,7 +24,8 @@ use std::process::ExitCode;
 pub type Result<T = ()> = std::result::Result<T, String>;
 
 const USAGE: &str = "\
-usage: borea-build iso [--configure-only] [--secure-boot DIR] [--jobs N]
+usage: borea-build compose [--refresh-runtime] [--ca-cert PATH] [--bin-dir PATH]
+       borea-build iso [--configure-only] [--secure-boot DIR] [--jobs N]
        borea-build keys DIR
        borea-build concept-data";
 
@@ -39,6 +41,8 @@ fn main() -> ExitCode {
         ("post-build", [target_dir, ..]) => hooks::post_build(Path::new(target_dir)),
         ("post-image", [images_dir, ..]) => hooks::post_image(Path::new(images_dir)),
         (_, ["iso", rest @ ..]) => iso::run(rest),
+        (_, ["compose", rest @ ..]) => compose::run(rest),
+        (_, ["compose-root"]) => compose::root(),
         (_, ["keys", dir]) => keys::make(Path::new(dir)),
         (_, ["concept-data"]) => repo().and_then(|repo| concept::refresh(&repo)),
         (_, ["-h" | "--help" | "help"]) => {

@@ -1,6 +1,8 @@
 # Borea Live
 
-Borea's own installer image. It is not a remastered distribution ISO: Buildroot compiles every part of it from upstream sources, Borea supplies its own early boot, and Limine boots it. Power it on and the installer is there.
+Borea's own installer image, with Rust early boot and Limine. The fast local path
+[composes prebuilt Linux components](compose/README.md); the original Buildroot
+path compiles the runtime from source. Both use the same installer and target adapters.
 
 ## Fast USB preparation
 
@@ -8,15 +10,16 @@ Borea's own installer image. It is not a remastered distribution ISO: Buildroot 
 borea-rataTUI                    # download a published ISO, then write and verify
 borea-rataTUI --cached           # reuse a local ISO; never download or rebuild
 borea-rataTUI /path/to/image.iso # write a specific existing image
+borea-rataTUI --compose         # create an ISO locally without a published release
 ```
 
-A two-minute source build of the entire kernel, graphics stack and firmware is not realistic. The fast user path is a ready-made ISO, built once by maintainers and downloaded by users. It requires an actual published ISO release; the download code alone does not provide one. Download, checksum and USB write/readback time depend on image size, network and USB speed. No two-minute end-to-end time is certified.
+A two-minute source build of the entire kernel, graphics stack and firmware is not realistic. Users can download a ready-made ISO when one is published, or compose one locally from prebuilt components without a release. First-use downloads and Borea Rust compilation still take time; subsequent builds reuse caches. Download, checksum and USB write/readback time depend on image size, network and USB speed. No two-minute cold end-to-end time is certified.
 
 ## What happens at boot
 
 1. **Limine** shows *Borea Live* for 3 seconds in Borea's colours, then boots. A *safe graphics* entry is there for displays that misbehave.
 2. **Borea's early boot**, `borea-init` (Rust, `crates/borea-init`), runs as `/init`. It looks at every disk until it finds the one carrying this build's ID, waiting up to 30 seconds for slow USB sticks. It mounts the EROFS system image read-only straight from `live/rootfs.erofs` (no loop device), puts a writable layer in memory over it, and hands over to systemd. If anything is missing it says what, and opens busybox's rescue shell; signed builds power off instead.
-3. **systemd** reaches `graphical.target`, whose enablement link starts `borea-live.service`. Its Rust `borea-session` launcher starts cage and retries with software rendering if the hardware compositor exits unsuccessfully. Safe graphics explicitly selects pixman and Mesa software rendering. Repeated failures are limited and printed to the console and journal.
+3. **systemd** reaches `graphical.target`, whose enablement link starts `borea-live.service`. Its Rust `borea-session` launcher starts cage with pixman and Mesa software rendering by default, avoiding GPU initialization that can stall without exiting. The hardware-graphics menu entry opts into acceleration and retries with software rendering if the compositor exits unsuccessfully. Safe graphics also disables kernel modesetting. Repeated failures are limited and printed to the console and journal.
 4. **The installer** scans hardware at once, waits for NetworkManager if it is late, and rescans Wi-Fi and refreshes the connection every few seconds. If the machine is online it moves past Connect by itself. If not, the strongest network is chosen, with the cursor in its passphrase field.
 5. **polkit** lets the `borea` user manage networking and disks, and switch consoles, without a password prompt, because there is no password to give. The rule covers only that user, only on the local active session, and only NetworkManager, UDisks2, and logind's console switch. polkit is built to track sessions through logind (Buildroot's default, ConsoleKit, would never see the session as local or active).
 
@@ -24,7 +27,7 @@ Ctrl+Alt+F2 opens a rescue console: log in as `root`, with no password. Ctrl+Alt
 
 `borea-build` refuses to finish an image without its graphical-target startup links, session launcher, Wayland/EGL runtime libraries, keymaps, PAM session, UEFI variables mount, or a polkit linked with logind.
 
-If the menu appears but the desktop stays blank, use **Borea Live (safe graphics)**. **Borea Live (diagnostic console)** shows kernel/service output without starting the desktop. Ctrl+Alt+F2 reaches the rescue console; inspect `journalctl -b -u borea-live.service`. These fixes must be in the newly written ISO: updating the USB helper alone cannot repair an image already on a stick.
+If the menu appears but the desktop stays blank, use **Borea Live (safe graphics)**. **Borea Live (diagnostic console)** shows kernel/service output without starting the desktop. Ctrl+Alt+F2 reaches the rescue console; inspect `journalctl -b -u borea-live.service` for startup errors and `journalctl -b -t borea-session` for compositor/client output after PAM moves them into the login session. These fixes must be in the newly written ISO: updating the USB helper alone cannot repair an image already on a stick.
 
 ## Developer: build from source and write a stick
 

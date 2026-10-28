@@ -251,10 +251,12 @@ pub fn fetch(
 pub enum DownloadRequest {
     Stop,
     Retry,
+    Compose,
     Quit,
 }
 
 pub struct DownloadView {
+    can_compose: bool,
     started: Instant,
     step: Option<Step>,
     failed: Option<String>,
@@ -269,7 +271,18 @@ impl Default for DownloadView {
 
 impl DownloadView {
     pub fn new() -> Self {
-        DownloadView { started: Instant::now(), step: None, failed: None, stop_asked: false }
+        DownloadView {
+            can_compose: false,
+            started: Instant::now(),
+            step: None,
+            failed: None,
+            stop_asked: false,
+        }
+    }
+
+    pub fn offer_composition(mut self, available: bool) -> Self {
+        self.can_compose = available;
+        self
     }
 
     pub fn step(&mut self, step: Step) {
@@ -290,6 +303,7 @@ impl DownloadView {
             key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c');
         if self.failed.is_some() {
             return match key.code {
+                KeyCode::Char('b') if self.can_compose => Some(DownloadRequest::Compose),
                 KeyCode::Char('r') | KeyCode::Enter => {
                     self.failed = None;
                     self.step = None;
@@ -322,6 +336,9 @@ impl DownloadView {
     pub fn render(&self, frame: &mut Frame) {
         let (note, keys): (Option<&str>, Vec<(&str, &str)>) = match (&self.failed, self.stop_asked)
         {
+            (Some(_), _) if self.can_compose => {
+                (None, vec![("b", "compose ISO"), ("r", "try again"), ("q", "quit")])
+            }
             (Some(_), _) => (None, vec![("r", "try again"), ("q", "quit")]),
             (None, true) => (
                 Some("Stop the download? What has arrived is kept for next time."),
@@ -342,7 +359,11 @@ impl DownloadView {
             lines.extend(ui::text(why, width, Style::new()));
             lines.push(Line::from(""));
             lines.extend(ui::text(
-                "Check your connection and retry, or use an existing ISO with borea-rataTUI IMAGE.iso. A ready-made ISO must be published before it can be downloaded.",
+                if self.can_compose {
+                    "Press b to create a local ISO from prebuilt kernel and graphics packages. Needs Docker and Rust; no Borea release is required. First use downloads the runtime and builds Borea's apps; later runs reuse caches."
+                } else {
+                    "Use an existing ISO with borea-rataTUI IMAGE.iso. To create one without a release, run borea-rataTUI --compose from a Borea checkout (Docker and Rust required)."
+                },
                 width,
                 Style::new().fg(SUB),
             ));
@@ -552,5 +573,17 @@ pub(crate) mod tests {
         assert_eq!(view.key(b), None);
         assert_eq!(view.key(KeyEvent::from(KeyCode::Char('r'))), Some(DownloadRequest::Retry));
         assert_eq!(view.key(b), None);
+    }
+
+    #[test]
+    fn local_composition_is_explicit_and_requires_a_checkout() {
+        let key = KeyEvent::from(KeyCode::Char('b'));
+        let mut view = DownloadView::new().offer_composition(true);
+        assert_eq!(view.key(key), None, "a working download must not be interrupted by b");
+        view.failed("No Borea Live release has been published yet.".into());
+        assert_eq!(view.key(key), Some(DownloadRequest::Compose));
+        let mut unavailable = DownloadView::new().offer_composition(false);
+        unavailable.failed("No release".into());
+        assert_eq!(unavailable.key(key), None);
     }
 }

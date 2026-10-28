@@ -63,6 +63,8 @@ usage: borea-rataTUI            get the latest Borea Live release (a download, k
                                 next time), then write and verify a USB stick
        borea-rataTUI IMAGE.iso  write an existing ISO
        borea-rataTUI --cached   use an existing local ISO; no download or rebuild
+       borea-rataTUI --compose  create a local ISO from prebuilt Linux packages (Docker + Rust)
+                                 no Borea release needed; caches repeated builds
        borea-flash [IMAGE.iso]   write IMAGE, or the newest Borea Live image found,
                                  downloading the latest release when there is none
        borea-flash --make        developers: in a Borea checkout, build Borea Live from source
@@ -119,8 +121,20 @@ fn start() -> ExitCode {
     }
     if flag("--get") {
         let host = borea_host::detect().kind;
-        let start = Stage::Downloading(DownloadView::new());
-        return report(run(start, None, host).map_err(|e| e.to_string()));
+        let repo = make::repo();
+        let start = Stage::Downloading(DownloadView::new().offer_composition(repo.is_some()));
+        return report(run(start, repo, host).map_err(|e| e.to_string()));
+    }
+    if flag("--compose") {
+        let Some(repo) = make::repo() else {
+            eprintln!(
+                "borea-rataTUI: --compose needs a Borea checkout. Clone https://github.com/shaddick-dev/borea-live and run this there."
+            );
+            return ExitCode::FAILURE;
+        };
+        let host = borea_host::detect().kind;
+        let start = Stage::Building(BuildView::composition(repo.join("target/live/build.log")));
+        return report(run(start, Some(repo), host).map_err(|e| e.to_string()));
     }
     if flag("--make") || flag("--build") {
         let Some(repo) = make::repo() else {
@@ -155,8 +169,9 @@ fn start() -> ExitCode {
         if !list_only {
             // Nothing to write yet: get the latest release, in minutes.
             let host = borea_host::detect().kind;
-            let start = Stage::Downloading(DownloadView::new());
-            return report(run(start, None, host).map_err(|e| e.to_string()));
+            let repo = make::repo();
+            let start = Stage::Downloading(DownloadView::new().offer_composition(repo.is_some()));
+            return report(run(start, repo, host).map_err(|e| e.to_string()));
         }
         eprintln!(
             "borea-flash: no Borea Live image found. Run borea-rataTUI to download the latest \
@@ -300,7 +315,7 @@ fn run(mut stage: Stage, repo: Option<PathBuf>, host: HostKind) -> std::io::Resu
                     (Stage::Downloading(view), Event::Download(step)) => view.step(step),
                     (Stage::Downloading(view), Event::Downloaded(Err(why))) => view.failed(why),
                     (Stage::Downloading(view), Event::Downloaded(Ok(path))) => {
-                        match writing(&path, &host, repo.as_deref()) {
+                        match writing(&path, &host, None) {
                             Ok(app) => {
                                 start_checksum(&app, &tx);
                                 stage = Stage::Writing(Box::new(app));
@@ -315,7 +330,8 @@ fn run(mut stage: Stage, repo: Option<PathBuf>, host: HostKind) -> std::io::Resu
                     }
                     (Stage::Building(view), Event::Built(Ok(path))) => {
                         build = None;
-                        match writing(&path, &host, repo.as_deref()) {
+                        let checkout = if view.is_composing() { None } else { repo.as_deref() };
+                        match writing(&path, &host, checkout) {
                             Ok(app) => {
                                 start_checksum(&app, &tx);
                                 stage = Stage::Writing(Box::new(app));
@@ -337,6 +353,14 @@ fn run(mut stage: Stage, repo: Option<PathBuf>, host: HostKind) -> std::io::Resu
             }
             match &mut stage {
                 Stage::Downloading(view) => match view.key(key) {
+                    Some(DownloadRequest::Compose) => {
+                        if let Some(repo) = &repo {
+                            let mut view =
+                                BuildView::composition(repo.join("target/live/build.log"));
+                            build = start_build(repo, &tx, &mut view);
+                            stage = Stage::Building(view);
+                        }
+                    }
                     Some(DownloadRequest::Stop) => fetching.store(true, Ordering::Relaxed),
                     Some(DownloadRequest::Retry) => fetching = start_download(&tx),
                     Some(DownloadRequest::Quit) => return Ok(()),
@@ -415,7 +439,7 @@ fn start_build(repo: &Path, tx: &Sender<Event>, view: &mut BuildView) -> Option<
         );
         return None;
     };
-    match spawn_build(repo, &cargo, tx) {
+    match spawn_build(repo, &cargo, tx, view.is_composing()) {
         Ok(child) => Some(child),
         Err(error) => {
             view.failed(format!("The build could not start: {error}"));
@@ -443,6 +467,7 @@ fn spawn_build(
     repo: &Path,
     cargo: &Path,
     tx: &Sender<Event>,
+    compose: bool,
 ) -> std::io::Result<Arc<Mutex<Child>>> {
     // The ISO builder checks for cargo on PATH too, so give it the one found here.
     let mut path = cargo.parent().map(Path::to_path_buf).into_iter().collect::<Vec<_>>();
@@ -457,9 +482,9 @@ fn spawn_build(
     writeln!(file, "\n── borea-flash --make ──")?;
     let log = Arc::new(Mutex::new(file));
     let mut child = Command::new(cargo)
-        .args(["run", "--release", "--quiet", "--manifest-path"])
+        .args(["run", "--profile", "app", "--locked", "--quiet", "--manifest-path"])
         .arg(repo.join("Cargo.toml"))
-        .args(["-p", "borea-build", "--", "iso"])
+        .args(["-p", "borea-build", "--", if compose { "compose" } else { "iso" }])
         .current_dir(repo)
         .env("PATH", path)
         .stdin(Stdio::null())
