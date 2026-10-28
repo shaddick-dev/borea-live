@@ -5,19 +5,17 @@
 borea-rataTUI is Borea's terminal app for making a bootable Borea Live USB stick. One command installs it on any x86-64 Linux distribution, with no packages, Rust or sudo:
 
 ```sh
-curl -fsSLo s https://shaddick-dev.github.io/borea-live/s && bash s
+curl -fsSL https://shaddick-dev.github.io/borea-live/install | sh
 ```
-
-(The same script from GitHub directly: `curl -fsSL https://raw.githubusercontent.com/shaddick-dev/borea-live/main/scripts/borea-setup.sh -o s && bash s`.)
 
 It downloads the ready-made borea-rataTUI from the latest release, checks it, and starts it. The app then downloads the ready-made Borea Live image (checked against its published SHA-256, resumed if interrupted, kept for next time) and writes it to your stick. The whole thing takes as long as the download and the write: minutes, not hours.
 
 - Next time, open **borea-rataTUI** from your app launcher or run `borea-rataTUI`. It only downloads again when a newer release is out.
 - Update the app itself with `borea-rataTUI --update`: it downloads the latest ready-made build in seconds, with nothing to compile.
 - In the app: pick the stick, type its device name to confirm, and it writes then reads every byte back. Only USB or removable drives are offered.
-- Want to see every step first? Run `bash s --dry-run`.
+- Want to see every step first? Add options after `sh -s --`, e.g. `curl -fsSL https://shaddick-dev.github.io/borea-live/install | sh -s -- --dry-run`.
 
-**Developers** build from source instead: `bash s --from-source`, then `borea-rataTUI --build` to build the ISO itself (the first build can take up to a few hours). Publish a finished build for everyone with `scripts/publish-release.sh`. More detail: [crates/borea-flash/README.md](crates/borea-flash/README.md).
+**Developers** build from source instead: `... | sh -s -- --from-source`, then `borea-rataTUI --build` to build the ISO itself (the first build can take up to a few hours). Publish a finished build for everyone with `scripts/publish-release.sh`. More detail: [crates/borea-flash/README.md](crates/borea-flash/README.md).
 
 ---
 

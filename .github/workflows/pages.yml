@@ -1,12 +1,13 @@
 name: Setup page
-# Serves the setup script at https://shaddick-dev.github.io/borea-live/s, so the
-# one-line install is short enough to type by hand:
-#   curl -fsSLo s https://shaddick-dev.github.io/borea-live/s && bash s
+# Serves the one-line install:
+#   curl -fsSL https://shaddick-dev.github.io/borea-live/install | sh
+# /install is scripts/install.sh (plain sh, safe to pipe), which fetches /setup
+# (scripts/borea-setup.sh) and runs it with the terminal attached.
 # GitHub Pages must be turned on once: Settings → Pages → Source: GitHub Actions.
 on:
   push:
     branches: [main]
-    paths: [scripts/borea-setup.sh, .github/workflows/pages.yml]
+    paths: [scripts/install.sh, scripts/borea-setup.sh, .github/workflows/pages.yml]
   workflow_dispatch:
 permissions:
   contents: read
@@ -26,7 +27,8 @@ jobs:
       - name: Assemble
         run: |
           mkdir _site
-          cp scripts/borea-setup.sh _site/s
+          cp scripts/install.sh _site/install
+          cp scripts/borea-setup.sh _site/setup
           cat > _site/index.html <<'HTML'
           <!doctype html>
           <html lang="en"><head><meta charset="utf-8">
@@ -44,9 +46,9 @@ jobs:
           <h1>BOREA</h1>
           <p>Go wherever the wind takes you.</p>
           <p>Make a Borea Live USB stick on any Linux distribution. Open a terminal and type:</p>
-          <pre>curl -fsSLo s https://shaddick-dev.github.io/borea-live/s &amp;&amp; bash s</pre>
+          <pre>curl -fsSL https://shaddick-dev.github.io/borea-live/install | sh</pre>
           <p>It installs borea-rataTUI, which downloads Borea Live and writes your stick.
-          <a href="s">Read the script</a> · <a href="https://github.com/shaddick-dev/borea-live">Source</a></p>
+          <a href="install">Read the script</a> · <a href="https://github.com/shaddick-dev/borea-live">Source</a></p>
           </main></body></html>
           HTML
       - uses: actions/upload-pages-artifact@v3
