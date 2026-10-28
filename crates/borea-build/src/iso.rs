@@ -191,6 +191,7 @@ pub fn run(args: &[&str]) -> Result {
         let _ = fs::remove_dir_all(output_dir.join("borea-cargo"));
     }
     fs::write(&stamp, &layout).map_err(|e| e.to_string())?;
+    retire(&output_dir.join("target"))?;
     make(&["borea-dirclean"], false)?;
     make(&[], true)?;
 
@@ -209,6 +210,27 @@ pub fn run(args: &[&str]) -> Result {
     println!(
         "Write it: borea-flash   (finds the newest build itself; install it once with `cargo run --profile app -p borea-flash -- --install`)"
     );
+    Ok(())
+}
+
+/// Files earlier versions of the overlay put in the image that it no longer
+/// has. Copying the overlay never deletes, so a rebuild would keep them, and
+/// the post-build check would (rightly) refuse the image.
+const RETIRED: &[&str] = &[
+    // A copy of graphical.target that kept the boot from ever reaching it.
+    "etc/systemd/system/default.target",
+    // A copy over NetworkManager's own enablement link; systemd ignored it.
+    "etc/systemd/system/multi-user.target.wants/NetworkManager.service",
+];
+
+/// Remove [`RETIRED`] files from a previous build's target directory. Only
+/// regular files: a link there now comes from a package or the overlay.
+fn retire(target: &Path) -> Result<()> {
+    for path in RETIRED.iter().map(|p| target.join(p)) {
+        if fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_file()) {
+            fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        }
+    }
     Ok(())
 }
 
@@ -566,5 +588,24 @@ mod tests {
         let (a, b) = (build_id().unwrap(), build_id().unwrap());
         assert_eq!(a.len(), 32);
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn retires_old_overlay_copies_but_keeps_links() {
+        let target = std::env::temp_dir().join(format!("borea-retire-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&target);
+        let wants = target.join("etc/systemd/system/multi-user.target.wants");
+        fs::create_dir_all(&wants).unwrap();
+        fs::write(target.join("etc/systemd/system/default.target"), "[Unit]\n").unwrap();
+        std::os::unix::fs::symlink(
+            "/usr/lib/systemd/system/NetworkManager.service",
+            wants.join("NetworkManager.service"),
+        )
+        .unwrap();
+        retire(&target).unwrap();
+        assert!(!target.join("etc/systemd/system/default.target").exists());
+        assert!(fs::read_link(wants.join("NetworkManager.service")).is_ok());
+        retire(&target.join("not-built-yet")).unwrap();
+        fs::remove_dir_all(&target).unwrap();
     }
 }
