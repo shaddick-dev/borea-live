@@ -15,20 +15,17 @@ use std::time::{Duration, Instant};
 
 use ratatui::Frame;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style, Stylize};
+use ratatui::style::{Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Gauge, Paragraph, Wrap};
+use ratatui::widgets::Paragraph;
 use sha2::{Digest, Sha256};
+
+use crate::ui::{self, SUB, WARN, eta, human};
 
 /// The latest release's files. `BOREA_RELEASES_URL` points elsewhere (tests, mirrors).
 pub const RELEASES: &str = "https://github.com/shaddick-dev/borea-live/releases/latest/download";
 /// The ISO's name in every release.
 pub const ISO: &str = "borea-live-x86_64.iso";
-
-const ACCENT: Color = Color::Rgb(0xa2, 0xc4, 0xa8);
-const SUB: Color = Color::Rgb(0x8a, 0x96, 0x8c);
-const WARN: Color = Color::Rgb(0xe3, 0x9b, 0x84);
 
 fn releases() -> String {
     #[cfg(test)]
@@ -339,123 +336,80 @@ impl DownloadView {
         }
     }
 
-    pub fn render(&self, frame: &mut Frame, area: Rect) {
-        let area = area.inner(ratatui::layout::Margin { horizontal: 2, vertical: 0 });
-        let [_, title, status, _, bar, _, ask] = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Length(2),
-            Constraint::Length(2),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Fill(1),
-            Constraint::Length(3),
-        ])
-        .areas(area);
-
-        let heading = match &self.failed {
-            Some(_) => Span::styled("✕ The download stopped.", Style::new().fg(WARN).bold()),
-            None => Span::raw("Getting Borea Live").bold(),
-        };
-        frame.render_widget(Paragraph::new(Line::from(heading)), title);
-
-        let elapsed = self.started.elapsed().as_secs_f64().max(0.001);
-        let status_line = match (&self.failed, self.step) {
-            (Some(why), _) => Line::from(Span::styled(why.clone(), WARN)),
-            (None, None) => Line::from(Span::styled("Looking up the latest release…", SUB)),
-            (None, Some(Step::Checking)) => {
-                Line::from(Span::styled("Checking the copy you already have…", SUB))
-            }
-            (None, Some(Step::Verifying)) => {
-                Line::from(Span::styled("Checking the download against its SHA-256…", SUB))
-            }
-            (None, Some(Step::Receiving { done, total })) => {
-                let rate = done as f64 / elapsed;
-                let mut spans = vec![
-                    Span::styled("● ", ACCENT),
-                    Span::raw(match total {
-                        Some(total) => format!("{} of {}", human(done), human(total)),
-                        None => human(done),
-                    }),
-                    Span::styled(format!("   {}/s", human(rate as u64)), SUB),
-                ];
-                if let Some(total) = total.filter(|_| rate > 1.0) {
-                    let left = total.saturating_sub(done) as f64 / rate;
-                    spans.push(Span::styled(format!("   about {} left", eta(left)), SUB));
-                }
-                Line::from(spans)
-            }
-        };
-        let note = match &self.failed {
-            None => {
-                "The ready-made image from the latest release, checked against its published SHA-256 and kept for next time."
-            }
-            Some(_) if self.can_build => {
-                "You can build it from this checkout instead. That compiles a whole Linux system: an hour or more."
-            }
-            Some(_) => {
-                "To build it yourself instead, run borea-rataTUI --build inside a Borea checkout (an hour or more)."
-            }
-        };
-        frame.render_widget(
-            Paragraph::new(vec![status_line, Line::from(Span::styled(note, SUB))])
-                .wrap(Wrap { trim: true }),
-            status,
-        );
-
-        if let Some(Step::Receiving { done, total: Some(total) }) = self.step
-            && total > 0
-            && self.failed.is_none()
+    pub fn render(&self, frame: &mut Frame) {
+        let (note, keys): (Option<&str>, Vec<(&str, &str)>) = match (&self.failed, self.stop_asked)
         {
-            let ratio = (done as f64 / total as f64).clamp(0.0, 1.0);
-            frame.render_widget(
-                Gauge::default()
-                    .gauge_style(Style::new().fg(ACCENT))
-                    .ratio(ratio)
-                    .label(format!("{:.0}%", ratio * 100.0)),
-                bar,
-            );
+            (Some(_), _) if self.can_build => {
+                (None, vec![("b", "build it here"), ("r", "try again"), ("q", "quit")])
+            }
+            (Some(_), _) => (None, vec![("r", "try again"), ("q", "quit")]),
+            (None, true) => (
+                Some("Stop the download? What has arrived is kept for next time."),
+                vec![("y", "stop"), ("any other key", "keep going")],
+            ),
+            (None, false) => (None, vec![("Esc", "stop")]),
+        };
+        let area = ui::screen(frame, ui::Step::Image, note, &keys);
+        let width = area.width;
+        let mut lines = vec![Line::from("")];
+
+        if let Some(why) = &self.failed {
+            lines.push(Line::from(Span::styled(
+                "✕ Couldn't get Borea Live",
+                Style::new().fg(WARN).bold(),
+            )));
+            lines.push(Line::from(""));
+            lines.extend(ui::text(why, width, Style::new()));
+            lines.push(Line::from(""));
+            let instead = if self.can_build {
+                "Press b to build it from this checkout instead. That compiles a whole Linux system, so it takes an hour or more; later builds reuse what is unchanged."
+            } else {
+                "To build it yourself instead, run borea-rataTUI --build inside a Borea checkout. That takes an hour or more."
+            };
+            lines.extend(ui::text(instead, width, Style::new().fg(SUB)));
+            frame.render_widget(Paragraph::new(lines), area);
+            return;
         }
 
-        let footer = match (&self.failed, self.stop_asked) {
-            (Some(_), _) if self.can_build => {
-                vec![Line::from(Span::styled("b build it here · r try again · q quit", SUB))]
+        lines.push(Line::from(Span::raw("Getting Borea Live").bold()));
+        lines.push(Line::from(""));
+        let elapsed = self.started.elapsed().as_secs_f64().max(0.001);
+        match self.step {
+            None => lines.push(Line::from(Span::styled("Looking up the latest release…", SUB))),
+            Some(Step::Checking) => {
+                lines.push(Line::from(Span::styled("Checking the copy you already have…", SUB)))
             }
-            (Some(_), _) => vec![Line::from(Span::styled("r try again · q quit", SUB))],
-            (None, true) => vec![
-                Line::from(Span::styled(
-                    "Stop the download? What has arrived is kept for next time.",
-                    Style::new().fg(WARN).add_modifier(Modifier::BOLD),
-                )),
-                Line::from(Span::styled("y stop · any other key keep going", SUB)),
-            ],
-            (None, false) => vec![Line::from(Span::styled(
-                "When it's done, Borea moves straight on to writing your USB stick · Esc stop",
-                SUB,
-            ))],
-        };
-        frame.render_widget(Paragraph::new(footer), ask);
-    }
-}
-
-fn human(bytes: u64) -> String {
-    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
-    let mut value = bytes as f64;
-    let mut unit = 0;
-    while value >= 1000.0 && unit < UNITS.len() - 1 {
-        value /= 1000.0;
-        unit += 1;
-    }
-    if unit == 0 { format!("{bytes} B") } else { format!("{value:.1} {}", UNITS[unit]) }
-}
-
-fn eta(seconds: f64) -> String {
-    let s = seconds.round() as u64;
-    if s >= 3600 {
-        format!("{}h {:02}m", s / 3600, s % 3600 / 60)
-    } else if s >= 60 {
-        format!("{}m {:02}s", s / 60, s % 60)
-    } else {
-        format!("{s}s")
+            Some(Step::Verifying) => lines
+                .push(Line::from(Span::styled("Checking the download against its SHA-256…", SUB))),
+            Some(Step::Receiving { done, total }) => {
+                let rate = done as f64 / elapsed;
+                lines.push(Line::from(match total {
+                    Some(total) if total > 0 => {
+                        format!("{} of {} · {}%", human(done), human(total), done * 100 / total)
+                    }
+                    _ => human(done),
+                }));
+                lines.push(ui::bar(
+                    total.filter(|t| *t > 0).map_or(0.0, |t| done as f64 / t as f64),
+                    width,
+                ));
+                let mut pace = format!("{}/s", human(rate as u64));
+                if let Some(total) = total.filter(|_| rate > 1.0) {
+                    pace.push_str(&format!(
+                        " · about {} left",
+                        eta(total.saturating_sub(done) as f64 / rate)
+                    ));
+                }
+                lines.push(Line::from(Span::styled(pace, SUB)));
+            }
+        }
+        lines.push(Line::from(""));
+        lines.extend(ui::text(
+            "The ready-made image from the latest release, checked against its published SHA-256 and kept for next time. When it is here, Borea moves straight on to your USB stick.",
+            width,
+            Style::new().fg(SUB),
+        ));
+        frame.render_widget(Paragraph::new(lines), area);
     }
 }
 

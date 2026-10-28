@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use borea_flash::app::{self, App, Checkout, Checksum, Request};
+use borea_flash::app::{App, Checkout, Checksum, Request};
 use borea_flash::download::{self, DownloadRequest, DownloadView};
 use borea_flash::image::{self, Image};
 use borea_flash::make::{self, BuildRequest, BuildView};
@@ -378,24 +378,8 @@ fn run(mut stage: Stage, repo: Option<PathBuf>, host: HostKind) -> std::io::Resu
 fn draw(frame: &mut ratatui::Frame, stage: &mut Stage) {
     match stage {
         Stage::Writing(app) => app.render(frame),
-        Stage::Downloading(view) => {
-            let [header, body] = ratatui::layout::Layout::vertical([
-                ratatui::layout::Constraint::Length(4),
-                ratatui::layout::Constraint::Fill(1),
-            ])
-            .areas(frame.area());
-            app::render_header(frame, header);
-            view.render(frame, body);
-        }
-        Stage::Building(view) => {
-            let [header, body] = ratatui::layout::Layout::vertical([
-                ratatui::layout::Constraint::Length(4),
-                ratatui::layout::Constraint::Fill(1),
-            ])
-            .areas(frame.area());
-            app::render_header(frame, header);
-            view.render(frame, body);
-        }
+        Stage::Downloading(view) => view.render(frame),
+        Stage::Building(view) => view.render(frame),
     }
 }
 
@@ -629,7 +613,7 @@ fn carry_out(
         Request::Eject(name) => {
             thread::spawn(move || {
                 let message = match device::eject(&name) {
-                    Ok(()) => format!("{name} is safe to remove."),
+                    Ok(()) => format!("✓ {name} is safe to remove."),
                     Err(error) => error.to_string(),
                 };
                 let _ = tx.send(Event::Message(message));

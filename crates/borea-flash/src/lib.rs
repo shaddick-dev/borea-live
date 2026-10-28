@@ -15,6 +15,7 @@ pub mod install;
 pub mod make;
 pub mod target;
 pub mod terminal;
+pub mod ui;
 pub mod write;
 
 use std::path::PathBuf;
