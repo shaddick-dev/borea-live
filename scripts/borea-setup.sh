@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Borea setup: from a fresh Linux install to borea-rataTUI, in one go.
 #
-#   curl -fsSL https://raw.githubusercontent.com/shaddick-dev/borea-live/main/scripts/borea-setup.sh -o borea-setup.sh
-#   bash borea-setup.sh
+#   curl -fsSL https://shaddick-dev.github.io/borea-live/install | sh
+#
+# That fetches scripts/install.sh, which fetches this script and runs it with
+# the terminal attached (both are served by .github/workflows/pages.yml).
+# From a checkout: bash scripts/borea-setup.sh
 #
 # Downloads the ready-made borea-rataTUI from the latest release (a static
 # program that runs on any x86-64 distribution), checks its SHA-256, installs it

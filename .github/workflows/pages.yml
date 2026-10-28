@@ -1,0 +1,58 @@
+name: Setup page
+# Serves the one-line install:
+#   curl -fsSL https://shaddick-dev.github.io/borea-live/install | sh
+# /install is scripts/install.sh (plain sh, safe to pipe), which fetches /setup
+# (scripts/borea-setup.sh) and runs it with the terminal attached.
+# GitHub Pages must be turned on once: Settings → Pages → Source: GitHub Actions.
+on:
+  push:
+    branches: [main]
+    paths: [scripts/install.sh, scripts/borea-setup.sh, .github/workflows/pages.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble
+        run: |
+          mkdir _site
+          cp scripts/install.sh _site/install
+          cp scripts/borea-setup.sh _site/setup
+          cat > _site/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en"><head><meta charset="utf-8">
+          <meta name="viewport" content="width=device-width,initial-scale=1">
+          <title>Borea Live</title>
+          <style>
+          body{margin:0;background:#141a16;color:#dfe7e0;font:17px/1.6 system-ui,sans-serif}
+          main{max-width:44rem;margin:12vh auto;padding:0 1.25rem}
+          h1{font-weight:600;letter-spacing:.04em;margin:0}
+          p{color:#8a968c}
+          pre{background:#1d2520;border:1px solid #39443b;border-radius:10px;padding:1rem;overflow-x:auto;color:#a2c4a8;font-size:1rem}
+          a{color:#a2c4a8}
+          </style></head>
+          <body><main>
+          <h1>BOREA</h1>
+          <p>Go wherever the wind takes you.</p>
+          <p>Make a Borea Live USB stick on any Linux distribution. Open a terminal and type:</p>
+          <pre>curl -fsSL https://shaddick-dev.github.io/borea-live/install | sh</pre>
+          <p>It installs borea-rataTUI, which downloads Borea Live and writes your stick.
+          <a href="install">Read the script</a> · <a href="https://github.com/shaddick-dev/borea-live">Source</a></p>
+          </main></body></html>
+          HTML
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
