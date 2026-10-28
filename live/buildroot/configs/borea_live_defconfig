@@ -147,11 +147,10 @@ BR2_PACKAGE_BUSYBOX=y
 # The image: an EROFS root, mounted straight from its file by borea-init, inside a
 # hybrid BIOS/UEFI ISO booted by Limine
 BR2_TARGET_ROOTFS_EROFS=y
-# LZMA through "custom": the plain LZMA choice is also named like Buildroot's
-# generic BR2_TARGET_ROOTFS_<FS>_LZMA switch, which then wraps the whole image
-# in an unused rootfs.erofs.lzma at lzma -9 (minutes of single-threaded work).
+# Fast LZ4 packing instead of LZMA: rebuilding the live root should not spend
+# minutes recompressing firmware. This trades some image size for much less CPU.
 BR2_TARGET_ROOTFS_EROFS_CUSTOM_COMPRESSION=y
-BR2_TARGET_ROOTFS_EROFS_COMPRESSION_ALGORITHMS="lzma,6"
+BR2_TARGET_ROOTFS_EROFS_COMPRESSION_ALGORITHMS="lz4"
 # BR2_TARGET_ROOTFS_TAR is not set
 BR2_PACKAGE_HOST_XORRISO=y
 BR2_PACKAGE_HOST_LIMINE=y

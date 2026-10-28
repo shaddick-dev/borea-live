@@ -37,6 +37,8 @@ fn copy(from: &Path, to: &Path) -> Result {
 const SESSION_NEEDS: &[(&str, &str)] = &[
     ("usr/share/X11/xkb/rules/evdev", "keymaps (xkeyboard-config): cage would have no keyboard"),
     ("usr/bin/cage", "the kiosk compositor"),
+    ("usr/bin/borea-session", "the live session's safe-graphics launcher"),
+    ("etc/systemd/system/borea-live.service", "the live display manager unit"),
     ("usr/bin/borea-live", "the installer"),
     ("usr/bin/borea-installd", "the privileged installation service"),
     ("usr/bin/borea-cli", "the installer service's command line"),
@@ -79,6 +81,10 @@ const LINKED: &[(&str, &str, &str)] = &[(
     "polkit without logind sees no session as local or active, so the live user's rule never applies",
 )];
 
+// These are loaded with dlopen by the GUI, so ldd on borea-live cannot catch
+// their absence. A compositor alone does not guarantee an EGL client can start.
+const SESSION_LIBRARIES: &[&str] = &["usr/lib/libwayland-egl.so.1", "usr/lib/libEGL.so.1"];
+
 /// What the session needs and `target` lacks.
 fn missing(target: &Path) -> Vec<String> {
     let files = SESSION_NEEDS
@@ -92,7 +98,11 @@ fn missing(target: &Path) -> Vec<String> {
                 .is_ok_and(|bytes| bytes.windows(library.len()).any(|w| w == library.as_bytes()))
         })
         .map(|(path, library, why)| format!("/{path} is not linked with {library}: {why}"));
-    files.chain(links).collect()
+    let libraries =
+        SESSION_LIBRARIES.iter().filter(|path| !target.join(path).is_file()).map(|path| {
+            format!("/{path}: the Wayland/EGL installer cannot start without this runtime library")
+        });
+    files.chain(links).chain(libraries).collect()
 }
 
 /// What would stop systemd starting the live session: the boot must reach
@@ -332,6 +342,9 @@ mod tests {
             fs::create_dir_all(target.join(path).parent().unwrap()).unwrap();
             fs::write(target.join(path), format!("ELF…{library}.0…")).unwrap();
         }
+        for path in SESSION_LIBRARIES {
+            fs::write(target.join(path), "library fixture").unwrap();
+        }
         assert!(missing(&target).is_empty());
         fs::remove_file(target.join("usr/share/X11/xkb/rules/evdev")).unwrap();
         let missing = missing(&target);
@@ -339,6 +352,10 @@ mod tests {
         assert!(missing[0].contains("keyboard"));
         fs::write(target.join(LINKED[0].0), "ELF without it").unwrap();
         assert_eq!(super::missing(&target).len(), 2);
+        fs::remove_file(target.join(SESSION_LIBRARIES[0])).unwrap();
+        assert!(
+            super::missing(&target).iter().any(|error| error.contains("Wayland/EGL installer"))
+        );
         fs::remove_dir_all(&target).unwrap();
     }
 

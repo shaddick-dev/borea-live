@@ -27,6 +27,21 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo test --locked --workspace
+      - name: Native installer starts with software graphics
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cage libegl-mesa0 libgl1-mesa-dri libwayland-egl1
+          cargo build --locked -p borea-gui --bin borea-live
+          borea_runtime=$(mktemp -d)
+          trap 'rm -rf "$borea_runtime"' EXIT
+          chmod 700 "$borea_runtime"
+          timeout 60 env XDG_RUNTIME_DIR="$borea_runtime" \
+            WLR_BACKENDS=headless WLR_HEADLESS_OUTPUTS=1 WLR_RENDERER=pixman \
+            WLR_RENDERER_ALLOW_SOFTWARE=1 LIBGL_ALWAYS_SOFTWARE=1 \
+            cage -d -s -- target/debug/borea-live --window --boot-smoke \
+            2>&1 | tee borea-boot-smoke.log
+          grep -qx BOREA_GUI_READY borea-boot-smoke.log
       - name: VM harness unit tests
         run: python3 -m unittest discover -s tests/vm -v
       - name: Setup script (shellcheck)
