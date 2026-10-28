@@ -339,10 +339,10 @@ mod failure_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::crossterm::event::{KeyEventKind, KeyEventState};
+    use std::time::Duration;
 
     fn press(view: &mut BuildView, code: KeyCode) -> Option<BuildRequest> {
         view.key(KeyEvent {
