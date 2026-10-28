@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use borea_flash::app::{self, App, Checkout, Checksum, Request};
+use borea_flash::app::{App, Checkout, Checksum, Request};
 use borea_flash::download::{self, DownloadRequest, DownloadView};
 use borea_flash::image::{self, Image};
 use borea_flash::make::{self, BuildRequest, BuildView};
@@ -118,8 +118,9 @@ fn start() -> ExitCode {
     }
     if flag("--get") {
         let host = borea_host::detect().kind;
-        let start = Stage::Downloading(DownloadView::new());
-        return report(run(start, make::repo(), host).map_err(|e| e.to_string()));
+        let repo = make::repo();
+        let start = Stage::Downloading(DownloadView::new().offer_build(repo.is_some()));
+        return report(run(start, repo, host).map_err(|e| e.to_string()));
     }
     if flag("--make") || flag("--build") {
         let Some(repo) = make::repo() else {
@@ -149,7 +150,7 @@ fn start() -> ExitCode {
         if !list_only {
             // Nothing to write yet: get the latest release, in minutes.
             let host = borea_host::detect().kind;
-            let start = Stage::Downloading(DownloadView::new());
+            let start = Stage::Downloading(DownloadView::new().offer_build(repo.is_some()));
             return report(run(start, repo, host).map_err(|e| e.to_string()));
         }
         eprintln!(
@@ -333,6 +334,13 @@ fn run(mut stage: Stage, repo: Option<PathBuf>, host: HostKind) -> std::io::Resu
                 Stage::Downloading(view) => match view.key(key) {
                     Some(DownloadRequest::Stop) => fetching.store(true, Ordering::Relaxed),
                     Some(DownloadRequest::Retry) => fetching = start_download(&tx),
+                    Some(DownloadRequest::Build) => {
+                        if let Some(repo) = &repo {
+                            let mut view = BuildView::new(repo.join("target/live/build.log"));
+                            build = start_build(repo, &tx, &mut view);
+                            stage = Stage::Building(view);
+                        }
+                    }
                     Some(DownloadRequest::Quit) => return Ok(()),
                     None => {}
                 },
@@ -370,24 +378,8 @@ fn run(mut stage: Stage, repo: Option<PathBuf>, host: HostKind) -> std::io::Resu
 fn draw(frame: &mut ratatui::Frame, stage: &mut Stage) {
     match stage {
         Stage::Writing(app) => app.render(frame),
-        Stage::Downloading(view) => {
-            let [header, body] = ratatui::layout::Layout::vertical([
-                ratatui::layout::Constraint::Length(4),
-                ratatui::layout::Constraint::Fill(1),
-            ])
-            .areas(frame.area());
-            app::render_header(frame, header);
-            view.render(frame, body);
-        }
-        Stage::Building(view) => {
-            let [header, body] = ratatui::layout::Layout::vertical([
-                ratatui::layout::Constraint::Length(4),
-                ratatui::layout::Constraint::Fill(1),
-            ])
-            .areas(frame.area());
-            app::render_header(frame, header);
-            view.render(frame, body);
-        }
+        Stage::Downloading(view) => view.render(frame),
+        Stage::Building(view) => view.render(frame),
     }
 }
 
@@ -621,7 +613,7 @@ fn carry_out(
         Request::Eject(name) => {
             thread::spawn(move || {
                 let message = match device::eject(&name) {
-                    Ok(()) => format!("{name} is safe to remove."),
+                    Ok(()) => format!("✓ {name} is safe to remove."),
                     Err(error) => error.to_string(),
                 };
                 let _ = tx.send(Event::Message(message));

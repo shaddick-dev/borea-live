@@ -10,21 +10,15 @@ use std::time::{Duration, Instant};
 use borea_hardware::Disk;
 use ratatui::Frame;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::layout::{Constraint, Flex, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style, Stylize};
+use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::style::{Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{
-    Block, BorderType, Borders, Clear, Gauge, List, ListItem, ListState, Padding, Paragraph, Wrap,
-};
+use ratatui::widgets::{List, ListItem, ListState, Paragraph};
 
 use crate::image::Image;
-use crate::target::{Target, Verdict, human};
+use crate::target::{Target, Verdict};
+use crate::ui::{self, ACCENT, SELECTED, SUB, Step, WARN, human};
 use crate::write::{Outcome, Phase, Progress};
-
-/// Borea's dark palette, for terminals.
-const ACCENT: Color = Color::Rgb(0xa2, 0xc4, 0xa8);
-const SUB: Color = Color::Rgb(0x8a, 0x96, 0x8c);
-const WARN: Color = Color::Rgb(0xe3, 0x9b, 0x84);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Checksum {
@@ -257,80 +251,105 @@ impl App {
     // ── Rendering ───────────────────────────────────────────────────────────
 
     pub fn render(&mut self, frame: &mut Frame) {
-        let [header, body, footer] =
-            Layout::vertical([Constraint::Length(4), Constraint::Fill(1), Constraint::Length(2)])
-                .areas(frame.area());
-        render_header(frame, header);
+        let step = match &self.screen {
+            Screen::Choose | Screen::Confirm { .. } => Step::Stick,
+            Screen::Working { progress, .. } if progress.phase == Phase::Verifying => Step::Verify,
+            Screen::Working { .. } => Step::Write,
+            Screen::Finished(Ok(Outcome::Verified)) => Step::Done,
+            Screen::Finished(_) => Step::Write,
+        };
+        let stop_note = "Stop now? The stick won't boot until it is written again.";
+        let keys: Vec<(&str, &str)> = match &self.screen {
+            Screen::Choose => {
+                let mut keys =
+                    vec![("↑↓", "choose"), ("Enter", "write"), ("u", "unmount"), ("r", "rescan")];
+                if self.checkout != Checkout::None {
+                    keys.push(("b", "rebuild"));
+                }
+                keys.push(("q", "quit"));
+                keys
+            }
+            Screen::Confirm { .. } => vec![("Enter", "erase and write"), ("Esc", "back")],
+            Screen::Working { stop_asked: true, .. } => {
+                vec![("y", "stop"), ("any other key", "keep going")]
+            }
+            Screen::Working { .. } => vec![("Esc", "stop")],
+            Screen::Finished(Ok(Outcome::Verified)) => {
+                vec![("e", "eject"), ("r", "write another"), ("q", "quit")]
+            }
+            Screen::Finished(_) => vec![("r", "try again"), ("q", "quit")],
+        };
+        let note = match &self.screen {
+            Screen::Working { stop_asked: true, .. } => Some(stop_note.to_owned()),
+            _ => self.message.clone(),
+        };
+        let body = ui::screen(frame, step, note.as_deref(), &keys);
         match &self.screen {
-            Screen::Choose | Screen::Confirm { .. } => self.render_choose(frame, body),
-            Screen::Working { progress, phase_started, stop_asked } => {
-                self.render_working(frame, body, *progress, phase_started.elapsed(), *stop_asked)
+            Screen::Choose => self.render_choose(frame, body),
+            Screen::Confirm { typed } => self.render_confirm(frame, body, typed),
+            Screen::Working { progress, phase_started, .. } => {
+                self.render_working(frame, body, *progress, phase_started.elapsed())
             }
             Screen::Finished(result) => self.render_finished(frame, body, result),
         }
-        if let Screen::Confirm { typed } = &self.screen {
-            self.render_confirm(frame, body, typed);
-        }
-        self.render_footer(frame, footer);
     }
 
     fn render_choose(&mut self, frame: &mut Frame, area: Rect) {
-        let [image_area, list_area] =
-            Layout::vertical([Constraint::Length(6), Constraint::Fill(1)]).areas(area);
+        let inner = area.width.saturating_sub(4);
         let label = self.image.label.clone().unwrap_or_else(|| "no volume label".into());
-        let check = match &self.checksum {
+        let mut image: Vec<Line> = vec![Line::from(vec![
+            Span::raw(self.image.name()).bold(),
+            Span::styled(format!("  ·  {}  ·  {label}", human(self.image.size)), SUB),
+        ])];
+        let (check, style) = match &self.checksum {
             Checksum::Unpublished => {
-                Line::from(Span::styled("no published checksum beside it", SUB))
+                ("no published checksum beside it".to_owned(), Style::new().fg(SUB))
             }
-            Checksum::Checking { done } => Line::from(Span::styled(
+            Checksum::Checking { done } => (
                 format!("checking SHA-256… {}%", percent(*done, self.image.size)),
-                SUB,
-            )),
-            Checksum::Matches(from) => Line::from(Span::styled(
+                Style::new().fg(SUB),
+            ),
+            Checksum::Matches(from) => (
                 format!(
                     "✓ SHA-256 matches {}",
                     from.file_name().unwrap_or_default().to_string_lossy()
                 ),
-                ACCENT,
-            )),
-            Checksum::Mismatch(from) => Line::from(Span::styled(
+                Style::new().fg(ACCENT),
+            ),
+            Checksum::Mismatch(from) => (
                 format!("✕ SHA-256 does not match {}: do not use this image", from.display()),
-                WARN,
-            )),
-            Checksum::Failed(why) => {
-                Line::from(Span::styled(format!("could not check: {why}"), WARN))
-            }
+                Style::new().fg(WARN),
+            ),
+            Checksum::Failed(why) => (format!("could not check: {why}"), Style::new().fg(WARN)),
         };
-        let image = Paragraph::new(vec![
-            Line::from(vec![
-                Span::raw(self.image.name()).bold(),
-                Span::styled(format!("  ·  {label}"), SUB),
-            ]),
-            Line::from(Span::styled(
-                format!("{} · bootable from USB", human(self.image.size)),
-                SUB,
+        image.extend(ui::text(&check, inner, style));
+        match self.checkout {
+            Checkout::None => {}
+            Checkout::Current => image.extend(ui::text(
+                "up to date with this checkout · b rebuilds anyway",
+                inner,
+                Style::new().fg(SUB),
             )),
-            check,
-            match self.checkout {
-                Checkout::None => Line::from(""),
-                Checkout::Current => Line::from(Span::styled(
-                    "up to date with this checkout · b rebuilds anyway",
-                    SUB,
-                )),
-                Checkout::Changed => Line::from(Span::styled(
-                    "↻ the checkout changed since this image was built · press b to rebuild",
-                    WARN,
-                )),
-            },
+            Checkout::Changed => image.extend(ui::text(
+                "↻ the checkout changed since this image was built · press b to rebuild",
+                inner,
+                Style::new().fg(WARN),
+            )),
+        }
+        let [_, image_area, _, list_area] = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(image.len() as u16 + 2),
+            Constraint::Length(1),
+            Constraint::Fill(1),
         ])
-        .block(panel(" Image "));
-        frame.render_widget(image, image_area);
+        .areas(area);
+        frame.render_widget(Paragraph::new(image).block(ui::panel(" Image ")), image_area);
 
         let items: Vec<ListItem> = if self.targets.is_empty() {
-            vec![ListItem::new(Line::from(Span::styled(
-                "No USB sticks found. Insert one, then press r.",
-                SUB,
-            )))]
+            vec![ListItem::new(vec![
+                Line::from(Span::styled("No USB sticks found.", Style::new().bold())),
+                Line::from(Span::styled("Insert one, then press r to look again.", SUB)),
+            ])]
         } else {
             self.targets
                 .iter()
@@ -342,221 +361,146 @@ impl App {
                             ("○", Style::new().fg(SUB).add_modifier(Modifier::DIM))
                         }
                     };
-                    ListItem::new(vec![
-                        Line::from(vec![
-                            Span::styled(format!("{mark} "), ACCENT),
-                            Span::styled(t.describe(), style),
-                        ]),
-                        Line::from(Span::styled(
-                            match t.verdict {
-                                Verdict::Mounted(_) => {
-                                    format!("  {} · press u to unmount", t.verdict)
-                                }
-                                _ => format!("  {}", t.verdict),
-                            },
-                            SUB,
-                        )),
-                    ])
+                    let detail = match t.verdict {
+                        Verdict::Mounted(_) => format!("{} · press u to unmount", t.verdict),
+                        _ => t.verdict.to_string(),
+                    };
+                    let mut lines = vec![Line::from(vec![
+                        Span::styled(format!("{mark} "), ACCENT),
+                        Span::styled(t.describe(), style),
+                    ])];
+                    lines.extend(
+                        ui::wrap(&detail, inner.saturating_sub(4))
+                            .into_iter()
+                            .map(|l| Line::from(Span::styled(format!("  {l}"), SUB))),
+                    );
+                    ListItem::new(lines)
                 })
                 .collect()
         };
         let list = List::new(items)
-            .block(panel(" USB stick "))
-            .highlight_style(Style::new().bg(Color::Rgb(0x2d, 0x3b, 0x30)))
+            .block(ui::panel(" USB stick "))
+            .highlight_style(Style::new().bg(SELECTED))
             .highlight_symbol("› ");
         frame.render_stateful_widget(list, list_area, &mut self.list);
     }
 
     fn render_confirm(&self, frame: &mut Frame, area: Rect, typed: &str) {
         let Some(target) = self.selected() else { return };
-        let box_area = centered(area, 64, 11);
-        frame.render_widget(Clear, box_area);
         let name = &target.disk.name;
-        let text = vec![
-            Line::from(Span::styled(
-                "Everything on this stick will be erased.",
-                Style::new().fg(WARN).bold(),
-            )),
+        let width = area.width;
+        let mut lines = vec![
             Line::from(""),
-            Line::from(target.describe()),
-            Line::from(Span::styled(format!("will become {}", self.image.name()), SUB)),
+            Line::from(Span::styled("Erase and write", Style::new().fg(WARN).bold())),
             Line::from(""),
-            Line::from(vec![
-                Span::raw("Type "),
-                Span::raw(name).bold(),
-                Span::raw(" to confirm: "),
-            ]),
-            Line::from(Span::styled(format!("› {typed}▏"), ACCENT)),
         ];
-        let dialog = Paragraph::new(text).wrap(Wrap { trim: false }).block(
-            Block::new()
-                .borders(Borders::ALL)
-                .border_type(BorderType::Rounded)
-                .border_style(Style::new().fg(WARN))
-                .title(" Erase and write ")
-                .padding(Padding::horizontal(2)),
+        lines.extend(ui::text(
+            "Everything on this stick will be erased.",
+            width,
+            Style::new().bold(),
+        ));
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![Span::styled("● ", WARN), Span::raw(target.describe())]));
+        lines.push(Line::from(Span::styled(
+            format!("  becomes {} ({})", self.image.name(), human(self.image.size)),
+            SUB,
+        )));
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::raw("Type "),
+            Span::styled(name.clone(), Style::new().fg(ACCENT).bold()),
+            Span::raw(" to confirm:"),
+        ]));
+        let height = lines.len() as u16;
+        let [text, input] =
+            Layout::vertical([Constraint::Length(height), Constraint::Length(3)]).areas(area);
+        frame.render_widget(Paragraph::new(lines), text);
+        let [input] = Layout::horizontal([Constraint::Length(width.min(40))]).areas(input);
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(format!("{typed}▏"), ACCENT)))
+                .block(ui::panel("").border_style(Style::new().fg(WARN))),
+            input,
         );
-        frame.render_widget(dialog, box_area);
     }
 
-    fn render_working(
-        &self,
-        frame: &mut Frame,
-        area: Rect,
-        p: Progress,
-        elapsed: Duration,
-        stop_asked: bool,
-    ) {
-        let area = area.inner(ratatui::layout::Margin { horizontal: 2, vertical: 0 });
-        let [_, title, gauge, detail, _, ask] = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Length(2),
-            Constraint::Length(3),
-            Constraint::Length(2),
-            Constraint::Fill(1),
-            Constraint::Length(3),
-        ])
-        .areas(area);
+    fn render_working(&self, frame: &mut Frame, area: Rect, p: Progress, elapsed: Duration) {
+        let width = area.width;
         let target = self.selected().map(Target::describe).unwrap_or_default();
-        let verb = match p.phase {
-            Phase::Writing => "Writing",
-            Phase::Syncing => "Finishing the write",
-            Phase::Verifying => "Verifying",
-        };
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::raw(format!("{verb} ")).bold(),
-                Span::styled(target, SUB),
-            ])),
-            title,
-        );
-        let ratio = if p.total == 0 { 0.0 } else { p.done as f64 / p.total as f64 };
-        let label = match p.phase {
-            Phase::Syncing => "waiting for the stick to confirm…".to_owned(),
-            _ => format!("{} of {}", human(p.done), human(p.total)),
-        };
-        frame.render_widget(
-            Gauge::default()
-                .block(panel(""))
-                .gauge_style(Style::new().fg(ACCENT))
-                .ratio(ratio.min(1.0))
-                .label(label),
-            gauge,
-        );
-        let rate = p.done as f64 / elapsed.as_secs_f64().max(0.5);
-        let line = match p.phase {
-            Phase::Syncing => "Slow sticks can take a minute here. Don't unplug it.".to_owned(),
-            _ if rate > 0.0 => {
-                let left = (p.total.saturating_sub(p.done)) as f64 / rate;
-                format!("{}/s · about {} left", human(rate as u64), clock(left as u64))
+        let (verb, about) = match p.phase {
+            Phase::Writing => ("Writing to", "Writing the image to the stick."),
+            Phase::Syncing => (
+                "Finishing the write on",
+                "Waiting for the stick to confirm. Slow sticks can take a minute here. Don't unplug it.",
+            ),
+            Phase::Verifying => {
+                ("Verifying", "Reading every byte back and comparing it with the image.")
             }
-            _ => String::new(),
         };
-        frame.render_widget(Paragraph::new(Span::styled(line, SUB)), detail);
-        if stop_asked {
-            frame.render_widget(
-                Paragraph::new(vec![
-                    Line::from(Span::styled(
-                        "Stop now? The stick won't boot until it is written again.",
-                        Style::new().fg(WARN),
-                    )),
-                    Line::from(Span::styled("y stop · any other key keep going", SUB)),
-                ]),
-                ask,
-            );
+        let mut lines = vec![
+            Line::from(""),
+            Line::from(vec![Span::raw(format!("{verb} ")).bold(), Span::styled(target, SUB)]),
+            Line::from(""),
+        ];
+        let ratio = if p.total == 0 { 0.0 } else { p.done as f64 / p.total as f64 };
+        lines.push(Line::from(format!(
+            "{} of {} · {}%",
+            human(p.done),
+            human(p.total),
+            percent(p.done, p.total)
+        )));
+        lines.push(ui::bar(ratio, width));
+        let rate = p.done as f64 / elapsed.as_secs_f64().max(0.5);
+        if p.phase != Phase::Syncing && rate > 0.0 {
+            let left = p.total.saturating_sub(p.done) as f64 / rate;
+            lines.push(Line::from(Span::styled(
+                format!("{}/s · about {} left", human(rate as u64), ui::eta(left)),
+                SUB,
+            )));
+        } else {
+            lines.push(Line::from(""));
         }
+        lines.push(Line::from(""));
+        lines.extend(ui::text(about, width, Style::new().fg(SUB)));
+        frame.render_widget(Paragraph::new(lines), area);
     }
 
     fn render_finished(&self, frame: &mut Frame, area: Rect, result: &Result<Outcome, String>) {
+        let width = area.width;
         let target = self.selected().map(Target::describe).unwrap_or_default();
-        let lines = match result {
-            Ok(Outcome::Verified) => vec![
-                Line::from(Span::styled("✓ Borea Live is ready.", Style::new().fg(ACCENT).bold())),
-                Line::from(""),
-                Line::from(format!("Written and verified byte for byte on {target}.")),
-                Line::from(Span::styled("Boot from it, and Borea takes it from there.", SUB)),
-            ],
-            Ok(Outcome::Cancelled(_)) => vec![
-                Line::from(Span::styled("Stopped.", Style::new().fg(WARN).bold())),
-                Line::from(""),
-                Line::from(format!("{target} holds part of the image and won't boot.")),
-                Line::from(Span::styled("Write it again whenever you like.", SUB)),
-            ],
-            Err(why) => vec![
-                Line::from(Span::styled("✕ That didn't work.", Style::new().fg(WARN).bold())),
-                Line::from(""),
-                Line::from(why.clone()),
-            ],
+        let (heading, style, body, hint) = match result {
+            Ok(Outcome::Verified) => (
+                "✓ Borea Live is ready.",
+                Style::new().fg(ACCENT).bold(),
+                format!("Written and verified byte for byte on {target}."),
+                "Boot from it, and Borea takes it from there.",
+            ),
+            Ok(Outcome::Cancelled(_)) => (
+                "Stopped.",
+                Style::new().fg(WARN).bold(),
+                format!("{target} holds part of the image and won't boot."),
+                "Write it again whenever you like.",
+            ),
+            Err(why) => (
+                "✕ That didn't work.",
+                Style::new().fg(WARN).bold(),
+                why.clone(),
+                "Nothing else on your computer was touched. Try again, or try another stick.",
+            ),
         };
-        frame
-            .render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }).block(panel("")), area);
+        let mut lines =
+            vec![Line::from(""), Line::from(Span::styled(heading, style)), Line::from("")];
+        lines.extend(ui::text(&body, width, Style::new()));
+        lines.extend(ui::text(hint, width, Style::new().fg(SUB)));
+        frame.render_widget(Paragraph::new(lines), area);
     }
-
-    fn render_footer(&self, frame: &mut Frame, area: Rect) {
-        let keys = match &self.screen {
-            Screen::Choose if self.checkout != Checkout::None => {
-                "↑↓ choose · Enter write · u unmount · r rescan · b rebuild · q quit"
-            }
-            Screen::Choose => "↑↓ choose · Enter write · u unmount · r rescan · q quit",
-            Screen::Confirm { .. } => "type the name · Enter confirm · Esc back",
-            Screen::Working { .. } => "Esc stop",
-            Screen::Finished(Ok(Outcome::Verified)) => "e eject · r write another · q quit",
-            Screen::Finished(_) => "r try again · q quit",
-        };
-        let line = match &self.message {
-            Some(message) => Line::from(Span::styled(message.clone(), WARN)),
-            None => Line::from(Span::styled(keys, SUB)),
-        };
-        frame.render_widget(
-            Paragraph::new(line).block(Block::new().padding(Padding::horizontal(2))),
-            area,
-        );
-    }
-}
-
-pub fn render_header(frame: &mut Frame, area: Rect) {
-    let lines = vec![
-        Line::from(""),
-        Line::from(vec![
-            Span::raw("  BOREA").bold(),
-            Span::styled("  rataTUI", SUB),
-            Span::styled("    Prepare ISO → write USB → verify", SUB),
-        ]),
-        Line::from(Span::styled(
-            "  ∼ ∽ ∼   go wherever the wind takes you",
-            Style::new().fg(ACCENT).add_modifier(Modifier::DIM),
-        )),
-    ];
-    frame.render_widget(Paragraph::new(lines), area);
-}
-
-fn panel(title: &str) -> Block<'_> {
-    Block::new()
-        .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
-        .border_style(Style::new().fg(Color::Rgb(0x39, 0x44, 0x3b)))
-        .title(Span::styled(title, SUB))
-        .padding(Padding::horizontal(1))
 }
 
 fn first_ready(targets: &[Target]) -> usize {
     targets.iter().position(|t| t.verdict == Verdict::Ready).unwrap_or(0)
 }
 
-fn centered(area: Rect, width: u16, height: u16) -> Rect {
-    let [row] = Layout::vertical([Constraint::Length(height)]).flex(Flex::Center).areas(area);
-    let [cell] = Layout::horizontal([Constraint::Length(width.min(area.width))])
-        .flex(Flex::Center)
-        .areas(row);
-    cell
-}
-
 fn percent(done: u64, total: u64) -> u64 {
     (done * 100).checked_div(total).unwrap_or(0)
-}
-
-fn clock(seconds: u64) -> String {
-    format!("{}:{:02}", seconds / 60, seconds % 60)
 }
 
 #[cfg(test)]

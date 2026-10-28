@@ -4,18 +4,16 @@
 
 use std::collections::{BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Instant, SystemTime};
 
 use ratatui::Frame;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style, Stylize};
+use ratatui::layout::{Constraint, Layout};
+use ratatui::style::{Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Padding, Paragraph, Wrap};
+use ratatui::widgets::Paragraph;
 
-const ACCENT: Color = Color::Rgb(0xa2, 0xc4, 0xa8);
-const SUB: Color = Color::Rgb(0x8a, 0x96, 0x8c);
-const WARN: Color = Color::Rgb(0xe3, 0x9b, 0x84);
+use crate::ui::{self, ACCENT, SUB, WARN};
 
 /// Lines of build output kept on screen.
 const TAIL: usize = 12;
@@ -171,74 +169,80 @@ impl BuildView {
         }
     }
 
-    pub fn render(&self, frame: &mut Frame, area: Rect) {
-        let area = area.inner(ratatui::layout::Margin { horizontal: 2, vertical: 0 });
-        let [_, title, status, _, output, ask] = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Length(2),
-            Constraint::Length(2),
-            Constraint::Length(1),
-            Constraint::Fill(1),
-            Constraint::Length(3),
-        ])
-        .areas(area);
-
-        let elapsed = clock(self.started.elapsed());
-        let heading = match &self.failed {
-            Some(_) => Span::styled("✕ The build stopped.", Style::new().fg(WARN).bold()),
-            None => Span::raw("Building Borea Live").bold(),
+    pub fn render(&self, frame: &mut Frame) {
+        let (note, keys): (Option<&str>, Vec<(&str, &str)>) = match (&self.failed, self.stop_asked)
+        {
+            (Some(_), _) => (None, vec![("r", "resume (keeps what was built)"), ("q", "quit")]),
+            (None, true) => (
+                Some("Stop the build? Everything finished so far is kept for next time."),
+                vec![("y", "stop"), ("any other key", "keep building")],
+            ),
+            (None, false) => (None, vec![("Esc", "stop")]),
         };
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![heading, Span::styled(format!("   {elapsed}"), SUB)])),
-            title,
+        let area = ui::screen(frame, ui::Step::Image, note, &keys);
+        let width = area.width;
+        let elapsed =
+            Span::styled(format!("   {}", ui::clock(self.started.elapsed().as_secs())), SUB);
+        let mut lines = vec![Line::from("")];
+        match &self.failed {
+            Some(why) => {
+                lines.push(Line::from(vec![
+                    Span::styled("✕ The build stopped", Style::new().fg(WARN).bold()),
+                    elapsed,
+                ]));
+                lines.push(Line::from(""));
+                lines.extend(ui::text(why, width, Style::new().fg(WARN)));
+            }
+            None => {
+                lines.push(Line::from(vec![Span::raw("Building Borea Live").bold(), elapsed]));
+                lines.push(Line::from(""));
+                lines.push(match &self.current {
+                    Some(current) => {
+                        Line::from(vec![Span::styled("● ", ACCENT), Span::raw(current.clone())])
+                    }
+                    None => Line::from(Span::styled("Preparing…", SUB)),
+                });
+                lines.push(Line::from(Span::styled(
+                    format!("{} built", ui::count(self.finished.len(), "package", "packages")),
+                    SUB,
+                )));
+                lines.push(Line::from(""));
+                lines.extend(ui::text(
+                    "The first build compiles a whole Linux system from source: an hour or more, depending on your machine. Later builds reuse what is unchanged. When it finishes, Borea moves straight on to your USB stick.",
+                    width,
+                    Style::new().fg(SUB),
+                ));
+            }
+        }
+        lines.push(Line::from(""));
+        let height = lines.len() as u16;
+        let [top, output] =
+            Layout::vertical([Constraint::Length(height), Constraint::Fill(1)]).areas(area);
+        frame.render_widget(Paragraph::new(lines), top);
+
+        let tail: Vec<Line> = self
+            .tail
+            .iter()
+            .skip(self.tail.len().saturating_sub(output.height.saturating_sub(2) as usize))
+            .map(|l| Line::from(Span::styled(l.clone(), SUB)))
+            .collect();
+        let mut log = match std::env::var_os("HOME") {
+            Some(home) => match self.log.strip_prefix(&home) {
+                Ok(rest) => format!("~/{}", rest.display()),
+                Err(_) => self.log.display().to_string(),
+            },
+            None => self.log.display().to_string(),
+        };
+        // Too long for the box's bottom edge: the checkout-relative path will do.
+        if log.chars().count() + 16 > width as usize {
+            log = "target/live/build.log".into();
+        }
+        let block = ui::panel(" Build output ").title_bottom(
+            Line::from(Span::styled(format!(" full log: {log} "), SUB)).right_aligned(),
         );
-
-        let status_line = match (&self.failed, &self.current) {
-            (Some(why), _) => Line::from(Span::styled(why.clone(), WARN)),
-            (None, Some(current)) => Line::from(vec![
-                Span::styled("● ", ACCENT),
-                Span::raw(current.clone()),
-                Span::styled(format!("   {} packages done", self.finished.len()), SUB),
-            ]),
-            (None, None) => Line::from(Span::styled("Preparing…", SUB)),
-        };
-        let note = Line::from(Span::styled(
-            "The first build compiles everything from source and can take up to a few hours, depending on your machine. Later ones reuse what is unchanged.",
-            SUB,
-        ));
-        frame.render_widget(
-            Paragraph::new(vec![status_line, note]).wrap(Wrap { trim: true }),
-            status,
-        );
-
-        let lines: Vec<Line> =
-            self.tail.iter().map(|l| Line::from(Span::styled(l.clone(), SUB))).collect();
-        let block = Block::new()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::new().fg(Color::Rgb(0x39, 0x44, 0x3b)))
-            .title(Span::styled(format!(" Build output · full log: {} ", self.log.display()), SUB))
-            .padding(Padding::horizontal(1));
-        frame.render_widget(Paragraph::new(lines).block(block), output);
-
-        let footer = match (&self.failed, self.stop_asked) {
-            (Some(_), _) => vec![Line::from(Span::styled(
-                "r try again (picks up where it stopped) · q quit",
-                SUB,
-            ))],
-            (None, true) => vec![
-                Line::from(Span::styled(
-                    "Stop the build? Everything finished so far is kept for next time.",
-                    Style::new().fg(WARN).add_modifier(Modifier::BOLD),
-                )),
-                Line::from(Span::styled("y stop · any other key keep building", SUB)),
-            ],
-            (None, false) => vec![Line::from(Span::styled(
-                "When it finishes, Borea moves straight on to writing your USB stick · Esc stop",
-                SUB,
-            ))],
-        };
-        frame.render_widget(Paragraph::new(footer), ask);
+        if output.height >= 3 {
+            frame.render_widget(Paragraph::new(tail).block(block), output);
+        }
     }
 }
 
@@ -279,11 +283,6 @@ pub fn log_tail(path: &Path, limit: u64) -> Option<String> {
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes).ok()?;
     Some(String::from_utf8_lossy(&bytes).into_owned())
-}
-
-fn clock(elapsed: Duration) -> String {
-    let s = elapsed.as_secs();
-    format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
 }
 
 #[cfg(test)]
@@ -343,6 +342,7 @@ mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::crossterm::event::{KeyEventKind, KeyEventState};
+    use std::time::Duration;
 
     fn press(view: &mut BuildView, code: KeyCode) -> Option<BuildRequest> {
         view.key(KeyEvent {
@@ -355,7 +355,7 @@ mod tests {
 
     fn screen(view: &BuildView) -> String {
         let mut terminal = Terminal::new(TestBackend::new(110, 26)).unwrap();
-        terminal.draw(|f| view.render(f, f.area())).unwrap();
+        terminal.draw(|f| view.render(f)).unwrap();
         let buffer = terminal.backend().buffer().clone();
         buffer
             .content
@@ -374,7 +374,7 @@ mod tests {
         view.line(">>> mesa3d 26.1.0 Configuring");
         let text = screen(&view);
         assert!(text.contains("mesa3d · configuring"), "{text}");
-        assert!(text.contains("1 packages done"));
+        assert!(text.contains("1 package built"));
         assert!(text.contains("gcc -O2 -c foo.c"));
     }
 
@@ -388,7 +388,7 @@ mod tests {
         assert_eq!(press(&mut view, KeyCode::Char('y')), Some(BuildRequest::Stop));
 
         view.failed("make failed (exit status: 2)".into());
-        assert!(screen(&view).contains("The build stopped."));
+        assert!(screen(&view).contains("The build stopped"));
         assert_eq!(press(&mut view, KeyCode::Char('r')), Some(BuildRequest::Retry));
     }
 
