@@ -48,6 +48,7 @@ fn main() {
 }
 
 fn boot(signed: bool) -> Result<(), String> {
+    say("BOREA: starting the live environment…");
     for (fs_type, target) in [("proc", "/proc"), ("sysfs", "/sys"), ("devtmpfs", "/dev")] {
         fs::create_dir_all(target).ok();
         mount(fs_type, target, fs_type, MountFlags::empty(), None)
@@ -59,6 +60,7 @@ fn boot(signed: bool) -> Result<(), String> {
 
     let want =
         fs::read_to_string("/build-id").map_err(|e| format!("the build ID is missing: {e}"))?;
+    say("BOREA: looking for the live USB…");
     let device = find_medium(want.trim()).ok_or("its USB stick or disc was not found")?;
     say(&format!("Borea Live: starting from {device}"));
 
@@ -78,6 +80,7 @@ fn boot(signed: bool) -> Result<(), String> {
     // EROFS mounts straight from the image file (Linux 6.12 and later).
     mount(IMAGE, SYSTEM, "erofs", MountFlags::RDONLY, None)
         .map_err(|e| format!("the system image would not mount: {e}"))?;
+    say("BOREA: live system image mounted.");
     mount("tmpfs", WRITABLE, "tmpfs", MountFlags::empty(), Some(c"mode=0755"))
         .map_err(|e| format!("no memory for the writable layer: {e}"))?;
     let (upper, work) = (format!("{WRITABLE}/upper"), format!("{WRITABLE}/work"));
@@ -94,6 +97,7 @@ fn boot(signed: bool) -> Result<(), String> {
     unmount("/sys", UnmountFlags::DETACH).ok();
     mount_move("/dev", "/root/dev").map_err(|e| format!("could not hand over /dev: {e}"))?;
 
+    say("BOREA: starting system services and the installer…");
     switch_root()
 }
 

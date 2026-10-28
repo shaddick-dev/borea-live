@@ -17,21 +17,22 @@ BOREA_CARGO_BUILD_OPTS = \
 	-p borea-flash --bin borea-flash \
 	-p borea-installd --bin borea-installd \
 	-p borea-cli --bin borea-cli \
-	-p borea-init --bin borea-init
+	-p borea-init --bin borea-init --bin borea-session
 
-# borea-build wipes this package before every ISO build so it picks up new
-# sources, but the compiled Rust lives outside the package directory, so the
+# borea-build wipes this package when source content changes, but the
+# compiled Rust lives outside the package directory, so the
 # ~400 unchanged dependency crates are reused instead of compiled again.
 # Delete $(BASE_DIR)/borea-cargo to force a clean Rust build.
 BOREA_CARGO_TARGET = $(BASE_DIR)/borea-cargo
-# Thin link-time optimisation: much faster to link than the workspace's full
-# LTO, for an installer whose speed is set by downloads and disks.
+# Skip whole-program LTO and use parallel code generation for the live apps.
+# Their speed is set by downloads and disks; fast iteration matters here.
 BOREA_CARGO_ENV = \
 	CARGO_TARGET_DIR=$(BOREA_CARGO_TARGET)/main \
-	CARGO_PROFILE_RELEASE_LTO=thin
+	CARGO_PROFILE_RELEASE_LTO=false \
+	CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 
 define BOREA_INSTALL_TARGET_CMDS
-	for bin in borea-live borea borea-flash borea-installd borea-cli; do \
+	for bin in borea-live borea borea-flash borea-installd borea-cli borea-session; do \
 		$(INSTALL) -D -m 0755 $(BOREA_CARGO_TARGET)/main/$(RUSTC_TARGET_NAME)/release/$$bin $(TARGET_DIR)/usr/bin/$$bin || exit 1; \
 	done
 	# The early boot's /init; the post-image hook copies it into the initramfs.

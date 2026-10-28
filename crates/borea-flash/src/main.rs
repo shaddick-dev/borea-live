@@ -62,6 +62,7 @@ const USAGE: &str = "\
 usage: borea-rataTUI            get the latest Borea Live release (a download, kept for
                                 next time), then write and verify a USB stick
        borea-rataTUI IMAGE.iso  write an existing ISO
+       borea-rataTUI --cached   use an existing local ISO; no download or rebuild
        borea-flash [IMAGE.iso]   write IMAGE, or the newest Borea Live image found,
                                  downloading the latest release when there is none
        borea-flash --make        developers: in a Borea checkout, build Borea Live from source
@@ -147,6 +148,12 @@ fn start() -> ExitCode {
     let repo = make::repo();
     let path = args.iter().find(|a| !a.starts_with("--")).map(PathBuf::from).or_else(find_image);
     let Some(path) = path else {
+        if flag("--cached") {
+            eprintln!(
+                "borea-rataTUI: no cached ISO found. Download a published release or build an image once before using --cached."
+            );
+            return ExitCode::FAILURE;
+        }
         if !list_only {
             // Nothing to write yet: get the latest release, in minutes.
             let host = borea_host::detect().kind;
