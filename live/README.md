@@ -16,13 +16,13 @@ A two-minute source build of the entire kernel, graphics stack and firmware is n
 
 1. **Limine** shows *Borea Live* for 3 seconds in Borea's colours, then boots. A *safe graphics* entry is there for displays that misbehave.
 2. **Borea's early boot**, `borea-init` (Rust, `crates/borea-init`), runs as `/init`. It looks at every disk until it finds the one carrying this build's ID, waiting up to 30 seconds for slow USB sticks. It mounts the EROFS system image read-only straight from `live/rootfs.erofs` (no loop device), puts a writable layer in memory over it, and hands over to systemd. If anything is missing it says what, and opens busybox's rescue shell; signed builds power off instead.
-3. **systemd** starts NetworkManager and the display manager. An explicit `display-manager.service` alias starts `borea-live.service`; without that dependency the installer can remain absent after boot. Its Rust `borea-session` launcher starts cage and retries with software rendering if the hardware compositor exits unsuccessfully. Safe graphics explicitly selects pixman and Mesa software rendering. Repeated failures are limited and printed to the console and journal.
+3. **systemd** reaches `graphical.target`, whose enablement link starts `borea-live.service`. Its Rust `borea-session` launcher starts cage and retries with software rendering if the hardware compositor exits unsuccessfully. Safe graphics explicitly selects pixman and Mesa software rendering. Repeated failures are limited and printed to the console and journal.
 4. **The installer** scans hardware at once, waits for NetworkManager if it is late, and rescans Wi-Fi and refreshes the connection every few seconds. If the machine is online it moves past Connect by itself. If not, the strongest network is chosen, with the cursor in its passphrase field.
 5. **polkit** lets the `borea` user manage networking and disks, and switch consoles, without a password prompt, because there is no password to give. The rule covers only that user, only on the local active session, and only NetworkManager, UDisks2, and logind's console switch. polkit is built to track sessions through logind (Buildroot's default, ConsoleKit, would never see the session as local or active).
 
 Ctrl+Alt+F2 opens a rescue console: log in as `root`, with no password. Ctrl+Alt+F1 goes back to the installer.
 
-`borea-build` refuses to finish an image without its display-manager alias, session launcher, Wayland/EGL runtime libraries, keymaps, PAM session, UEFI variables mount, or a polkit linked with logind.
+`borea-build` refuses to finish an image without its graphical-target startup links, session launcher, Wayland/EGL runtime libraries, keymaps, PAM session, UEFI variables mount, or a polkit linked with logind.
 
 If the menu appears but the desktop stays blank, use **Borea Live (safe graphics)**. **Borea Live (diagnostic console)** shows kernel/service output without starting the desktop. Ctrl+Alt+F2 reaches the rescue console; inspect `journalctl -b -u borea-live.service`. These fixes must be in the newly written ISO: updating the USB helper alone cannot repair an image already on a stick.
 

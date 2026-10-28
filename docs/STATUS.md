@@ -68,3 +68,8 @@ One Cargo workspace (`Cargo.toml`, one `Cargo.lock`), every crate under `crates/
   does it for you, comparing `.config.old` with `.config` after configuring.
 - `target/` holds Buildroot's build cache. Keep it: it's what makes rebuilds
   incremental.
+- Enable units in the overlay with links, never copies: systemd ignores
+  anything in a `.wants/` directory that isn't a link. The default target comes
+  from `BR2_PACKAGE_SYSTEMD_DEFAULT_TARGET`, not an overlay file. borea-build's
+  post-build check fails the build otherwise. (The first ISO booted to a blank
+  console because of both.)

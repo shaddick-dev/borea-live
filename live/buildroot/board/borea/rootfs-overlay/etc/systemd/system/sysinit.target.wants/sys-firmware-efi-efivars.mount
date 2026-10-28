@@ -1,18 +1,1 @@
-# UEFI variables, for reading Secure Boot state and later writing boot entries.
-# systemd mounts them itself only when built with EFI support, which this image
-# does not need for anything else.
-[Unit]
-Description=EFI variables
-Documentation=https://docs.kernel.org/filesystems/efivarfs.html
-DefaultDependencies=no
-ConditionPathExists=/sys/firmware/efi
-Before=sysinit.target local-fs.target
-
-[Mount]
-What=efivarfs
-Where=/sys/firmware/efi/efivars
-Type=efivarfs
-Options=nosuid,nodev,noexec
-
-[Install]
-WantedBy=sysinit.target
+../sys-firmware-efi-efivars.mount

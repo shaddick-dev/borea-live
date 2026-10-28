@@ -64,6 +64,10 @@ const SESSION_NEEDS: &[(&str, &str)] = &[
     ("usr/bin/chroot", "chroot: Arch's bootstrap tools run through it"),
     ("etc/pam.d/borea-live", "the installer's PAM session: no XDG_RUNTIME_DIR without it"),
     (
+        "etc/systemd/system/graphical.target.wants/borea-live.service",
+        "the installer's session would never start: the boot would end at a blank console",
+    ),
+    (
         "etc/systemd/system/sysinit.target.wants/sys-firmware-efi-efivars.mount",
         "the UEFI variables mount: Secure Boot state would be unknown",
     ),
@@ -94,18 +98,77 @@ fn missing(target: &Path) -> Vec<String> {
                 .is_ok_and(|bytes| bytes.windows(library.len()).any(|w| w == library.as_bytes()))
         })
         .map(|(path, library, why)| format!("/{path} is not linked with {library}: {why}"));
-    let alias = "etc/systemd/system/display-manager.service";
-    let wrong_alias = (fs::read_link(target.join(alias)).ok().as_deref() != Some(Path::new("borea-live.service")))
-        .then(|| format!("/{alias} must link to borea-live.service: otherwise the default target never starts the installer"));
     let libraries =
         SESSION_LIBRARIES.iter().filter(|path| !target.join(path).is_file()).map(|path| {
             format!("/{path}: the Wayland/EGL installer cannot start without this runtime library")
         });
-    files.chain(links).chain(wrong_alias).chain(libraries).collect()
+    files.chain(links).chain(libraries).collect()
+}
+
+/// What would stop systemd starting the live session: the boot must reach
+/// graphical.target, and every enablement link must be a link to a unit in the
+/// image. systemd ignores anything in a `.wants/` directory that isn't a link,
+/// and a regular-file default.target is a target of its own that never reaches
+/// graphical.target.
+fn unit_problems(target: &Path) -> Vec<String> {
+    let mut problems = Vec::new();
+    let shown = |path: &Path| format!("/{}", path.strip_prefix(target).unwrap_or(path).display());
+    let default = ["etc/systemd/system/default.target", "usr/lib/systemd/system/default.target"]
+        .iter()
+        .map(|p| target.join(p))
+        .find(|p| fs::symlink_metadata(p).is_ok());
+    match default {
+        None => problems.push(
+            "no default.target: set BR2_PACKAGE_SYSTEMD_DEFAULT_TARGET=\"graphical.target\"".into(),
+        ),
+        Some(path) => match fs::read_link(&path) {
+            Ok(to) if to.file_name().is_some_and(|n| n == "graphical.target") => {}
+            Ok(to) => problems.push(format!(
+                "{} leads to {}, not graphical.target: the installer's session would never start",
+                shown(&path),
+                to.display()
+            )),
+            Err(_) => problems.push(format!(
+                "{} is a file, not a link to graphical.target: systemd would never start the installer's session",
+                shown(&path)
+            )),
+        },
+    }
+    let system = target.join("etc/systemd/system");
+    for dir in fs::read_dir(&system).into_iter().flatten().flatten() {
+        let name = dir.file_name().to_string_lossy().into_owned();
+        if !(name.ends_with(".wants") || name.ends_with(".requires")) {
+            continue;
+        }
+        for entry in fs::read_dir(dir.path()).into_iter().flatten().flatten() {
+            let path = entry.path();
+            match fs::read_link(&path) {
+                Err(_) => problems.push(format!(
+                    "{} is a copy, not a link: systemd ignores it, so the unit never starts",
+                    shown(&path)
+                )),
+                Ok(to) => {
+                    let resolved = match to.strip_prefix("/") {
+                        Ok(inside) => target.join(inside),
+                        Err(_) => dir.path().join(&to),
+                    };
+                    if fs::symlink_metadata(&resolved).is_err() {
+                        problems.push(format!(
+                            "{} links to {}, which is not in the image",
+                            shown(&path),
+                            to.display()
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    problems
 }
 
 pub fn post_build(target: &Path) -> Result {
-    let missing = missing(target);
+    let mut missing = missing(target);
+    missing.extend(unit_problems(target));
     if !missing.is_empty() {
         return Err(format!("the live session would be broken:\n  {}", missing.join("\n  ")));
     }
@@ -282,11 +345,6 @@ mod tests {
         for path in SESSION_LIBRARIES {
             fs::write(target.join(path), "library fixture").unwrap();
         }
-        std::os::unix::fs::symlink(
-            "borea-live.service",
-            target.join("etc/systemd/system/display-manager.service"),
-        )
-        .unwrap();
         assert!(missing(&target).is_empty());
         fs::remove_file(target.join("usr/share/X11/xkb/rules/evdev")).unwrap();
         let missing = missing(&target);
@@ -294,13 +352,74 @@ mod tests {
         assert!(missing[0].contains("keyboard"));
         fs::write(target.join(LINKED[0].0), "ELF without it").unwrap();
         assert_eq!(super::missing(&target).len(), 2);
-        fs::remove_file(target.join("etc/systemd/system/display-manager.service")).unwrap();
+        fs::remove_file(target.join(SESSION_LIBRARIES[0])).unwrap();
         assert!(
-            super::missing(&target)
-                .iter()
-                .any(|error| error.contains("never starts the installer"))
+            super::missing(&target).iter().any(|error| error.contains("Wayland/EGL installer"))
         );
         fs::remove_dir_all(&target).unwrap();
+    }
+
+    #[test]
+    fn the_boot_must_reach_the_installer_session() {
+        use std::os::unix::fs::symlink;
+        let target = std::env::temp_dir().join(format!("borea-units-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&target);
+        let lib = target.join("usr/lib/systemd/system");
+        let etc = target.join("etc/systemd/system");
+        fs::create_dir_all(&lib).unwrap();
+        fs::create_dir_all(etc.join("graphical.target.wants")).unwrap();
+        fs::create_dir_all(etc.join("multi-user.target.wants")).unwrap();
+        fs::write(lib.join("graphical.target"), "").unwrap();
+        fs::write(lib.join("NetworkManager.service"), "").unwrap();
+        fs::write(etc.join("borea-live.service"), "").unwrap();
+        symlink("graphical.target", lib.join("default.target")).unwrap();
+        symlink("../borea-live.service", etc.join("graphical.target.wants/borea-live.service"))
+            .unwrap();
+        symlink(
+            "/usr/lib/systemd/system/NetworkManager.service",
+            etc.join("multi-user.target.wants/NetworkManager.service"),
+        )
+        .unwrap();
+        assert_eq!(unit_problems(&target), Vec::<String>::new());
+
+        // What the first ISO shipped: a copied default.target and copied units.
+        fs::write(etc.join("default.target"), "[Unit]\nDescription=Graphical Interface\n").unwrap();
+        fs::remove_file(etc.join("multi-user.target.wants/NetworkManager.service")).unwrap();
+        fs::write(etc.join("multi-user.target.wants/NetworkManager.service"), "").unwrap();
+        symlink("../gone.service", etc.join("graphical.target.wants/gone.service")).unwrap();
+        let problems = unit_problems(&target);
+        assert_eq!(problems.len(), 3, "{problems:?}");
+        assert!(problems.iter().any(|p| p.contains("default.target is a file")));
+        assert!(problems.iter().any(|p| p.contains("NetworkManager.service is a copy")));
+        assert!(problems.iter().any(|p| p.contains("not in the image")));
+        fs::remove_dir_all(&target).unwrap();
+    }
+
+    #[test]
+    fn the_overlay_enables_units_with_links() {
+        let system = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../live/buildroot/board/borea/rootfs-overlay/etc/systemd/system");
+        assert!(
+            fs::symlink_metadata(system.join("default.target")).is_err(),
+            "the overlay must not override default.target; the defconfig sets it"
+        );
+        for dir in fs::read_dir(&system).unwrap().flatten() {
+            if dir.file_name().to_string_lossy().ends_with(".wants") {
+                for entry in fs::read_dir(dir.path()).unwrap().flatten() {
+                    assert!(
+                        fs::read_link(entry.path()).is_ok(),
+                        "{} must be a link: systemd ignores copies",
+                        entry.path().display()
+                    );
+                }
+            }
+        }
+        let defconfig = fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../live/buildroot/configs/borea_live_defconfig"),
+        )
+        .unwrap();
+        assert!(defconfig.contains("BR2_PACKAGE_SYSTEMD_DEFAULT_TARGET=\"graphical.target\""));
     }
 
     #[test]
@@ -310,9 +429,5 @@ mod tests {
         for path in SESSION_NEEDS.iter().map(|(p, _)| p).filter(|p| p.starts_with("etc/")) {
             assert!(fs::symlink_metadata(overlay.join(path)).is_ok(), "overlay lacks /{path}");
         }
-        assert_eq!(
-            fs::read_link(overlay.join("etc/systemd/system/display-manager.service")).unwrap(),
-            Path::new("borea-live.service")
-        );
     }
 }
