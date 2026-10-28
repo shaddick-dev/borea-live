@@ -8,7 +8,7 @@ borea-rataTUI is Borea's terminal app for making a bootable Borea Live USB stick
 curl -fsSL https://shaddick-dev.github.io/borea-live/install | sh
 ```
 
-It downloads the ready-made borea-rataTUI from the latest release, checks it, and starts it. The app then downloads the ready-made Borea Live image (checked against its published SHA-256, resumed if interrupted, kept for next time) and writes it to your stick. The whole thing takes as long as the download and the write: minutes, not hours.
+It downloads the ready-made borea-rataTUI from the latest release, checks it, and starts it. The app then downloads the ready-made Borea Live image (checked against its published SHA-256, resumed if interrupted, kept for next time) and writes it to your stick. Preparation time depends on the download and USB speed. If a release is unavailable, setup reports the problem instead of installing compilers or building an ISO. A release containing both downloads must be published for this path to work.
 
 - Next time, open **borea-rataTUI** from your app launcher or run `borea-rataTUI`. It only downloads again when a newer release is out.
 - Update the app itself with `borea-rataTUI --update`: it downloads the latest ready-made build in seconds, with nothing to compile.
@@ -16,6 +16,8 @@ It downloads the ready-made borea-rataTUI from the latest release, checks it, an
 - Want to see every step first? Add options after `sh -s --`, e.g. `curl -fsSL https://shaddick-dev.github.io/borea-live/install | sh -s -- --dry-run`.
 
 **Developers** build from source instead: `... | sh -s -- --from-source`, then `borea-rataTUI --build` to build the ISO itself (the first build can take up to a few hours). Publish a finished build for everyone with `scripts/publish-release.sh`. More detail: [crates/borea-flash/README.md](crates/borea-flash/README.md).
+
+Borea installs upstream packages rather than rebuilding the chosen distribution. The backend installs the OS, drivers and desktop before rebooting. Selected Flatpak apps are saved in the reviewed plan and downloaded noninteractively by a Rust service on first boot; progress goes to `journalctl -fu borea-firstboot.service`, and failed work retries after 60 seconds. This currently applies to backend plans driven through `borea-cli`; the preview GUI still needs its backend integration. Native apps and AppImages remain installed before reboot. Explicitly enabling AUR can still build source packages.
 
 ---
 

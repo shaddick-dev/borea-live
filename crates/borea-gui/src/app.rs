@@ -289,7 +289,7 @@ impl Windpad {
         ui.horizontal(|ui| {
             ui.label(RichText::new(icon::WIND).size(20.0).color(p.accent));
             ui.label(
-                RichText::new("BOREA")
+                RichText::new("Borea")
                     .family(theme::display())
                     .size(20.0)
                     .extra_letter_spacing(3.5)

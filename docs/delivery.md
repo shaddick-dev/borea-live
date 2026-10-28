@@ -1,5 +1,29 @@
 # TUI bootstrapper and release delivery
 
+## Download and install without compilation
+
+The product name is **Borea**. The normal user path downloads prebuilt artifacts;
+compiling the live environment belongs to maintainers. Setup fails clearly if
+the release is unavailable, without installing development tools. Source builds
+require `--from-source` during setup or `--make`/`--build` in the USB helper.
+The download and ordinary write screens do not expose source-build shortcuts.
+
+The backend installs the chosen upstream OS, drivers, boot components and desktop
+before rebooting. It records selected Flatpak apps in a root-owned first-boot queue
+as part of the approved job. The installed Rust `borea-firstboot` service registers
+Flathub and installs those apps noninteractively after networking starts. It uses
+`Type=exec` so the desktop does not wait for all app downloads to finish. Successful
+steps are checkpointed atomically, failures retry after 60 seconds, and progress
+and errors are available through `journalctl -fu borea-firstboot.service`.
+No arbitrary downloaded shell script is executed to install these apps.
+
+Native apps and AppImages are still installed during OS installation. An explicitly
+enabled AUR source can compile packages. Moving more optional apps to first boot,
+visible desktop progress, and wiring GUI selections to the backend remain further
+work. First-boot app installation requires connectivity on the installed system;
+failed steps remain queued across restarts. An offline computer is not reported as
+having completed app setup.
+
 ## Writing Borea Live to a USB stick
 
 `borea-flash` is the supported way to make Borea Live media from Linux. `borea-flash borea-live-<version>.iso`, or no argument to find the newest `borea-live*.iso` in the current directory or `~/Downloads`. It:

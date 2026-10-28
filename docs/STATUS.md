@@ -1,4 +1,4 @@
-# Borea: current status (27 October 2026, evening)
+# Borea: current status (28 October 2026)
 
 What is true in the repository today. Earlier session handovers are in
 [`docs/archive/`](archive/); the backend's design decisions are in
@@ -27,7 +27,8 @@ One Cargo workspace (`Cargo.toml`, one `Cargo.lock`), every crate under `crates/
 | Installer backend | Arch rolling, Debian 13, Fedora stable, Tumbleweed. UEFI only, LUKS2 + Btrfs, whole disk or alongside Windows, optional Secure Boot. Review pins sources and returns an approval digest; install re-checks it and the disk before writing. Verified in disposable VMs (`backend/docs/VERIFIED.md`). |
 | Borea Live GUI | Connect → Machine → System → Desktop → Review, as a preview. Firmware-setup restart goes through `borea-installd`, which refuses while an install runs. |
 | Borea Live ISO | Built with Bootlin's prebuilt glibc toolchain and per-package directories (packages build in parallel); Borea's Rust is cached between builds. Ships `borea-installd` (enabled service), `borea-cli`, the static `borea-firstboot` helper, the pinned Arch/Fedora/openSUSE keyrings, and cryptsetup, btrfs-progs, ntfsprogs, gnupg, efibootmgr, parted, openssl. |
-| borea-rataTUI | The USB writer (crate `borea-flash`; `borea-helper` and `borea-flash` remain as aliases). Builds the ISO when needed, then removable devices only, typed confirmation, read-back verification. On a failed build it names the package that broke. `scripts/borea-setup.sh` installs it and everything it needs on Arch, Fedora, Debian/Ubuntu and openSUSE families. |
+| borea-rataTUI | The USB writer (crate `borea-flash`; `borea-helper` and `borea-flash` remain as aliases). Downloads a published ISO, then removable devices only, typed confirmation, read-back verification. Normal setup/download/write paths never fall back to compiling. Builds require explicit developer options. Published artifacts are required; no release was available when checked on this date. |
+| Selected apps after boot | Backend plans queue selected Flatpak apps for noninteractive installation by the Rust first-boot service. Successful steps are checkpointed; failures retry after 60 seconds. The desktop does not wait for the downloads to finish. Native apps and AppImages still install before reboot; explicitly enabled AUR can build packages. This is not yet connected to GUI selections. |
 | CI | Whole workspace on stable (fmt, clippy `-D warnings`, tests); backend crates on 1.85; cargo-deny advisories and sources; one disposable Arch install and boot on every PR touching installer code; all distributions nightly. |
 
 ## Not done / next
