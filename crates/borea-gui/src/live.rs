@@ -146,6 +146,10 @@ pub struct LiveInstaller {
     selection: Selection,
     palette: Palette,
     still: bool,
+    /// The wind's pace: gusts on page changes, rising while installing.
+    gusts: wind::Gusts,
+    /// The step the wind last saw, to notice page changes.
+    wind_step: Step,
     scan: Scan,
     wifi: WifiLink,
     form: WifiForm,
@@ -217,6 +221,8 @@ impl LiveInstaller {
             selection,
             palette,
             still,
+            gusts: wind::Gusts::default(),
+            wind_step: Step::Connect,
             scan,
             wifi,
             form: WifiForm::default(),
@@ -541,6 +547,9 @@ impl LiveInstaller {
         let mut actions = Vec::new();
         let moving = !self.still && ui.input(|i| i.focused);
         let time = moving.then(|| ui.input(|i| i.time));
+        let page_changed = std::mem::replace(&mut self.wind_step, self.step) != self.step;
+        let progress = self.install_progress();
+        let air = time.map(|now| self.gusts.advance(now, page_changed, progress));
 
         Panel::left("rail")
             .exact_size(280.0)
@@ -552,7 +561,7 @@ impl LiveInstaller {
                     .inner_margin(Margin::same(24))
                     .stroke(Stroke::new(1.0, p.line)),
             )
-            .show(ui, |ui| self.rail(ui, time, &mut actions));
+            .show(ui, |ui| self.rail(ui, air, &mut actions));
 
         Panel::bottom("navigation")
             .show_separator_line(false)
@@ -570,7 +579,7 @@ impl LiveInstaller {
                     &ui.painter_at(band),
                     band.shrink2(egui::vec2(0.0, 10.0)),
                     p.accent,
-                    time,
+                    air,
                 );
                 ui.label(eyebrow(
                     &format!("Step {} of {}", self.step.number(), Step::ALL.len()),
@@ -625,11 +634,11 @@ impl LiveInstaller {
 
     // ── Rail ────────────────────────────────────────────────────────────────
 
-    fn rail(&self, ui: &mut Ui, time: Option<f64>, actions: &mut Vec<Action>) {
+    fn rail(&self, ui: &mut Ui, air: Option<wind::Air>, actions: &mut Vec<Action>) {
         let p = self.palette;
         let (mark, _) =
             ui.allocate_exact_size(egui::vec2(ui.available_width(), 46.0), egui::Sense::hover());
-        wind::paint(&ui.painter_at(mark), mark, p.accent, time);
+        wind::paint(&ui.painter_at(mark), mark, p.accent, air);
         ui.horizontal(|ui| {
             ui.label(RichText::new(icon::WIND).size(20.0).color(p.accent));
             let name = RichText::new("Borea").family(theme::display()).size(20.0);
@@ -1226,6 +1235,20 @@ impl LiveInstaller {
             &p,
             "Next comes storage: you pick the disk to use, and nothing is ever preselected. Then account settings, and one final review before anything is written.",
         );
+    }
+
+    /// How far an installation (or a hand-off getting ready) has come, for the
+    /// wind; `None` when nothing is running.
+    fn install_progress(&self) -> Option<f32> {
+        match &self.handoff.phase {
+            // Stages: find space, download, check, (make space,) start. The wind
+            // keeps the highest value it has seen, so a new stage never slows it.
+            Phase::Running { done, fraction, .. } => {
+                Some(((done.len() as f32 + fraction.unwrap_or(0.0)) / 4.0).min(0.95))
+            }
+            Phase::Finished { .. } => Some(1.0),
+            _ => None,
+        }
     }
 
     /// Omarchy's Review: where it goes, Borea's plan, then the hand-off itself.
