@@ -11,8 +11,9 @@
 //!    `systemd.wants=` starts. It waits for the installer to finish, then copies
 //!    a first-start service into the installed system.
 //! 3. On the installed system's first start, that service installs the packages
-//!    from Arch's repositories (online), turns on multilib when an extra needs
-//!    it, and removes itself. Offline or failed, it tries again next start.
+//!    the distribution's own way (on Omarchy: `omarchy-pkg-add`, never a direct
+//!    `pacman -Syu`, which Omarchy guards against; on Arch: a full sync), and
+//!    removes itself. Offline or failed, it tries again next start.
 
 use crate::upstream::Extra;
 
@@ -76,35 +77,48 @@ for _ in $(seq 120); do
 done
 # Never alongside another pacman (the first start may be updating too).
 while [[ -e /var/lib/pacman/db.lck ]]; do sleep 5; done
-if [[ -f $lib/multilib ]]; then
-  if ! grep -q '^\[multilib\]' /etc/pacman.conf; then
-    if grep -q '^#\[multilib\]' /etc/pacman.conf; then
-      sed -i '/^#\[multilib\]/{s/^#//;n;s/^#//}' /etc/pacman.conf
-    else
-      printf '\n[multilib]\nInclude = /etc/pacman.d/mirrorlist\n' >>/etc/pacman.conf
-    fi
-  fi
-  # 32-bit Vulkan for this machine's graphics, so pacman picks no stranger.
-  for dev in /sys/bus/pci/devices/*; do
-    [[ $(cat "$dev/class" 2>/dev/null) == 0x03* ]] || continue
-    case $(cat "$dev/vendor" 2>/dev/null) in
-      0x8086) packages+=(lib32-vulkan-intel) ;;
-      0x1002) packages+=(lib32-vulkan-radeon) ;;
-      0x10de) packages+=(lib32-nvidia-utils) ;;
-    esac
-  done
-fi
 # A first start may come before the system's own keyring set-up has run.
 if ! pacman-key --list-keys >/dev/null 2>&1; then
   echo "borea-extras: setting up pacman's keyring"
   pacman-key --init && pacman-key --populate
 fi
+if command -v omarchy-pkg-add >/dev/null; then
+  # Omarchy's own way: omarchy-pkg-add installs packages (system upgrades
+  # belong to `omarchy update`, and its pacman guard refuses a direct -Syu).
+  # Multilib is already on, and Omarchy picks the 32-bit drivers for Gaming.
+  add() {
+    if [[ -f $lib/multilib ]] && command -v omarchy-install-gaming-gpu-lib32 >/dev/null; then
+      omarchy-install-gaming-gpu-lib32 || return 1
+    fi
+    omarchy-pkg-add "${packages[@]}"
+  }
+else
+  if [[ -f $lib/multilib ]]; then
+    if ! grep -q '^\[multilib\]' /etc/pacman.conf; then
+      if grep -q '^#\[multilib\]' /etc/pacman.conf; then
+        sed -i '/^#\[multilib\]/{s/^#//;n;s/^#//}' /etc/pacman.conf
+      else
+        printf '\n[multilib]\nInclude = /etc/pacman.d/mirrorlist\n' >>/etc/pacman.conf
+      fi
+    fi
+    # 32-bit Vulkan for this machine's graphics, so pacman picks no stranger.
+    for dev in /sys/bus/pci/devices/*; do
+      [[ $(cat "$dev/class" 2>/dev/null) == 0x03* ]] || continue
+      case $(cat "$dev/vendor" 2>/dev/null) in
+        0x8086) packages+=(lib32-vulkan-intel) ;;
+        0x1002) packages+=(lib32-vulkan-radeon) ;;
+        0x10de) packages+=(lib32-nvidia-utils) ;;
+      esac
+    done
+  fi
+  # A full sync with the upgrade, as Arch requires: never a partial upgrade.
+  add() { pacman -Syu --noconfirm --needed "${packages[@]}"; }
+fi
 echo "borea-extras: adding ${packages[*]}"
-# A full sync with the upgrade, as Arch requires: never a partial upgrade. A
-# mirror that is briefly unreachable gets two more tries.
+# A mirror that is briefly unreachable gets two more tries.
 added=1
 for attempt in 1 2 3; do
-  if pacman -Syu --noconfirm --needed "${packages[@]}"; then
+  if add; then
     added=0
     break
   fi
