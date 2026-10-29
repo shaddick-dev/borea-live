@@ -69,6 +69,9 @@ pub fn review(h: &Handoff, facts: &DiskFacts) -> Result<Review, Hint> {
     let disk = format!("{model} · {} · {}", id.path.display(), gib(id.size));
     let mut steps = vec![
         format!("Download {} {} to the Borea stick: {}", up.name, up.version, up.iso_url()),
+        "If the stick has no data partition yet, add one in its free space after Borea Live \
+         (Borea Live itself is not touched)"
+            .to_owned(),
         format!(
             "Check it against its published SHA-256 and {}'s signing key {}",
             up.name, up.fingerprint

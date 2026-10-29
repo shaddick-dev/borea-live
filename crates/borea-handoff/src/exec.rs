@@ -5,8 +5,8 @@
 //! Everything else happens on the Borea stick's own data partition.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
@@ -54,8 +54,14 @@ fn io(context: &str) -> impl Fn(std::io::Error) -> Hint + '_ {
     move |e| hint("handoff", format!("{context}: {e}"))
 }
 
-/// The Borea stick's data partition: partition 4 of the disk Borea Live runs from.
-pub fn data_partition() -> Result<PathBuf, Hint> {
+/// The first of `names` that exists: Debian and Buildroot images put some tools
+/// in different directories.
+fn tool(names: &[&'static str]) -> &'static str {
+    names.iter().copied().find(|p| Path::new(p).is_file()).unwrap_or(names[0])
+}
+
+/// The disk Borea Live runs from, by kernel name (`sda`).
+fn live_disk() -> Result<String, Hint> {
     let source = run("/usr/bin/findmnt", &["--noheadings", "--output", "SOURCE", MEDIUM])?;
     let name = Path::new(&source)
         .file_name()
@@ -76,23 +82,102 @@ pub fn data_partition() -> Result<PathBuf, Hint> {
     if disk.starts_with("sr") {
         return Err(hint(
             "handoff",
-            "Borea Live is running from a disc. Write it to a USB stick with borea-rataTUI to hand off to other installers.",
+            "Borea Live is running from a disc. Write it to a USB stick to hand off to other installers.",
         ));
     }
-    let p = if disk.ends_with(|c: char| c.is_ascii_digit()) { "p" } else { "" };
-    let data = PathBuf::from(format!("/dev/{disk}{p}4"));
-    let label = run(
-        "/usr/sbin/blkid",
-        &["--probe", "--match-tag", "LABEL", "--output", "value", &data.to_string_lossy()],
+    if disk.starts_with("loop") || disk.contains('/') {
+        return Err(hint("handoff", "Borea Live is not running from a USB stick."));
+    }
+    Ok(disk)
+}
+
+fn too_small(why: &str) -> Hint {
+    hint(
+        "handoff",
+        format!(
+            "This Borea stick has no room for other installers: {why}. Write Borea Live to a stick at least 8 GB larger."
+        ),
     )
-    .unwrap_or_default();
-    if !LABELS.contains(&label.as_str()) {
+}
+
+/// The Borea stick's data partition, attached through a loop device (Borea Live
+/// holds its whole stick, so the kernel will neither claim nor re-read one of its
+/// partitions). A stick written by borea-rataTUI has it already; on any other
+/// Borea stick it is added here, in the free space after the image (MBR entry 4),
+/// and formatted. The installer's own kernel then finds it as a normal partition.
+/// Returns the loop device.
+pub fn data_device(note: &mut dyn FnMut(Note<'_>)) -> Result<String, Hint> {
+    let name = live_disk()?;
+    let disk = format!("/dev/{name}");
+    let sector = fs::read_to_string(format!("/sys/class/block/{name}/queue/logical_block_size"))
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .filter(|s| *s >= 512)
+        .unwrap_or(512);
+    let mut stick = OpenOptions::new().read(true).write(true).open(&disk).map_err(io(&disk))?;
+    let mut mbr = [0u8; 512];
+    stick.read_exact(&mut mbr).map_err(io(&disk))?;
+    let (start, sectors, made) = match crate::stick::existing(&mbr) {
+        Some((start, sectors)) => (start, sectors, false),
+        None => {
+            let mut pvd = vec![0u8; 2048];
+            stick.seek(SeekFrom::Start(32768)).map_err(io(&disk))?;
+            stick.read_exact(&mut pvd).map_err(io(&disk))?;
+            let image = crate::stick::iso_size(&pvd)
+                .ok_or_else(|| too_small("it does not start with the Borea Live image"))?;
+            let size = stick.seek(SeekFrom::End(0)).map_err(io(&disk))?;
+            let (start, sectors) =
+                crate::stick::plan(&mbr, image, size, sector).map_err(|why| too_small(&why))?;
+            note(Note::Line(format!(
+                "Adding a {} GB data partition to the free space on the Borea stick.",
+                sectors * sector / 1_000_000_000
+            )));
+            // Nothing left over from the stick's past is mistaken for a filesystem.
+            stick.seek(SeekFrom::Start(start * sector)).map_err(io(&disk))?;
+            stick.write_all(&vec![0u8; 1 << 20]).map_err(io(&disk))?;
+            crate::stick::add(&mut mbr, start, sectors);
+            stick.seek(SeekFrom::Start(0)).map_err(io(&disk))?;
+            stick.write_all(&mbr).map_err(io(&disk))?;
+            stick.sync_all().map_err(io(&disk))?;
+            (start, sectors, true)
+        }
+    };
+    drop(stick);
+    let losetup = tool(&["/usr/sbin/losetup", "/sbin/losetup", "/usr/bin/losetup"]);
+    let dev = run(
+        losetup,
+        &[
+            "--find",
+            "--show",
+            "--offset",
+            &(start * sector).to_string(),
+            "--sizelimit",
+            &(sectors * sector).to_string(),
+            &disk,
+        ],
+    )?;
+    let probe = |tag: &str| {
+        run("/usr/sbin/blkid", &["--probe", "--match-tag", tag, "--output", "value", &dev])
+            .unwrap_or_default()
+    };
+    // Formatted only when it was just added, or holds no filesystem at all (an
+    // earlier attempt stopped before formatting it).
+    if made || probe("TYPE").is_empty() {
+        note(Note::Line("Formatting the Borea stick's data partition.".into()));
+        let mkfs = tool(&["/usr/sbin/mkfs.ext4", "/sbin/mkfs.ext4", "/usr/bin/mkfs.ext4"]);
+        if let Err(e) = run(mkfs, &["-q", "-F", "-L", "BOREA_DATA", &dev]) {
+            let _ = run(losetup, &["--detach", &dev]);
+            return Err(e);
+        }
+    }
+    if !LABELS.contains(&probe("LABEL").as_str()) {
+        let _ = run(losetup, &["--detach", &dev]);
         return Err(hint(
             "handoff",
-            "This Borea stick has no space for other installers. Write it again with the latest borea-rataTUI, on a stick at least 8 GB larger than Borea Live.",
+            "The Borea stick's fourth partition holds something else, so Borea leaves it alone. Write Borea Live to the stick again to free it.",
         ));
     }
-    Ok(data)
+    Ok(dev)
 }
 
 fn download(
@@ -275,17 +360,15 @@ pub fn prepare(review: &Review, note: &mut dyn FnMut(Note<'_>)) -> Result<(), Hi
         upstream::find(&review.target).ok_or_else(|| hint("target", "Unknown hand-off target."))?;
 
     note(Note::Stage("Finding space on the Borea stick."));
-    let data = data_partition()?;
-    let data_str = data.to_string_lossy().into_owned();
     fs::create_dir_all(DATA).map_err(io(DATA))?;
-    if run("/usr/bin/findmnt", &["--noheadings", "--output", "TARGET", DATA]).is_err() {
-        // Through a loop device: Borea Live holds its whole stick mounted, and
-        // the kernel refuses a second, exclusive claim on one of its partitions.
-        run(
-            "/usr/bin/mount",
-            &["-t", "ext4", "-o", "loop,rw,nosuid,nodev,noexec", &data_str, DATA],
-        )?;
-    }
+    let data_str = match run("/usr/bin/findmnt", &["--noheadings", "--output", "SOURCE", DATA]) {
+        Ok(source) if !source.is_empty() => source,
+        _ => {
+            let dev = data_device(note)?;
+            run("/usr/bin/mount", &["-t", "ext4", "-o", "rw,nosuid,nodev,noexec", &dev, DATA])?;
+            dev
+        }
+    };
     let dir = Path::new(DATA).join(DIR);
     fs::create_dir_all(&dir).map_err(io("the stick"))?;
     let iso = dir.join(up.iso);

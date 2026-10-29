@@ -7,7 +7,9 @@ serial root shell, and requires Omarchy's live installer system to come up after
 the kexec. For `--layout alongside` the target holds a synthetic Windows layout
 (ESP, MSR, NTFS with a sentinel file); afterwards the NTFS partition must have
 shrunk by exactly the requested size and still be consistent, with the sentinel
-intact. Only regular files are ever attached; never a host block device.
+intact. With `--plain-stick` the stick holds only the image, as dd or Etcher
+leave it: Borea Live must add the data partition itself and download Omarchy
+there. Only regular files are ever attached; never a host block device.
 """
 import argparse
 import json
@@ -35,10 +37,18 @@ def sh(*args, **kw):
     return subprocess.run(list(map(str, args)), check=True, **kw)
 
 
-def stick(borea_iso, omarchy, work):
-    """The Borea stick: image, then partition 4 (ext4 BOREA_DATA) holding Omarchy."""
+def stick(borea_iso, omarchy, work, plain):
+    """The Borea stick: image, then partition 4 (ext4 BOREA_DATA) holding Omarchy.
+    A plain stick has only the image, then leftovers from the stick's past."""
     image = work / "stick.img"
     instrument(borea_iso, image, BOOT)
+    if plain:
+        start = (image.stat().st_size + MIB - 1) // MIB * MIB
+        os.truncate(image, start + (omarchy / ISO).stat().st_size + 3 * GIB)
+        with open(image, "r+b") as f:
+            f.seek(start)
+            f.write(os.urandom(8 * MIB))
+        return image
     staged = work / "data"
     (staged / "borea").mkdir(parents=True)
     payload = 0
@@ -126,6 +136,8 @@ def main():
     parser.add_argument("omarchy", type=Path, help="directory with the pinned ISO, .sha256 and .sig")
     parser.add_argument("--layout", choices=["whole", "alongside"], required=True)
     parser.add_argument("--work", type=Path, default=Path(__file__).resolve().parents[2] / "target/vm")
+    parser.add_argument("--plain-stick", action="store_true",
+                        help="no data partition: Borea Live adds it and downloads Omarchy itself")
     parser.add_argument("--timeout", type=int, default=900)
     args = parser.parse_args()
     for f in [args.borea_iso, args.omarchy / ISO]:
@@ -134,7 +146,9 @@ def main():
     work = args.work / f"handoff-{args.layout}"
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True)
-    image = stick(args.borea_iso.resolve(), args.omarchy.resolve(), work)
+    image = stick(args.borea_iso.resolve(), args.omarchy.resolve(), work, args.plain_stick)
+    if args.plain_stick:
+        args.timeout = max(args.timeout, 2700)
     disk, windows = target(work, args.layout)
     firmware = Path("/usr/share/OVMF")
     shutil.copyfile(firmware / "OVMF_VARS_4M.fd", work / "vars.fd")
@@ -204,6 +218,8 @@ def main():
                 raise AssertionError("Omarchy's installer (configurator) is missing")
             if console.run("findmnt -n -o SOURCE,FSTYPE /run/archiso/img_dev | grep -q ext4", 60) != 0:
                 raise AssertionError("Omarchy did not boot from the ISO file on the Borea stick")
+            if args.plain_stick and console.run("blkid -L BOREA_DATA | grep -q 'sda4$'", 60) != 0:
+                raise AssertionError("Omarchy's kernel does not see the data partition Borea added")
             if args.layout == "alongside" and console.run(
                     "parted -ms /dev/vda unit GiB print free | grep -q ':free;'", 60) != 0:
                 raise AssertionError("Omarchy sees no free space beside Windows")
@@ -220,6 +236,20 @@ def main():
                 vm.wait()
     if windows is not None:
         check_windows(disk, windows)
+    if args.plain_stick:
+        check_stick(image)
+
+
+def check_stick(image):
+    parts = json.loads(subprocess.run(["sfdisk", "--json", str(image)], check=True,
+                                      capture_output=True, text=True).stdout)["partitiontable"]["partitions"]
+    data = [p for p in parts if p["node"].endswith("4")]
+    if len(parts) != 4 or not data or data[0]["type"] != "83":
+        raise AssertionError(f"the stick's partitions are wrong: {parts}")
+    end = max(p["start"] + p["size"] for p in parts if p is not data[0])
+    if data[0]["start"] * 512 < end * 512 or data[0]["start"] * 512 % MIB:
+        raise AssertionError("the data partition overlaps Borea Live or is unaligned")
+    print("PASS: Borea Live added its data partition after the image, leaving the image intact")
 
 
 def summary(work, error):

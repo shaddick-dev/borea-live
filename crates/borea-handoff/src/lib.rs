@@ -15,4 +15,5 @@
 pub mod boot;
 pub mod exec;
 pub mod plan;
+pub mod stick;
 pub mod upstream;
