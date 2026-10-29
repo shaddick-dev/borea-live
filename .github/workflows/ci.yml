@@ -47,6 +47,31 @@ jobs:
       - name: Setup script (shellcheck)
         run: shellcheck -S warning scripts/*.sh
 
+  borea-command-arch:
+    name: borea install on Arch
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    steps:
+      - name: Tools
+        run: pacman -Syu --noconfirm --needed rust gcc git pkgconf
+      - uses: actions/checkout@v4
+      - run: cargo build --locked -p borea-bootstrap
+      # The real thing on a real Arch system: add an extra, see it recorded,
+      # remove exactly what was added, and refuse what Borea never added.
+      - name: borea install printing, then remove it
+        run: |
+          set -x
+          borea=./target/debug/borea
+          $borea extras
+          $borea install printing --yes
+          pacman -Q cups system-config-printer
+          grep -q '^printing .*cups' /var/lib/borea/extras
+          $borea extras | grep 'printing.*added by Borea'
+          $borea remove printing --yes
+          ! pacman -Q cups
+          ! $borea remove printing 2>err.txt
+          grep -q "didn't add" err.txt
+
   backend-msrv:
     name: backend on Rust 1.85
     runs-on: ubuntu-24.04

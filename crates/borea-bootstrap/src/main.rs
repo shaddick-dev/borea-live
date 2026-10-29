@@ -5,8 +5,12 @@
 //! which desktops can be composed on editions shipped without one. It also brings
 //! the machine online through integrated Wi-Fi. Verified download and launch of the
 //! Windpad GUI come with milestone M1. Nothing here changes disks.
+//!
+//! On an installed system it adds and removes Borea's extras with the
+//! distribution's own package manager (`borea install gaming`).
 
 mod doctor;
+mod extras;
 mod shells;
 mod ui;
 mod wifi;
@@ -31,6 +35,9 @@ Commands:
   wifi join SSID              Join a network; the passphrase is asked for, never passed as an argument
   wifi hidden SSID [wpa2|wpa3|open]
                               Join a hidden network
+  extras                      The extras for this system (Gaming, Media codecs, Flatpak, Printing)
+  install EXTRA… [--yes]      Add extras with the distribution's own package manager (as root)
+  remove EXTRA… [--yes]       Remove what Borea added for those extras, nothing else (as root)
   help                        Show this message
 
 `wifi join` adds a connection to this live session only.
@@ -68,6 +75,9 @@ fn run(args: &[&str], out: &mut Out) -> Result {
         ["wifi", "hidden", ssid, security @ ..] if security.len() <= 1 => {
             wifi::hidden(out, ssid, security.first().copied().unwrap_or("wpa2"))
         }
+        ["extras"] => extras::list(out),
+        ["install", rest @ ..] => extras::install(out, rest),
+        ["remove", rest @ ..] => extras::remove(out, rest),
         ["help" | "-h" | "--help"] => Ok(writeln!(out, "{USAGE}")?),
         ["-V" | "--version"] => Ok(writeln!(out, "borea {}", env!("CARGO_PKG_VERSION"))?),
         _ => Err(format!("unrecognized command `{}`\n\n{USAGE}", args.join(" ")).into()),
