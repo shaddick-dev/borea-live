@@ -106,7 +106,9 @@ def check_windows(disk, before):
     try:
         sh("sudo", "udevadm", "settle")
         sh("sudo", "ntfsfix", "--no-action", f"{dev}p3")
-        out = subprocess.run(["sudo", "ntfscat", f"{dev}p3", "sentinel.txt"], check=True,
+        # ntfsresize marks the volume for a Windows check (chkdsk) on its next boot,
+        # as it should; ntfscat reads such a volume, read-only, only when forced.
+        out = subprocess.run(["sudo", "ntfscat", "--force", f"{dev}p3", "sentinel.txt"], check=True,
                              capture_output=True, text=True).stdout
         if "borea-windows-sentinel" not in out:
             raise AssertionError("the Windows sentinel file is gone")
@@ -162,6 +164,9 @@ def main():
             console.expect(r"login:", 600)
             console.send("root")
             console.expect(r"[#$] ", 60)
+            # The GUI runs as the live `borea` user: it must reach the service too.
+            if console.run("runuser -u borea -- borea-cli events >/dev/null", 60) != 0:
+                raise AssertionError("the live user (the GUI's) cannot reach borea-installd")
             if console.run(f"{handoff} > /tmp/review.json", 300) != 0:
                 raise AssertionError("handoff review failed")
             console.run("cat /tmp/review.json", 30)
@@ -171,14 +176,39 @@ def main():
             if status != 0:
                 raise AssertionError(f"the hand-off failed (exit {status})")
             print("PASS: Borea verified Omarchy and loaded its installer", flush=True)
-            # After the kexec: Omarchy's kernel, then its live system.
+            # After the kexec: Omarchy's kernel, then its live system, which logs
+            # root in on the serial console by itself.
             console.expect(r"Linux version", 300)
             m = console.expect(
-                r"(Reached target .*(Multi-User System|Graphical Interface))|"
+                r"(archiso login:)|"
                 r"(ERROR: .*did not show up|Kernel panic|emergency mode|Failed to mount)", args.timeout)
             if not m.group(1):
                 raise AssertionError(f"Omarchy's installer did not start: {m.group(0)}")
-            print("PASS: Omarchy's installer system started from the Borea stick", flush=True)
+            # Omarchy logs root in by itself only on its own screen (tty1); on the
+            # serial console, log in as root, which has no password on the live ISO.
+            # Its prompt is coloured; rather than match it, run a command until the
+            # shell answers.
+            console.send("root")
+            for attempt in range(6):
+                try:
+                    if console.run("true", 30) == 0:
+                        break
+                except TimeoutError:
+                    if "login:" in console.buf:
+                        console.send("root")
+            else:
+                raise AssertionError("Omarchy's serial shell never answered")
+            # Omarchy's installer is there, and its system came from the ISO file on
+            # the Borea stick's data partition (archiso's loop boot).
+            if console.run("test -x /root/configurator", 60) != 0:
+                raise AssertionError("Omarchy's installer (configurator) is missing")
+            if console.run("findmnt -n -o SOURCE,FSTYPE /run/archiso/img_dev | grep -q ext4", 60) != 0:
+                raise AssertionError("Omarchy did not boot from the ISO file on the Borea stick")
+            if args.layout == "alongside" and console.run(
+                    "parted -ms /dev/vda unit GiB print free | grep -q ':free;'", 60) != 0:
+                raise AssertionError("Omarchy sees no free space beside Windows")
+            print("PASS: Omarchy's installer system started from the ISO on the Borea stick",
+                  flush=True)
         finally:
             if console:
                 console.close()

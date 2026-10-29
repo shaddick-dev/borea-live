@@ -115,6 +115,15 @@ fn download(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<u64>().ok())
         .map(|len| if resumed { len + have } else { len });
+    if let Some(total) = total {
+        let needed = total.saturating_sub(if resumed { have } else { 0 });
+        let dir = to.parent().unwrap_or(Path::new(DATA));
+        if let Some(free) = free_bytes(dir) {
+            if needed > free {
+                return Err(hint("download", room_message(needed, free)));
+            }
+        }
+    }
     let mut file = OpenOptions::new()
         .create(true)
         .write(true)
@@ -138,6 +147,23 @@ fn download(
     }
     file.sync_all().map_err(io("the stick"))?;
     fs::rename(&part, to).map_err(io("the stick"))
+}
+
+/// Free space where `dir` lives, from `df`.
+fn free_bytes(dir: &Path) -> Option<u64> {
+    let out = run("/usr/bin/df", &["--output=avail", "-B1", &dir.to_string_lossy()]).ok()?;
+    out.lines().last()?.trim().parse().ok()
+}
+
+/// What to tell someone whose stick is too small for the installer.
+pub fn room_message(needed: u64, free: u64) -> String {
+    let gb = |b: u64| (b as f64 / 1e9).ceil() as u64;
+    format!(
+        "The Borea stick has {} GB free for other installers, and this one needs {} GB. Write Borea Live to a stick at least {} GB larger with borea-rataTUI.",
+        free / 1_000_000_000,
+        gb(needed),
+        gb(needed.saturating_sub(free)).max(1)
+    )
 }
 
 fn sha256(path: &Path) -> Result<String, Hint> {
@@ -353,6 +379,17 @@ fn load(up: &Upstream, data: &str) -> Result<(), Hint> {
 #[allow(clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_small_stick_says_how_much_bigger_it_must_be() {
+        let m = room_message(6_500_000_000, 2_000_000_000);
+        assert!(
+            m.contains("2 GB free")
+                && m.contains("needs 7 GB")
+                && m.contains("at least 5 GB larger"),
+            "{m}"
+        );
+    }
 
     #[test]
     fn only_a_plain_test_console_is_passed_on() {
