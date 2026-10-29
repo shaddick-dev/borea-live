@@ -38,20 +38,24 @@ jobs:
           sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf
           python3 tests/vm/compose_boot.py target/live/out/borea-live-compose.iso
       - name: As a stick with its data partition, it still boots to the installer
-        # borea-rataTUI adds this partition after writing; a disposable image
-        # file stands in for the stick.
+        # borea-rataTUI adds partition 4 after writing (crates/borea-flash/src/datapart.rs,
+        # unit-tested there). Here the same layout, made with sfdisk on a
+        # disposable image file, must still boot to the installer.
+        shell: bash
         run: |
+          set -euo pipefail
+          iso=target/live/out/borea-live-compose.iso
+          stick=target/vm/stick.img
           mkdir -p target/vm
-          sfdisk -d target/live/out/borea-live-compose.iso | sed 's/^/::notice::iso table: /'
-          if ! BOREA_DATAPART_ISO=target/live/out/borea-live-compose.iso \
-               BOREA_DATAPART_STICK=target/vm/stick.img BOREA_DATAPART_SIZE=3000000000 \
-               cargo test --locked -p borea-flash --lib datapart::tests::real_iso 2>&1 | tee target/vm/datapart.log; then
-            grep -E "panicked|assert|left|right|Refusal" target/vm/datapart.log | head -8 | sed 's/^/::error::datapart: /'
-            exit 1
-          fi
-          grep -q "1 passed" target/vm/datapart.log || { echo "::error::datapart test did not run"; exit 1; }
-          sfdisk -d target/vm/stick.img | sed 's/^/::notice::stick table: /'
-          if ! python3 tests/vm/compose_boot.py target/vm/stick.img; then
+          cp --sparse=always "$iso" "$stick"
+          truncate -s 3000000000 "$stick"
+          start=$(( ( $(stat -c %s "$iso") + 1048575 ) / 1048576 * 2048 ))
+          echo "start=$start, type=83" | sfdisk --append --no-reread --wipe never "$stick"
+          size=$(( (3000000000 / 1048576 * 2048 - start) * 512 ))
+          mkfs.ext4 -q -F -L BOREA_DATA -E offset=$((start * 512)) "$stick" "$((size / 1024))k"
+          sfdisk -d "$stick" | sed 's/^/::notice::stick table: /'
+          [ "$(blkid -p -O $((start * 512)) -s LABEL -o value "$stick")" = BOREA_DATA ]
+          if ! python3 tests/vm/compose_boot.py "$stick"; then
             tail -15 target/vm/compose-smoke/boot.log | tr -d '\r' | sed 's/^/::error::stick boot: /'
             exit 1
           fi

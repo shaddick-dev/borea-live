@@ -29,6 +29,7 @@ borea-exec = { path = "crates/borea-exec" }
 borea-http = { path = "crates/borea-http" }
 borea-platform = { path = "crates/borea-platform" }
 borea-protocol = { path = "crates/borea-protocol" }
+borea-handoff = { path = "crates/borea-handoff" }
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.21"
 toml = "1.1.8"
