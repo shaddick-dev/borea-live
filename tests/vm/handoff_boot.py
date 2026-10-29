@@ -182,14 +182,18 @@ def main():
                 r"(ERROR: .*did not show up|Kernel panic|emergency mode|Failed to mount)", args.timeout)
             if not m.group(1):
                 raise AssertionError(f"Omarchy's installer did not start: {m.group(0)}")
-            # Omarchy's root shell has a coloured prompt; rather than match it, run a
-            # command until the shell answers.
+            # Omarchy logs root in by itself only on its own screen (tty1); on the
+            # serial console, log in as root, which has no password on the live ISO.
+            # Its prompt is coloured; rather than match it, run a command until the
+            # shell answers.
+            console.send("root")
             for attempt in range(6):
                 try:
                     if console.run("true", 30) == 0:
                         break
                 except TimeoutError:
-                    console.send("")
+                    if "login:" in console.buf:
+                        console.send("root")
             else:
                 raise AssertionError("Omarchy's serial shell never answered")
             # Omarchy's installer is there, and its system came from the ISO file on
