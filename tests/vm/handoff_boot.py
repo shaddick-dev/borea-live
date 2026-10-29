@@ -192,5 +192,21 @@ def main():
         check_windows(disk, windows)
 
 
+def summary(work, error):
+    """A short failure report the workflow turns into annotations (GitHub shows ten)."""
+    console = work / "console.log"
+    lines = console.read_text(errors="replace").splitlines() if console.exists() else []
+    tail = [l.strip() for l in lines if l.strip() and not l.strip().startswith('"')][-7:]
+    (work / "failure.txt").write_text("\n".join([f"{type(error).__name__}: {error}"[:500], *tail]) + "\n")
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+    layout = next((sys.argv[i + 1] for i, a in enumerate(sys.argv) if a == "--layout"), "unknown")
+    work_arg = next((sys.argv[i + 1] for i, a in enumerate(sys.argv) if a == "--work"), None)
+    try:
+        main()
+    except Exception as error:
+        base = Path(work_arg) if work_arg else Path(__file__).resolve().parents[2] / "target/vm"
+        summary(base / f"handoff-{layout}", error)
+        raise

@@ -95,8 +95,8 @@ jobs:
         run: |
           python3 tests/vm/handoff_boot.py /mnt/handoff/borea/borea-live-compose.iso /mnt/handoff/omarchy \
             --layout "${{ matrix.layout }}" --work /mnt/handoff/work \
-            || { tail -25 /mnt/handoff/work/handoff-${{ matrix.layout }}/console.log | tr -d '\r' \
-                   | sed 's/^/::error::console: /'; exit 1; }
+            || { tr -d '\r' < /mnt/handoff/work/handoff-${{ matrix.layout }}/failure.txt \
+                   | head -9 | sed 's/^/::error::/'; exit 1; }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
