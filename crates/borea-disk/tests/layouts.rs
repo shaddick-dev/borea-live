@@ -131,3 +131,63 @@ fn active_unmounted_mappings_are_not_free_disks() {
     let facts=parse_lsblk(r#"{"blockdevices":[{"type":"disk","path":"/dev/vda","size":99999,"serial":"test","mountpoints":[null],"children":[{"type":"part","path":"/dev/vda1","mountpoints":[null],"children":[{"type":"crypt","path":"/dev/mapper/open-volume","mountpoints":[null]}]}]}]}"#,true).unwrap();
     assert!(facts.disks[0].in_use);
 }
+
+#[test]
+fn handing_off_changes_nothing_for_a_whole_disk_and_only_shrinks_windows_alongside() {
+    let mut p = common::plan(Distribution::Arch, true);
+    let mut f = facts(&p);
+    assert_eq!(make_space(&p.disk, &f, 20 * GIB).unwrap(), Vec::<Change>::new());
+    f.disks[0].live = true;
+    assert!(make_space(&p.disk, &f, 20 * GIB).is_err(), "never the live medium");
+    f.disks[0].live = false;
+
+    let w = Partition {
+        path: "/dev/vda3".into(),
+        number: 3,
+        uuid: "WINDOWS".into(),
+        start: 3 * GIB,
+        size: 90 * GIB,
+        fs: "ntfs".into(),
+        efi: false,
+        free: None,
+        bitlocker: false,
+        ntfs_checked: true,
+        ntfs_hibernated: false,
+        ntfs_dirty: false,
+        ntfs_min_size: Some(10 * GIB),
+    };
+    f.disks[0].parts = vec![w.clone()];
+    p.disk = DiskPlan::Alongside {
+        disk: p.disk.disk().clone(),
+        windows_part: PartId { path: w.path.clone(), uuid: w.uuid.clone(), number: 3 },
+        linux_size: 45 * GIB,
+    };
+    // No ESP is needed beside Windows: the other installer makes its own.
+    let changes = make_space(&p.disk, &f, 20 * GIB).unwrap();
+    assert_eq!(changes.len(), 1);
+    assert!(
+        matches!(changes[0], Change::ResizeNtfs { number: 3, new_size, .. } if new_size == 45 * GIB),
+        "{changes:?}"
+    );
+    assert!(make_space(&p.disk, &f, 50 * GIB).is_err(), "too little for the system");
+
+    for flag in 0..4 {
+        let mut f = f.clone();
+        match flag {
+            0 => f.disks[0].parts[0].bitlocker = true,
+            1 => f.disks[0].parts[0].ntfs_hibernated = true,
+            2 => f.disks[0].parts[0].ntfs_dirty = true,
+            _ => f.disks[0].parts[0].ntfs_min_size = Some(30 * GIB),
+        }
+        assert!(make_space(&p.disk, &f, 20 * GIB).is_err(), "case {flag}");
+    }
+    // A partition inside the space Windows gives up would be overwritten.
+    let mut crowded = f.clone();
+    let mut recovery = w.clone();
+    recovery.path = "/dev/vda4".into();
+    recovery.number = 4;
+    recovery.start = 80 * GIB;
+    recovery.size = GIB;
+    crowded.disks[0].parts.push(recovery);
+    assert!(make_space(&p.disk, &crowded, 20 * GIB).is_err());
+}

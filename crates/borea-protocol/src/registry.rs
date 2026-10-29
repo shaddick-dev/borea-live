@@ -105,6 +105,16 @@ pub const METHODS: &[Method] = &[
         parameters: "firmware_setup? (boolean, default false)",
         result: "null; refuses while an installation is active; firmware setup requires supported UEFI",
     },
+    Method {
+        name: method::HANDOFF_REVIEW,
+        parameters: "handoff (version, target, disk)",
+        result: "Review of a hand-off to another installer (pinned release, disk changes, what to choose in it) and approval digest",
+    },
+    Method {
+        name: method::HANDOFF_START,
+        parameters: "handoff, approval",
+        result: "job_id; downloads and verifies the installer onto the stick's data partition, applies only the reviewed disk changes, then kexecs into it. Events as install.events",
+    },
 ];
 pub fn markdown() -> String {
     let mut out = String::from(

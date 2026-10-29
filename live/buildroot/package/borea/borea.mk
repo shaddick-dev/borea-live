@@ -39,7 +39,7 @@ define BOREA_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(BOREA_CARGO_TARGET)/main/$(RUSTC_TARGET_NAME)/release/borea-init \
 		$(TARGET_DIR)/usr/lib/borea/borea-init
 	# Pinned upstream signing keyrings (provenance: backend/dist/keys/PROVENANCE.md).
-	for key in arch fedora opensuse; do \
+	for key in arch fedora opensuse omarchy; do \
 		$(INSTALL) -D -m 0644 $(@D)/backend/dist/keys/$$key.gpg \
 			$(TARGET_DIR)/usr/share/keyrings/borea/$$key.gpg || exit 1; \
 	done

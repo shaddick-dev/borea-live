@@ -152,6 +152,7 @@ fn run() -> Result<Option<Value>, Hint> {
                 Ok(Some(rpc(method, json!({"plan":plan}))?))
             }
         }
+        "handoff" => handoff(&args[1..]),
         "events" => Ok(Some(rpc(
             borea_protocol::method::INSTALL_EVENTS,
             json!({"after":args.get(1).and_then(|s|s.parse::<usize>().ok()).unwrap_or(0)}),
@@ -164,8 +165,159 @@ fn run() -> Result<Option<Value>, Hint> {
         _ => Err(error("Unknown command. Run borea-cli help.")),
     }
 }
+enum Shown {
+    Going,
+    Done,
+    Failed(String),
+}
+/// Print one install/hand-off event (borea-exec's `{"event": …}` wire shape).
+fn show(event: &Value) -> Shown {
+    match event["event"].as_str() {
+        Some("stage-started") => eprintln!("==> {}", event["title"].as_str().unwrap_or_default()),
+        Some("line") => eprintln!("    {}", event["text"].as_str().unwrap_or_default()),
+        Some("failed") => {
+            return Shown::Failed(
+                event["fault"]["title"].as_str().unwrap_or("The hand-off failed.").to_owned(),
+            );
+        }
+        Some("finished") => {
+            eprintln!("==> Restarting into the installer.");
+            return Shown::Done;
+        }
+        _ => {}
+    }
+    Shown::Going
+}
+/// `60G`, `60GiB` or `64424509440` (bytes).
+fn size(text: &str) -> Result<u64, Hint> {
+    let lower = text.to_ascii_lowercase();
+    let (number, unit) = match lower.trim_end_matches("ib").trim_end_matches('b') {
+        n if n.ends_with('g') => (&n[..n.len() - 1], borea_core::GIB),
+        n if n.ends_with('t') => (&n[..n.len() - 1], 1024 * borea_core::GIB),
+        n => (n, 1),
+    };
+    number
+        .parse::<u64>()
+        .ok()
+        .and_then(|n| n.checked_mul(unit))
+        .filter(|n| *n > 0)
+        .ok_or_else(|| error("Give the size as 60G, 60GiB or bytes."))
+}
+/// `handoff TARGET (--whole DISK | --alongside WINDOWS_PARTITION --size SIZE) [--approval DIGEST]`
+fn handoff(args: &[String]) -> Result<Option<Value>, Hint> {
+    let target = args.first().filter(|t| !t.starts_with("--")).ok_or_else(|| {
+        error("Name the installer to hand off to, e.g. borea-cli handoff omarchy --whole /dev/nvme0n1")
+    })?;
+    let mut options = std::collections::BTreeMap::new();
+    let mut iter = args.iter().skip(1);
+    while let Some(key) = iter.next() {
+        if !["--whole", "--alongside", "--size", "--approval"].contains(&key.as_str())
+            || options.contains_key(key.as_str())
+        {
+            return Err(error("Unknown or duplicate handoff option."));
+        }
+        let value = iter
+            .next()
+            .filter(|s| !s.starts_with("--"))
+            .ok_or_else(|| error("An option value is missing."))?;
+        options.insert(key.as_str(), value.as_str());
+    }
+    let facts = borea_disk::probe()?;
+    let disk = match (options.get("--whole"), options.get("--alongside")) {
+        (Some(path), None) => {
+            let d =
+                facts.disks.iter().find(|d| d.id.path.as_os_str() == *path).ok_or_else(|| {
+                    error(format!("{path} is not a disk here; run borea-cli disks."))
+                })?;
+            borea_core::DiskPlan::Whole { disk: d.id.clone() }
+        }
+        (None, Some(path)) => {
+            let linux_size = size(options.get("--size").ok_or_else(|| {
+                error("Say how much space to give it beside Windows, e.g. --size 60G.")
+            })?)?;
+            let (d, p) = facts
+                .disks
+                .iter()
+                .find_map(|d| d.parts.iter().find(|p| p.path.as_os_str() == *path).map(|p| (d, p)))
+                .ok_or_else(|| {
+                    error(format!("{path} is not a partition here; run borea-cli disks."))
+                })?;
+            borea_core::DiskPlan::Alongside {
+                disk: d.id.clone(),
+                windows_part: borea_core::PartId {
+                    path: p.path.clone(),
+                    uuid: p.uuid.clone(),
+                    number: p.number,
+                },
+                linux_size,
+            }
+        }
+        _ => {
+            return Err(error(
+                "Choose exactly one: --whole DISK, or --alongside WINDOWS_PARTITION --size SIZE.",
+            ));
+        }
+    };
+    let plan = json!({"version":1,"target":target,"disk":disk});
+    let Some(approval) = options.get("--approval") else {
+        let review = rpc(borea_protocol::method::HANDOFF_REVIEW, json!({"handoff":plan}))?;
+        eprintln!(
+            "Nothing has changed yet. To go ahead, run the same command with --approval {}",
+            review["approval"].as_str().unwrap_or_default()
+        );
+        return Ok(Some(review));
+    };
+    rpc(borea_protocol::method::HANDOFF_START, json!({"handoff":plan,"approval":approval}))?;
+    let mut cursor = 0;
+    loop {
+        let batch = rpc(borea_protocol::method::INSTALL_EVENTS, json!({"after":cursor}))?;
+        for event in batch["events"].as_array().into_iter().flatten() {
+            match show(event) {
+                Shown::Done => return Ok(None),
+                Shown::Failed(why) => return Err(error(why)),
+                Shown::Going => {}
+            }
+        }
+        cursor = batch["cursor"].as_u64().unwrap_or(cursor as u64) as usize;
+        if batch["more"].as_bool() != Some(true) {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+    }
+}
 fn help() {
     println!(
-        "Borea backend\n  probe | catalog | disks | locales\n  net scan | net status\n  validate | review | render --plan PLAN.toml\n  dry-run --plan PLAN.toml --bootstrap BOOTSTRAP.json\n  install --plan PLAN.toml --approval DIGEST < credentials.json\n  events [CURSOR] | log | retry ACTION_ID\nCredentials must be supplied on stdin; they are never command options."
+        "Borea backend\n  probe | catalog | disks | locales\n  net scan | net status\n  validate | review | render --plan PLAN.toml\n  dry-run --plan PLAN.toml --bootstrap BOOTSTRAP.json\n  install --plan PLAN.toml --approval DIGEST < credentials.json\n  events [CURSOR] | log | retry ACTION_ID\n  handoff omarchy --whole DISK [--approval DIGEST]\n  handoff omarchy --alongside WINDOWS_PARTITION --size 60G [--approval DIGEST]\nCredentials must be supplied on stdin; they are never command options."
     );
+}
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_sizes_and_events() {
+        assert_eq!(size("60G").unwrap(), 60 * borea_core::GIB);
+        assert_eq!(size("60GiB").unwrap(), 60 * borea_core::GIB);
+        assert_eq!(size("1T").unwrap(), 1024 * borea_core::GIB);
+        assert_eq!(size("1000").unwrap(), 1000);
+        assert!(size("lots").is_err() && size("0G").is_err());
+        let wire = |e: borea_exec::Event| serde_json::to_value(e).unwrap();
+        assert!(matches!(show(&wire(borea_exec::Event::Finished)), Shown::Done));
+        assert!(matches!(
+            show(&wire(borea_exec::Event::StageStarted { stage: 0, title: "x".into() })),
+            Shown::Going
+        ));
+        let failed = borea_exec::Event::Failed {
+            fault: borea_exec::Fault {
+                action_id: "handoff".into(),
+                title: "No space".into(),
+                command: String::new(),
+                exit_code: None,
+                stderr_tail: vec![],
+                suggestion: String::new(),
+                retryable: false,
+            },
+        };
+        assert!(matches!(show(&wire(failed)), Shown::Failed(why) if why == "No space"));
+    }
 }

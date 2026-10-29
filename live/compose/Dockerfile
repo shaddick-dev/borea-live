@@ -10,6 +10,9 @@ RUN --mount=type=secret,id=proxy_ca \
     fi; \
     sed -i 's/Components: main$/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources; \
     printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d; chmod 755 /usr/sbin/policy-rc.d; \
+    # kexec-tools is only for handing off to other installers; it must never turn
+    # an ordinary restart into a kexec of the live kernel.
+    echo 'kexec-tools kexec-tools/load_kexec boolean false' | debconf-set-selections; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         linux-image-amd64 firmware-linux-free firmware-iwlwifi firmware-realtek \
@@ -20,7 +23,7 @@ RUN --mount=type=secret,id=proxy_ca \
         cage libegl-mesa0 libgl1-mesa-dri libwayland-egl1 libxkbcommon0 xkb-data \
         fonts-dejavu-core polkitd libpam-modules udisks2 \
         cryptsetup btrfs-progs ntfs-3g gnupg gpgv efibootmgr parted fdisk \
-        dosfstools e2fsprogs util-linux kmod busybox-static \
+        dosfstools e2fsprogs util-linux kmod busybox-static kexec-tools \
         debootstrap debian-archive-keyring skopeo umoci \
         tar xz-utils zstd openssl erofs-utils xorriso mtools \
         build-essential pkg-config; \
