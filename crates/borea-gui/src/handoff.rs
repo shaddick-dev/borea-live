@@ -16,6 +16,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 pub const GIB: u64 = 1 << 30;
+const STARTING: &str = "Starting…";
 
 /// A disk as `disks.list` reports it. `id` is kept as sent, to send back unchanged.
 #[derive(Debug, Clone, Deserialize)]
@@ -91,6 +92,8 @@ pub enum Phase {
     Reviewing,
     Reviewed(Reviewed),
     Running {
+        /// Stages already finished, in order.
+        done: Vec<String>,
         stage: String,
         fraction: Option<f32>,
         lines: Vec<String>,
@@ -232,7 +235,8 @@ impl HandoffLink {
         let Phase::Reviewed(r) = &self.phase else { return };
         let params = json!({"handoff": r.plan, "approval": r.approval});
         self.phase = Phase::Running {
-            stage: "Starting…".into(),
+            done: Vec::new(),
+            stage: STARTING.into(),
             fraction: None,
             lines: Vec::new(),
             choose: r.choose.clone(),
@@ -320,11 +324,19 @@ impl HandoffLink {
 
     fn events(&mut self, batch: &Value) {
         for e in batch["events"].as_array().into_iter().flatten() {
-            let Phase::Running { stage, fraction, lines, choose } = &mut self.phase else { return };
+            let Phase::Running { done, stage, fraction, lines, choose } = &mut self.phase else {
+                return;
+            };
             match e["event"].as_str() {
                 Some("stage-started") => {
-                    *stage = e["title"].as_str().unwrap_or_default().to_owned();
+                    let next = e["title"].as_str().unwrap_or_default().to_owned();
+                    let previous = std::mem::replace(stage, next);
+                    if previous != STARTING {
+                        done.push(previous);
+                    }
                     *fraction = None;
+                    // Each stage shows only its own details.
+                    lines.clear();
                 }
                 Some("progress") => *fraction = e["fraction"].as_f64().map(|f| f as f32),
                 Some("line") => {

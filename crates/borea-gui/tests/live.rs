@@ -550,6 +550,10 @@ fn omarchy_hands_off_to_its_own_installer_as_chosen() {
     press(&mut h, "Next");
     press(&mut h, "Next");
     press(&mut h, "Arch family");
+    assert!(
+        h.query_by_label_contains("Official installer, started by Borea").is_some(),
+        "Omarchy is not shown as planned"
+    );
     press(&mut h, "Omarchy");
     press(&mut h, "Hyprland · Omarchy");
     press(&mut h, "Next");
@@ -575,11 +579,16 @@ fn omarchy_hands_off_to_its_own_installer_as_chosen() {
     h.get_by_role_and_label(Role::CheckBox, confirm).click();
     h.run();
     assert!(app(&h).can_continue());
+    assert!(h.query_by_label_contains("Once you begin, leave this computer alone.").is_some());
     if let Ok(dir) = std::env::var("WINDPAD_SHOTS") {
         h.render().unwrap().save(format!("{dir}/live-omarchy-review.png")).unwrap();
     }
     press(&mut h, "Begin installation");
     settle(&mut h);
+    assert!(h.query_all_by_label_contains("Keep the Borea stick in").next().is_some());
+    if let Ok(dir) = std::env::var("WINDPAD_SHOTS") {
+        h.render().unwrap().save(format!("{dir}/live-omarchy-restarting.png")).unwrap();
+    }
     assert!(
         matches!(app(&h).handoff().phase, borea_gui::handoff::Phase::Finished { .. }),
         "{:?}",
