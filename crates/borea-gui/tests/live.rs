@@ -63,6 +63,14 @@ fn legacy_bios_cannot_request_a_firmware_restart() {
 }
 
 fn press(h: &mut Installer, label: &str) {
+    // Some buttons appear only once a background answer (disks, a review) lands.
+    for _ in 0..300 {
+        if h.query_by_role_and_label(Role::Button, label).is_some() {
+            break;
+        }
+        h.run();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
     h.get_by_role_and_label(Role::Button, label).scroll_to_me();
     h.run();
     h.get_by_role_and_label(Role::Button, label).click();

@@ -26,6 +26,7 @@ use crate::model::{
     DesktopMode, Selection, ShellPick, capitalize, compose_teaser, device_name, family_line,
     hardware_facts,
 };
+use crate::powerup::{self, PowerUp};
 use crate::theme::{self, DARK, LIGHT, Palette, RADIUS, size};
 use crate::widgets::{
     self, badge, caption, choice_card, eyebrow, fact_icon, glyph, notice, primary, quiet, rows, tag,
@@ -35,6 +36,8 @@ use crate::wind;
 
 /// The distribution Borea Live hands off to its own installer.
 const HANDOFF_TARGET: &str = "omarchy";
+/// Seconds a picked family's card pops before its distributions appear.
+const FAMILY_POP: f64 = 0.4;
 /// Nord's orange: warnings only.
 const WARN: egui::Color32 = egui::Color32::from_rgb(0xd0, 0x87, 0x70);
 
@@ -606,8 +609,8 @@ impl LiveInstaller {
                     match self.step {
                         Step::Connect => self.connect(ui),
                         Step::Machine => self.machine(ui),
-                        Step::System => self.system(ui, &mut actions),
-                        Step::Distribution => self.distribution(ui, &mut actions),
+                        Step::System => self.system(ui, &mut actions, time),
+                        Step::Distribution => self.distribution(ui, &mut actions, time),
                         Step::Desktop => self.desktop(ui, &mut actions),
                         Step::Review => self.review(ui, &mut actions),
                     }
@@ -863,40 +866,56 @@ impl LiveInstaller {
         widgets::findings(ui, &p, hw);
     }
 
-    fn system(&self, ui: &mut Ui, actions: &mut Vec<Action>) {
+    fn system(&self, ui: &mut Ui, actions: &mut Vec<Action>, time: Option<f64>) {
         let p = self.palette;
         let catalog = &self.catalog;
         section(ui, &p, "Family");
-        grid(ui, 4, &Family::ALL, |ui, f| {
-            let names: Vec<_> = catalog.family(*f).map(|d| d.name.as_str()).collect();
-            let card = choice_card(
-                ui,
-                &p,
-                ("family", *f),
-                &format!("{f} family"),
-                self.picked_family == Some(*f),
-                true,
-                |ui| {
-                    ui.set_min_height(124.0);
-                    ui.horizontal(|ui| {
-                        glyph(ui, icon::family(*f), 22.0, p.accent);
-                        ui.label(
-                            RichText::new(f.to_string())
-                                .family(theme::display())
-                                .size(size::HEADING),
-                        );
-                    });
-                    ui.label(caption(family_line(*f), &p));
-                    ui.label(RichText::new(names.join(" · ")).size(size::TINY).color(p.sub));
-                },
-            );
+        let pending = ui.make_persistent_id("family-pick");
+        let families: Vec<(usize, Family)> = Family::ALL.into_iter().enumerate().collect();
+        grid(ui, 4, &families, |ui, (i, f)| {
+            let label = format!("{f} family");
+            let look = PowerUp {
+                label: &label,
+                emblem: icon::family(*f),
+                orb: 96.0,
+                selected: self.picked_family == Some(*f),
+                index: *i,
+            };
+            let card = powerup::card(ui, &p, ("family", *f), &look, time, |ui| {
+                ui.set_min_height(150.0);
+                ui.label(RichText::new(f.to_string()).family(theme::display()).size(size::TITLE));
+                ui.add_space(2.0);
+                ui.label(caption(family_line(*f), &p));
+                ui.add_space(10.0);
+                // The distributions inside: what you pick up with this family.
+                let members: Vec<&Distro> = catalog.family(*f).collect();
+                let emblems: Vec<&str> =
+                    members.iter().map(|d| icon::distro(d.id.as_str())).collect();
+                ui.label(RichText::new(emblems.join("   ")).size(size::BODY + 2.0).color(p.sub));
+                let names: Vec<&str> = members.iter().map(|d| d.name.as_str()).collect();
+                ui.label(RichText::new(names.join(" · ")).size(size::TINY).color(p.sub));
+            });
             if card.clicked() {
-                actions.push(Action::Family(*f));
+                match time {
+                    // Let the pick-up pop play before the page moves on.
+                    Some(now) => {
+                        ui.ctx().data_mut(|d| d.insert_temp(pending, (*f, now)));
+                    }
+                    None => actions.push(Action::Family(*f)),
+                }
             }
         });
+        if let Some((f, at)) = ui.ctx().data(|d| d.get_temp::<(Family, f64)>(pending)) {
+            if time.is_none_or(|now| now - at >= FAMILY_POP) {
+                ui.ctx().data_mut(|d| d.remove::<(Family, f64)>(pending));
+                actions.push(Action::Family(f));
+            } else {
+                ui.ctx().request_repaint();
+            }
+        }
     }
 
-    fn distribution(&self, ui: &mut Ui, actions: &mut Vec<Action>) {
+    fn distribution(&self, ui: &mut Ui, actions: &mut Vec<Action>, time: Option<f64>) {
         let p = self.palette;
         let catalog = &self.catalog;
         let s = &self.selection;
@@ -905,38 +924,36 @@ impl LiveInstaller {
         section(ui, &p, &format!("{family} distributions"));
         let distros: Vec<(usize, &Distro)> = catalog.family(family).enumerate().collect();
         grid(ui, 3, &distros, |ui, (i, d)| {
-            let card = choice_card(
-                ui,
-                &p,
-                ("distro", &d.id),
-                &d.name,
-                self.picked_distro && *i == choice.distro,
-                true,
-                |ui| {
-                    ui.set_min_height(98.0);
-                    ui.horizontal(|ui| {
-                        glyph(ui, icon::distro(d.id.as_str()), size::HEADING, p.accent);
-                        ui.label(RichText::new(&d.name).size(size::HEADING - 2.0));
-                    });
-                    ui.label(caption(&d.summary, &p));
-                    // Wrapped: a long status never pushes the card past the page.
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(
-                            RichText::new(capitalize(&d.channel.to_string()))
-                                .size(size::TINY)
-                                .color(p.accent),
-                        );
-                        // Hand-off targets install with their own installer, which
-                        // Borea verifies and starts; there is no integration to await.
-                        let status = if d.id.as_str() == HANDOFF_TARGET {
-                            "Official installer, via Borea".to_owned()
-                        } else {
-                            format!("{} integration", capitalize(&d.status.to_string()))
-                        };
-                        ui.label(caption(format!("· {status}"), &p));
-                    });
-                },
-            );
+            let look = PowerUp {
+                label: &d.name,
+                emblem: icon::distro(d.id.as_str()),
+                orb: 68.0,
+                selected: self.picked_distro && *i == choice.distro,
+                index: *i,
+            };
+            let card = powerup::card(ui, &p, ("distro", &d.id), &look, time, |ui| {
+                ui.set_min_height(118.0);
+                ui.label(RichText::new(&d.name).family(theme::display()).size(size::HEADING));
+                ui.add_space(2.0);
+                ui.label(caption(&d.summary, &p));
+                ui.add_space(6.0);
+                // Wrapped: a long status never pushes the card past the page.
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(
+                        RichText::new(capitalize(&d.channel.to_string()))
+                            .size(size::TINY)
+                            .color(p.accent),
+                    );
+                    // Hand-off targets install with their own installer, which
+                    // Borea verifies and starts; there is no integration to await.
+                    let status = if d.id.as_str() == HANDOFF_TARGET {
+                        "Official installer, via Borea".to_owned()
+                    } else {
+                        format!("{} integration", capitalize(&d.status.to_string()))
+                    };
+                    ui.label(caption(format!("· {status}"), &p));
+                });
+            });
             if card.clicked() {
                 actions.push(Action::Distro(family, *i));
             }

@@ -16,6 +16,7 @@ pub mod handoff;
 pub mod icon;
 pub mod live;
 pub mod model;
+pub mod powerup;
 pub mod theme;
 pub mod widgets;
 pub mod wifi;
