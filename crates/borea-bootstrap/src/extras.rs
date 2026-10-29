@@ -239,7 +239,8 @@ pub fn install(out: &mut impl Write, args: &[&str]) -> Result {
     if !root() {
         return Err(format!("Run it as root: sudo borea install {}", ids.join(" ")).into());
     }
-    if plan.multilib {
+    let omarchy = distro == "omarchy" && Path::new("/usr/bin/omarchy-pkg-add").exists();
+    if plan.multilib && !omarchy {
         let conf = fs::read_to_string("/etc/pacman.conf")?;
         if let Some(new) = with_multilib(&conf) {
             writeln!(out, "Turning on the multilib repository (/etc/pacman.conf).")?;
@@ -254,13 +255,35 @@ pub fn install(out: &mut impl Write, args: &[&str]) -> Result {
     let before = installed()?;
     let packages = plan.packages();
     writeln!(out, "Adding {}: {}", ids.join(", "), packages.join(" "))?;
-    // A full sync with the upgrade, as Arch requires: never a partial upgrade.
-    let mut pacman_args = vec!["-Syu".to_owned(), "--needed".to_owned()];
-    if yes {
-        pacman_args.push("--noconfirm".into());
+    if omarchy {
+        // Omarchy's own way: its pacman guard refuses a direct `pacman -Syu`.
+        // Sync and upgrade exactly as `omarchy update` does (never a partial
+        // upgrade), then Omarchy's 32-bit drivers for Gaming, then the packages.
+        let mut sync = vec!["-Syu".to_owned(), "--overwrite".into(), "/usr/share/omarchy/*".into()];
+        if yes {
+            sync.push("--noconfirm".into());
+        }
+        let status = Command::new("pacman")
+            .args(&sync)
+            .env("LC_ALL", "C")
+            .env("OMARCHY_UPDATE_PACMAN", "1")
+            .status()?;
+        if !status.success() {
+            return Err(format!("Updating Omarchy's packages did not succeed ({status}).").into());
+        }
+        if plan.multilib && Path::new("/usr/bin/omarchy-install-gaming-gpu-lib32").exists() {
+            run("omarchy-install-gaming-gpu-lib32", &[])?;
+        }
+        run("omarchy-pkg-add", &packages)?;
+    } else {
+        // A full sync with the upgrade, as Arch requires: never a partial upgrade.
+        let mut pacman_args = vec!["-Syu".to_owned(), "--needed".to_owned()];
+        if yes {
+            pacman_args.push("--noconfirm".into());
+        }
+        pacman_args.extend(packages);
+        run("pacman", &pacman_args)?;
     }
-    pacman_args.extend(packages);
-    run("pacman", &pacman_args)?;
     let after = installed()?;
     let mut record = record();
     for (id, packages) in &plan.extras {
