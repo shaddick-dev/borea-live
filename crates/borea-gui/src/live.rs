@@ -910,7 +910,8 @@ impl LiveInstaller {
                         ui.label(RichText::new(&d.name).size(size::HEADING - 2.0));
                     });
                     ui.label(caption(&d.summary, &p));
-                    ui.horizontal(|ui| {
+                    // Wrapped: a long status never pushes the card past the page.
+                    ui.horizontal_wrapped(|ui| {
                         ui.label(
                             RichText::new(capitalize(&d.channel.to_string()))
                                 .size(size::TINY)
@@ -919,7 +920,7 @@ impl LiveInstaller {
                         // Hand-off targets install with their own installer, which
                         // Borea verifies and starts; there is no integration to await.
                         let status = if d.id.as_str() == HANDOFF_TARGET {
-                            "Official installer, started by Borea".to_owned()
+                            "Official installer, via Borea".to_owned()
                         } else {
                             format!("{} integration", capitalize(&d.status.to_string()))
                         };

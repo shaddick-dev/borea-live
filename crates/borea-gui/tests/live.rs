@@ -551,9 +551,12 @@ fn omarchy_hands_off_to_its_own_installer_as_chosen() {
     press(&mut h, "Next");
     press(&mut h, "Arch family");
     assert!(
-        h.query_by_label_contains("Official installer, started by Borea").is_some(),
+        h.query_by_label_contains("Official installer, via Borea").is_some(),
         "Omarchy is not shown as planned"
     );
+    if let Ok(dir) = std::env::var("WINDPAD_SHOTS") {
+        h.render().unwrap().save(format!("{dir}/live-arch-distributions.png")).unwrap();
+    }
     press(&mut h, "Omarchy");
     press(&mut h, "Hyprland · Omarchy");
     press(&mut h, "Next");
