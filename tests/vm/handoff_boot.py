@@ -106,7 +106,9 @@ def check_windows(disk, before):
     try:
         sh("sudo", "udevadm", "settle")
         sh("sudo", "ntfsfix", "--no-action", f"{dev}p3")
-        out = subprocess.run(["sudo", "ntfscat", f"{dev}p3", "sentinel.txt"], check=True,
+        # ntfsresize marks the volume for a Windows check (chkdsk) on its next boot,
+        # as it should; ntfscat reads such a volume, read-only, only when forced.
+        out = subprocess.run(["sudo", "ntfscat", "--force", f"{dev}p3", "sentinel.txt"], check=True,
                              capture_output=True, text=True).stdout
         if "borea-windows-sentinel" not in out:
             raise AssertionError("the Windows sentinel file is gone")
