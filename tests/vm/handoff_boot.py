@@ -201,6 +201,32 @@ def cidata(work):
     return image
 
 
+def diagnose(work, disk):
+    """What the installed disk says about Borea's extras, in one line."""
+    dev = loop(disk)
+    root = Path(tempfile.mkdtemp(prefix="diag-", dir=work))
+    logs = Path(tempfile.mkdtemp(prefix="diag-log-", dir=work))
+    try:
+        sh("sudo", "udevadm", "settle")
+        sh("sudo", "mount", "-o", "ro,subvol=@", f"{dev}p2", root)
+        sh("sudo", "mount", "-o", "ro,subvol=@log", f"{dev}p2", logs)
+        staged = subprocess.run(["sudo", "ls", f"{root}/usr/local/lib/borea/extras"],
+                                capture_output=True, text=True).stdout.split()
+        journal = subprocess.run(
+            ["sudo", "journalctl", f"--directory={logs}/journal", "--no-pager", "-o", "cat",
+             "-u", "borea-extras.service"], capture_output=True, text=True).stdout
+        (work / "installed-borea-extras.log").write_text(journal)
+        lines = [l for l in journal.splitlines() if l.strip()]
+        errors = [l for l in lines if re.search(r"error|fail|warning|unable|could not", l, re.I)]
+        tail = (errors[-6:] if errors else []) + lines[-3:]
+        return f"staged files: {staged or 'none'}; service log: {' | '.join(tail) or 'empty'}"
+    except Exception as error:  # a diagnosis never hides the original failure
+        return f"(could not read the installed disk: {error})"
+    finally:
+        subprocess.run(["sudo", "umount", root, logs], capture_output=True)
+        subprocess.run(["sudo", "losetup", "--detach", dev], capture_output=True)
+
+
 def check_extras(disk, work, packages):
     """The installed system has the extras, and Borea's first-start service is gone."""
     dev = loop(disk)
@@ -219,8 +245,10 @@ def check_extras(disk, work, packages):
         missing = [p for p in packages if not any(re.fullmatch(rf"{re.escape(p)}-[^-]+-[^-]+", d)
                                                   for d in local)]
         if missing:
-            raise AssertionError(f"not installed on first start: {missing}; "
-                                 f"service log: {journal.strip().splitlines()[-3:]}")
+            lines = [l for l in journal.splitlines() if l.strip()]
+            errors = [l for l in lines if re.search(r"error|fail|unable|could not", l, re.I)]
+            raise AssertionError(f"not installed on first start: {missing}; service log: "
+                                 + " | ".join(errors[-6:] + lines[-2:]))
         leftovers = [f for f in ["usr/local/lib/borea/extras",
                                  "etc/systemd/system/borea-extras.service"]
                      if subprocess.run(["sudo", "test", "-e", f"{root}/{f}"]).returncode == 0]
@@ -257,6 +285,7 @@ def main():
     if args.plain_stick:
         args.timeout = max(args.timeout, 2700)
     disk, windows = target(work, args.layout)
+    args.work_dir, args.disk = str(work), disk
     firmware = Path("/usr/share/OVMF")
     shutil.copyfile(firmware / "OVMF_VARS_4M.fd", work / "vars.fd")
     command = [
@@ -364,36 +393,29 @@ EXTRAS = {"printing": ["cups", "system-config-printer"], "flatpak": ["flatpak"]}
 
 
 def install_and_first_start(console, vm, args):
-    """Omarchy's unattended install runs on tty1; then Borea's stage service must
-    have put its first-start service in, and the installed system must power off
-    by itself once that service has added the extras."""
-    failed = "jq -e '[.phases[]? | select(.status==\"failed\")] | length > 0' /run/omarchy-install/state.json"
-    done = "jq -e '.finished_at != null' /run/omarchy-install/state.json"
-    for _ in range(args.timeout // 20 * 4):
-        if console.run(f"{failed} >/dev/null 2>&1", 60) == 0:
-            console.run("jq -c '.phases[-1]' /run/omarchy-install/state.json; tail -n 20 /var/log/omarchy-install.log", 60)
-            raise AssertionError("Omarchy's unattended install failed")
-        if console.run(f"{done} >/dev/null 2>&1", 60) == 0:
-            break
-        time.sleep(20)
-    else:
-        raise AssertionError("Omarchy's unattended install did not finish")
-    print("PASS: Omarchy installed itself onto the target", flush=True)
-    for _ in range(12):
-        if console.run("journalctl -b -u borea-extras-stage.service --no-pager | grep -q 'staged for the first start'", 60) == 0:
-            break
-        time.sleep(10)
-    else:
-        console.run("systemctl status borea-extras-stage.service --no-pager; journalctl -b -u borea-extras-stage.service --no-pager | tail", 60)
-        raise AssertionError("Borea did not stage its extras into the installed system")
-    print("PASS: Borea staged its first-start service into the installed system", flush=True)
-    console.send("systemctl reboot")
-    try:
-        vm.wait(timeout=args.timeout * 3)
-    except subprocess.TimeoutExpired:
-        raise AssertionError("the installed system did not power off after its first start "
-                             "(Borea's extras service did not finish)") from None
-    print("PASS: the installed system started and powered off by itself", flush=True)
+    """Omarchy's unattended install runs on tty1 and restarts by itself into the
+    installed system, whose first start must add the extras and power off. The
+    disk is checked afterwards (check_extras); here, wait for the power-off."""
+    # Keep reading the serial console meanwhile: its log shows how far it got,
+    # and Borea's service writes its lines there too.
+    deadline = time.monotonic() + args.timeout * 3
+    while vm.poll() is None:
+        gave_up = "borea-extras: could not add" in console.buf
+        if gave_up or time.monotonic() > deadline:
+            vm.terminate()
+            vm.wait(timeout=30)
+            lines = [l for l in console.buf.splitlines() if "borea-extras" in l][-6:]
+            raise AssertionError(
+                ("Borea's extras service gave up" if gave_up else
+                 "the installed system did not power off") + ": "
+                + " | ".join(lines or ["no borea-extras output on the console"])
+                + " || " + diagnose(Path(args.work_dir), args.disk))
+        try:
+            console.read()
+            console.buf = console.buf[-20000:]
+        except OSError:
+            time.sleep(1)
+    print("PASS: Omarchy installed itself, started, added the extras and powered off", flush=True)
 
 
 def check_stick(image):

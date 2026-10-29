@@ -75,7 +75,7 @@ jobs:
           # its first start Borea's service adds the extras chosen here.
           - name: install
             layout: whole
-            flags: --install --extras printing --timeout 1200
+            flags: --install --extras printing,flatpak --timeout 1200
     steps:
       - uses: actions/checkout@v4
       - name: Make room and enable KVM

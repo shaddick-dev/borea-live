@@ -11,8 +11,9 @@
 //!    `systemd.wants=` starts. It waits for the installer to finish, then copies
 //!    a first-start service into the installed system.
 //! 3. On the installed system's first start, that service installs the packages
-//!    from Arch's repositories (online), turns on multilib when an extra needs
-//!    it, and removes itself. Offline or failed, it tries again next start.
+//!    the distribution's own way (on Omarchy: sync and upgrade as `omarchy
+//!    update` does, then `omarchy-pkg-add`; on Arch: one full sync), and
+//!    removes itself. Offline or failed, it tries again next start.
 
 use crate::upstream::Extra;
 
@@ -25,29 +26,42 @@ pub const STAGE_UNIT: &str = "borea-extras-stage.service";
 /// first-start service into the installed system.
 pub const STAGE: &str = r#"#!/bin/bash
 # Borea: stage the chosen extras into the system Omarchy's installer installs.
+# Runs until the install finishes; with --now (the unit's ExecStop, as the live
+# system shuts down or restarts) it stages at once if the install is done, so a
+# restart straight after the install still carries the extras.
 set -uo pipefail
 src=$(dirname "$(readlink -f "$0")")
 state=/run/omarchy-install/state.json
-echo "borea-extras: waiting for the installer to finish"
-until [[ -f $state ]] && jq -e '.finished_at != null' "$state" >/dev/null 2>&1; do
-  sleep 2
-done
-target=$(jq -r '.target // "/mnt"' "$state")
-if [[ ! -d $target/etc/systemd/system ]]; then
-  echo "borea-extras: no installed system at $target; nothing staged"
-  exit 1
+done_flag=/run/borea-extras-staged
+finished() { [[ -f $state ]] && jq -e '.finished_at != null' "$state" >/dev/null 2>&1; }
+stage() {
+  [[ -e $done_flag ]] && return 0
+  local target lib
+  target=$(jq -r '.target // "/mnt"' "$state")
+  if [[ ! -d $target/etc/systemd/system ]]; then
+    echo "borea-extras: no installed system at $target; nothing staged"
+    return 1
+  fi
+  lib=$target/usr/local/lib/borea/extras
+  install -d -m 755 "$lib" "$target/etc/systemd/system/multi-user.target.wants"
+  install -m 644 "$src/packages" "$lib/packages"
+  for flag in multilib poweroff-when-done; do
+    [[ -f $src/$flag ]] && install -m 644 "$src/$flag" "$lib/$flag"
+  done
+  install -m 755 "$src/install.sh" "$lib/install.sh"
+  install -m 644 "$src/borea-extras.service" "$target/etc/systemd/system/borea-extras.service"
+  ln -sf ../borea-extras.service "$target/etc/systemd/system/multi-user.target.wants/borea-extras.service"
+  sync
+  touch "$done_flag"
+  echo "borea-extras: staged for the first start: $(tr '\n' ' ' <"$src/packages")"
+}
+if [[ ${1:-} == --now ]]; then
+  finished && stage
+  exit 0
 fi
-lib=$target/usr/local/lib/borea/extras
-install -d -m 755 "$lib" "$target/etc/systemd/system/multi-user.target.wants"
-install -m 644 "$src/packages" "$lib/packages"
-for flag in multilib poweroff-when-done; do
-  [[ -f $src/$flag ]] && install -m 644 "$src/$flag" "$lib/$flag"
-done
-install -m 755 "$src/install.sh" "$lib/install.sh"
-install -m 644 "$src/borea-extras.service" "$target/etc/systemd/system/borea-extras.service"
-ln -sf ../borea-extras.service "$target/etc/systemd/system/multi-user.target.wants/borea-extras.service"
-sync
-echo "borea-extras: staged for the first start: $(tr '\n' ' ' <"$src/packages")"
+echo "borea-extras: waiting for the installer to finish"
+until finished; do sleep 1; done
+stage
 "#;
 
 /// Runs on the installed system's first start (and again until it succeeds).
@@ -63,27 +77,59 @@ for _ in $(seq 120); do
 done
 # Never alongside another pacman (the first start may be updating too).
 while [[ -e /var/lib/pacman/db.lck ]]; do sleep 5; done
-if [[ -f $lib/multilib ]]; then
-  if ! grep -q '^\[multilib\]' /etc/pacman.conf; then
-    if grep -q '^#\[multilib\]' /etc/pacman.conf; then
-      sed -i '/^#\[multilib\]/{s/^#//;n;s/^#//}' /etc/pacman.conf
-    else
-      printf '\n[multilib]\nInclude = /etc/pacman.d/mirrorlist\n' >>/etc/pacman.conf
+# A first start may come before the system's own keyring set-up has run.
+if ! pacman-key --list-keys >/dev/null 2>&1; then
+  echo "borea-extras: setting up pacman's keyring"
+  pacman-key --init && pacman-key --populate
+fi
+if command -v omarchy-pkg-add >/dev/null; then
+  # Omarchy's own way. Its pacman guard refuses a direct `pacman -Syu`; the
+  # sync and upgrade run exactly as `omarchy update` runs them (an installed
+  # system's databases are still the installer's offline ones, so a sync comes
+  # first, and with the upgrade: never a partial upgrade). Then, for Gaming,
+  # Omarchy's own 32-bit drivers for this machine, then the packages.
+  add() {
+    env LC_ALL=C OMARCHY_UPDATE_PACMAN=1 pacman -Syu --noconfirm \
+      --overwrite '/usr/share/omarchy/*' || return 1
+    if [[ -f $lib/multilib ]] && command -v omarchy-install-gaming-gpu-lib32 >/dev/null; then
+      omarchy-install-gaming-gpu-lib32 || return 1
     fi
+    omarchy-pkg-add "${packages[@]}"
+  }
+else
+  if [[ -f $lib/multilib ]]; then
+    if ! grep -q '^\[multilib\]' /etc/pacman.conf; then
+      if grep -q '^#\[multilib\]' /etc/pacman.conf; then
+        sed -i '/^#\[multilib\]/{s/^#//;n;s/^#//}' /etc/pacman.conf
+      else
+        printf '\n[multilib]\nInclude = /etc/pacman.d/mirrorlist\n' >>/etc/pacman.conf
+      fi
+    fi
+    # 32-bit Vulkan for this machine's graphics, so pacman picks no stranger.
+    for dev in /sys/bus/pci/devices/*; do
+      [[ $(cat "$dev/class" 2>/dev/null) == 0x03* ]] || continue
+      case $(cat "$dev/vendor" 2>/dev/null) in
+        0x8086) packages+=(lib32-vulkan-intel) ;;
+        0x1002) packages+=(lib32-vulkan-radeon) ;;
+        0x10de) packages+=(lib32-nvidia-utils) ;;
+      esac
+    done
   fi
-  # 32-bit Vulkan for this machine's graphics, so pacman picks no stranger.
-  for dev in /sys/bus/pci/devices/*; do
-    [[ $(cat "$dev/class" 2>/dev/null) == 0x03* ]] || continue
-    case $(cat "$dev/vendor" 2>/dev/null) in
-      0x8086) packages+=(lib32-vulkan-intel) ;;
-      0x1002) packages+=(lib32-vulkan-radeon) ;;
-      0x10de) packages+=(lib32-nvidia-utils) ;;
-    esac
-  done
+  # A full sync with the upgrade, as Arch requires: never a partial upgrade.
+  add() { pacman -Syu --noconfirm --needed "${packages[@]}"; }
 fi
 echo "borea-extras: adding ${packages[*]}"
-# A full sync with the upgrade, as Arch requires: never a partial upgrade.
-if pacman -Syu --noconfirm --needed "${packages[@]}"; then
+# A mirror that is briefly unreachable gets two more tries.
+added=1
+for attempt in 1 2 3; do
+  if add; then
+    added=0
+    break
+  fi
+  echo "borea-extras: attempt $attempt did not succeed"
+  sleep 30
+done
+if ((added == 0)); then
   echo "borea-extras: done"
   systemctl disable borea-extras.service
   rm -f /etc/systemd/system/borea-extras.service
@@ -94,6 +140,8 @@ if pacman -Syu --noconfirm --needed "${packages[@]}"; then
   exit 0
 fi
 echo "borea-extras: could not add them now; trying again at the next start"
+# The VM test's system powers off either way, so the test can read why.
+[[ -f $lib/poweroff-when-done ]] && systemctl poweroff --no-block
 exit 1
 "#;
 
@@ -107,6 +155,7 @@ ConditionPathExists=/usr/local/lib/borea/extras/packages
 [Service]
 Type=oneshot
 ExecStart=/usr/local/lib/borea/extras/install.sh
+StandardOutput=journal+console
 Nice=10
 TimeoutStartSec=3h
 
@@ -117,7 +166,7 @@ WantedBy=multi-user.target
 /// The live-system unit, small enough for the kernel command line.
 pub fn stage_unit() -> String {
     format!(
-        "[Unit]\nDescription=Borea: stage the chosen extras\n\n[Service]\nExecStart=/bin/bash {LIVE_DIR}/stage.sh\n"
+        "[Unit]\nDescription=Borea: stage the chosen extras\n\n[Service]\nExecStart=/bin/bash {LIVE_DIR}/stage.sh\nExecStop=/bin/bash {LIVE_DIR}/stage.sh --now\n"
     )
 }
 
