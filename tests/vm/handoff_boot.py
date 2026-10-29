@@ -195,7 +195,8 @@ def cidata(work):
     (files / "user_email_address.txt").write_text("test@example.org\n")
     (files / "user_encrypt_installation.txt").write_text("false\n")
     image = work / "cidata.img"
-    os.truncate(image, 16 * MIB)
+    with open(image, "wb") as f:
+        f.truncate(16 * MIB)
     sh("mkfs.ext4", "-q", "-F", "-L", "cidata", "-d", files, image)
     return image
 
