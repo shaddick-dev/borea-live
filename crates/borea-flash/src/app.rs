@@ -427,6 +427,11 @@ impl App {
         let width = area.width;
         let target = self.selected().map(Target::describe).unwrap_or_default();
         let (verb, about) = match p.phase {
+            // Nothing written yet: the system may be asking for a password.
+            Phase::Writing if p.done == 0 => (
+                "Writing to",
+                "Waiting for permission to write the stick. If a password prompt appears, enter your password there.",
+            ),
             Phase::Writing => ("Writing to", "Writing the image to the stick."),
             Phase::Syncing => (
                 "Finishing the write on",
