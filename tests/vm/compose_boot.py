@@ -12,16 +12,19 @@ from console import Console
 REPO = Path(__file__).resolve().parents[2]
 
 
-def instrument(source, target):
-    """Only a disposable copy gets serial output and the native GUI smoke flag."""
+SMOKE = "console=tty0 console=ttyS0,115200 loglevel=4 systemd.show_status=yes borea.boot-smoke"
+
+
+def instrument(source, target, cmdline=SMOKE):
+    """Only a disposable copy gets serial output and the test's boot flags."""
     original = (REPO / "live/buildroot/board/borea/limine.conf").read_bytes()
-    config = b"""timeout: 0
+    config = f"""timeout: 0
 /Borea USB boot test
     protocol: linux
     path: boot():/boot/vmlinuz
     module_path: boot():/boot/initramfs.img
-    cmdline: console=tty0 console=ttyS0,115200 loglevel=4 systemd.show_status=yes borea.boot-smoke
-"""
+    cmdline: {cmdline}
+""".encode()
     if len(config) > len(original):
         raise ValueError("Smoke config exceeds the ISO's config record")
     shutil.copyfile(source, target)
