@@ -14,6 +14,7 @@
 //! booted from that file with `kexec`, using the ISO's own loopback entry.
 pub mod boot;
 pub mod exec;
+pub mod extras;
 pub mod plan;
 pub mod stick;
 pub mod upstream;

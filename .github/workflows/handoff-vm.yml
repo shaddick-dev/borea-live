@@ -56,13 +56,26 @@ jobs:
           retention-days: 2
 
   handoff:
+    name: handoff (${{ matrix.name }})
     needs: compose
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        layout: [whole, alongside]
+        include:
+          # A stick with only the image: Borea adds its data partition and downloads.
+          - name: whole
+            layout: whole
+            flags: --plain-stick
+          - name: alongside
+            layout: alongside
+            flags: ""
+          # All the way: Omarchy installs itself (unattended, test only), and on
+          # its first start Borea's service adds the extras chosen here.
+          - name: install
+            layout: whole
+            flags: --install --extras printing,flatpak --timeout 1200
     steps:
       - uses: actions/checkout@v4
       - name: Make room and enable KVM
@@ -76,7 +89,7 @@ jobs:
       - name: Tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf ntfs-3g dosfstools e2fsprogs gpgv
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf ntfs-3g dosfstools e2fsprogs gpgv btrfs-progs openssl
       - uses: actions/download-artifact@v4
         with:
           name: borea-live-handoff-test
@@ -91,17 +104,17 @@ jobs:
           ls -l
           [ "$(cut -d' ' -f1 "$OMARCHY_ISO.sha256")" = "$(sha256sum "$OMARCHY_ISO" | cut -d' ' -f1)" ]
           gpgv --keyring "$GITHUB_WORKSPACE/backend/dist/keys/omarchy.gpg" "$OMARCHY_ISO.sig" "$OMARCHY_ISO"
-      - name: Hand off (${{ matrix.layout }})
+      - name: Hand off (${{ matrix.name }})
         run: |
           python3 tests/vm/handoff_boot.py /mnt/handoff/borea/borea-live-compose.iso /mnt/handoff/omarchy \
-            --layout "${{ matrix.layout }}" --work /mnt/handoff/work \
-            ${{ matrix.layout == 'whole' && '--plain-stick' || '' }} \
-            || { tr -d '\r' < /mnt/handoff/work/handoff-${{ matrix.layout }}/failure.txt \
+            --layout "${{ matrix.layout }}" --name "${{ matrix.name }}" --work /mnt/handoff/work \
+            ${{ matrix.flags }} \
+            || { tr -d '\r' < /mnt/handoff/work/handoff-${{ matrix.name }}/failure.txt \
                    | head -9 | sed 's/^/::error::/'; exit 1; }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: handoff-${{ matrix.layout }}-logs
+          name: handoff-${{ matrix.name }}-logs
           path: |
-            /mnt/handoff/work/handoff-${{ matrix.layout }}/*.log
+            /mnt/handoff/work/handoff-${{ matrix.name }}/*.log
           retention-days: 7

@@ -107,8 +107,8 @@ pub const METHODS: &[Method] = &[
     },
     Method {
         name: method::HANDOFF_REVIEW,
-        parameters: "handoff (version, target, disk)",
-        result: "Review of a hand-off to another installer (pinned release, disk changes, what to choose in it) and approval digest",
+        parameters: "handoff (version, target, disk, extras)",
+        result: "Review of a hand-off to another installer (pinned release, disk changes, extras added on first start, what to choose in it) and approval digest",
     },
     Method {
         name: method::HANDOFF_START,

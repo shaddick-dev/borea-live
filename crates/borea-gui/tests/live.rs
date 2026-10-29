@@ -568,6 +568,11 @@ fn omarchy_hands_off_to_its_own_installer_as_chosen() {
     press(&mut h, "Omarchy");
     press(&mut h, "Hyprland · Omarchy");
     press(&mut h, "Next");
+    // An extra ticked here is added on Omarchy's first start.
+    h.get_by_role_and_label(Role::CheckBox, "Printing for Omarchy").scroll_to_me();
+    h.run();
+    h.get_by_role_and_label(Role::CheckBox, "Printing for Omarchy").click();
+    h.run();
     press(&mut h, "Review");
     let settle = |h: &mut Installer| {
         for _ in 0..60 {
@@ -610,6 +615,7 @@ fn omarchy_hands_off_to_its_own_installer_as_chosen() {
     let start = &calls.iter().find(|(m, _)| m == "handoff.start").unwrap().1;
     assert_eq!(start["approval"], "feed");
     assert_eq!(start["handoff"]["target"], "omarchy");
+    assert_eq!(start["handoff"]["extras"], json!(["printing"]));
     assert_eq!(start["handoff"]["disk"]["kind"], "alongside");
     assert_eq!(start["handoff"]["disk"]["linux_size"], 60 * GIB);
     assert_eq!(start["handoff"]["disk"]["disk"]["serial"], "S6P7");

@@ -56,8 +56,15 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --locked --all-targets $BACKEND -- -D warnings
-      - run: cargo test --locked $BACKEND
+      # Failures are repeated as annotations, readable without the full log.
+      - run: |
+          set -o pipefail
+          cargo clippy --locked --all-targets $BACKEND -- -D warnings 2>&1 | tee clippy.log \
+            || { sed 's/\x1b\[[0-9;]*m//g' clippy.log | grep -E '^(error|warning)' -A7 | head -45 | sed 's/^/::error::/'; exit 1; }
+      - run: |
+          set -o pipefail
+          cargo test --locked $BACKEND 2>&1 | tee test.log \
+            || { sed 's/\x1b\[[0-9;]*m//g' test.log | grep -E '^error|panicked|FAILED' -A7 | head -45 | sed 's/^/::error::/'; exit 1; }
 
   static-app:
     name: borea-rataTUI static build (what releases ship)

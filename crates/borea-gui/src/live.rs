@@ -518,6 +518,12 @@ impl LiveInstaller {
             Action::HandoffReview => self.handoff.review(),
             Action::HandoffRetry => self.handoff.retry(),
         }
+        // The hand-off adds the extras ticked for this card on first start.
+        if self.handoff_target().is_some() {
+            let family = self.family();
+            let ticked = self.selection.ticked(&self.catalog, family);
+            self.handoff.set_extras(ticked.iter().map(|o| o.extra.id.clone()).collect());
+        }
         // Another target, or another edition, needs its disk chosen again.
         if resets {
             self.handoff.pick = None;
