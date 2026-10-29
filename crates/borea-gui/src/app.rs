@@ -335,7 +335,12 @@ impl Windpad {
         let (rect, _) =
             ui.allocate_exact_size(egui::vec2(ui.available_width(), height), egui::Sense::hover());
         let time = moving.then(|| ui.input(|i| i.time));
-        wind::paint(&ui.painter_at(rect.expand2(egui::vec2(0.0, 20.0))), rect, p.accent, time);
+        wind::paint(
+            &ui.painter_at(rect.expand2(egui::vec2(0.0, 20.0))),
+            rect,
+            p.accent,
+            time.map(wind::Air::calm),
+        );
 
         ui.scope_builder(
             UiBuilder::new().max_rect(rect).layout(Layout::top_down(Align::Center)),

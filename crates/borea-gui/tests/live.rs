@@ -63,6 +63,14 @@ fn legacy_bios_cannot_request_a_firmware_restart() {
 }
 
 fn press(h: &mut Installer, label: &str) {
+    // Some buttons appear only once a background answer (disks, a review) lands.
+    for _ in 0..300 {
+        if h.query_by_role_and_label(Role::Button, label).is_some() {
+            break;
+        }
+        h.run();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
     h.get_by_role_and_label(Role::Button, label).scroll_to_me();
     h.run();
     h.get_by_role_and_label(Role::Button, label).click();
@@ -554,6 +562,9 @@ fn omarchy_hands_off_to_its_own_installer_as_chosen() {
         h.query_by_label_contains("Official installer, via Borea").is_some(),
         "Omarchy is not shown as planned"
     );
+    if let Ok(dir) = std::env::var("WINDPAD_SHOTS") {
+        h.render().unwrap().save(format!("{dir}/live-arch-distributions.png")).unwrap();
+    }
     press(&mut h, "Omarchy");
     press(&mut h, "Hyprland · Omarchy");
     press(&mut h, "Next");

@@ -1,6 +1,12 @@
 //! Quiet airflow behind the hero: fine streamlines with a slow gust travelling along
 //! each one. Decorative only. It never carries meaning, and it holds still when motion
 //! is reduced or the window is in the background.
+//!
+//! The wind picks up: a gust when the page changes, then calms again; and a steady
+//! rise while an installation runs, fastest at 100%. Gentle by design: speed
+//! changes ease in and out (never a jump), are capped at a few times the calm
+//! speed, and never change brightness, so nothing flashes. "Pause wind" stills it
+//! all.
 
 use eframe::egui::{Color32, Painter, Pos2, Rect, Shape, Stroke, pos2};
 use std::sync::OnceLock;
@@ -110,8 +116,73 @@ fn between(points: &[Pos2], lengths: &[f32], from: f32, to: f32) -> Vec<Pos2> {
         .collect()
 }
 
-/// Paint the wind into `rect`. `time` is seconds since start; `None` holds it still.
-pub fn paint(painter: &Painter, rect: Rect, color: Color32, time: Option<f64>) {
+/// The wind at one frame: real time for the gentle sway of the streamlines, and
+/// the wind's own clock for its gusts, which runs faster when the wind picks up.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Air {
+    pub time: f64,
+    pub clock: f64,
+    /// 0 when calm, 1 at the fastest: gusts stretch a little as they speed up.
+    pub energy: f32,
+}
+
+impl Air {
+    /// Calm air: gusts at their usual pace.
+    pub fn calm(time: f64) -> Air {
+        Air { time, clock: time, energy: 0.0 }
+    }
+}
+
+/// The fastest the gusts ever travel, as a multiple of calm.
+pub const TOP_SPEED: f32 = 4.0;
+/// How much a page change adds to the speed, before it dies away.
+const PAGE_GUST: f32 = 2.6;
+/// Seconds for a page-change gust to fall to about a third.
+const GUST_FADE: f64 = 0.7;
+/// Seconds the speed takes to follow a change (to about two thirds).
+const EASE: f64 = 0.45;
+
+/// The wind's state across frames.
+#[derive(Debug, Clone, Default)]
+pub struct Gusts {
+    clock: f64,
+    last: Option<f64>,
+    speed: f32,
+    gust: f32,
+    progress: f32,
+}
+
+impl Gusts {
+    /// Advance to `now`. `page_changed` starts a gust; `progress` (0 to 1) is how
+    /// far an installation has come, or `None` when nothing is installing.
+    pub fn advance(&mut self, now: f64, page_changed: bool, progress: Option<f32>) -> Air {
+        // A long pause (the window was in the background) is not a burst of wind.
+        let dt = self.last.map_or(0.0, |last| (now - last).clamp(0.0, 0.1));
+        self.last = Some(now);
+        if self.speed == 0.0 {
+            self.clock = now;
+            self.speed = 1.0;
+        }
+        if page_changed {
+            self.gust = 1.0;
+        }
+        self.gust *= (-dt / GUST_FADE).exp() as f32;
+        // Installing only ever speeds the wind up, until it is done.
+        self.progress = match progress {
+            Some(p) => self.progress.max(p.clamp(0.0, 1.0)),
+            None => 0.0,
+        };
+        let rising = (TOP_SPEED - 1.0) * self.progress.powf(1.6);
+        let target = (1.0 + rising + PAGE_GUST * self.gust).min(TOP_SPEED);
+        self.speed += (target - self.speed) * (1.0 - (-dt / EASE).exp()) as f32;
+        self.clock += dt * f64::from(self.speed);
+        Air { time: now, clock: self.clock, energy: (self.speed - 1.0) / (TOP_SPEED - 1.0) }
+    }
+}
+
+/// Paint the wind into `rect`. `None` holds it still.
+pub fn paint(painter: &Painter, rect: Rect, color: Color32, air: Option<Air>) {
+    let time = air.map(|a| a.time);
     let faint = Stroke::new(0.8, color.gamma_multiply(if time.is_some() { 0.10 } else { 0.22 }));
     let gust = Stroke::new(1.0, color.gamma_multiply(0.55));
     let seed = launch_seed();
@@ -124,11 +195,14 @@ pub fn paint(painter: &Painter, rect: Rect, color: Color32, time: Option<f64>) {
             }
         }
         painter.add(Shape::line(points.clone(), faint));
-        let Some(time) = time else { continue };
+        let Some(air) = air else { continue };
+        let time = air.clock;
         let total = *lengths.last().unwrap_or(&0.0);
         let offset = noise(seed, lane + 19);
         let cycle = cycle * (0.85 + noise(seed, lane + 29) * 0.45);
-        let dash = total * GUST * (0.75 + 0.25 * (time * 0.09 + offset * 6.0).sin() as f32);
+        let stretch = 1.0 + 0.5 * air.energy.clamp(0.0, 1.0);
+        let dash =
+            total * GUST * stretch * (0.75 + 0.25 * (time * 0.09 + offset * 6.0).sin() as f32);
         let phase = ((time + start) / cycle + offset + 0.06 * (time * 0.11 + offset * 6.0).sin())
             .rem_euclid(1.0) as f32;
         let head = phase * (total + dash) - dash;
@@ -140,8 +214,52 @@ pub fn paint(painter: &Painter, rect: Rect, color: Color32, time: Option<f64>) {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
+
+    fn run(g: &mut Gusts, from: f64, seconds: f64, progress: Option<f32>) -> Vec<Air> {
+        let frames = (seconds * 30.0) as usize;
+        (1..=frames).map(|i| g.advance(from + i as f64 / 30.0, false, progress)).collect()
+    }
+
+    #[test]
+    fn a_page_change_gusts_then_calms_without_jumps() {
+        let mut g = Gusts::default();
+        run(&mut g, 0.0, 2.0, None);
+        let start = g.advance(2.0 + 1.0 / 30.0, true, None);
+        let after = run(&mut g, 2.04, 6.0, None);
+        let speeds: Vec<f32> =
+            after.windows(2).map(|w| ((w[1].clock - w[0].clock) * 30.0) as f32).collect();
+        let peak = speeds.iter().cloned().fold(0.0, f32::max);
+        assert!(peak > 1.8 && peak <= TOP_SPEED, "a noticeable gust, never too fast: {peak}");
+        assert!((speeds.last().unwrap() - 1.0).abs() < 0.05, "back to calm");
+        for w in speeds.windows(2) {
+            assert!((w[1] - w[0]).abs() < 0.25, "eases, never jumps: {w:?}");
+        }
+        assert!(after.windows(2).all(|w| w[1].clock > w[0].clock), "never runs backwards");
+        assert!(start.energy >= 0.0);
+    }
+
+    #[test]
+    fn installing_speeds_up_steadily_to_the_top_at_100_percent() {
+        let mut g = Gusts::default();
+        let mut last = 0.0f32;
+        for step in 0..=20 {
+            let p = step as f32 / 20.0;
+            let air = run(&mut g, step as f64 * 2.0, 2.0, Some(p));
+            let energy = air.last().unwrap().energy;
+            assert!(energy + 1e-4 >= last, "only ever faster while installing");
+            last = energy;
+        }
+        assert!(last > 0.95 && last <= 1.0, "fastest at 100%: {last}");
+        // A stage that reports less progress does not slow it down.
+        let before = run(&mut g, 50.0, 1.0, Some(0.2)).last().unwrap().energy;
+        assert!(before > 0.95);
+        // Done: calm again.
+        let calm = run(&mut g, 60.0, 8.0, None).last().unwrap().energy;
+        assert!(calm < 0.02);
+    }
 
     #[test]
     fn segments_join_and_s_curves_are_smooth() {
