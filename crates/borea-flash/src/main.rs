@@ -30,7 +30,7 @@ use borea_flash::make::{self, BuildRequest, BuildView};
 use borea_flash::target::{self, Target, Verdict};
 use borea_flash::terminal::{self as screen, Colours};
 use borea_flash::write::{self, Outcome, Progress};
-use borea_flash::{FlashError, device};
+use borea_flash::{FlashError, datapart, device};
 use borea_host::HostKind;
 use ratatui::crossterm::event::{self, Event as Term, KeyEventKind};
 
@@ -671,9 +671,52 @@ fn flash(
     }
     let mut source = std::fs::File::open(&image.path).map_err(FlashError::Read)?;
     let mut stick = device::open(name)?;
-    write::flash(&mut source, image.size, &mut stick, cancel, |progress| {
+    let outcome = write::flash(&mut source, image.size, &mut stick, cancel, |progress| {
         let _ = tx.send(Event::Progress(progress));
-    })
+    })?;
+    if outcome == Outcome::Verified {
+        // The stick boots either way; without the data partition Borea Live just
+        // can't hand off to other installers, so say why and carry on.
+        if let Err(why) = add_data_partition(stick, image.size, name) {
+            let _ = tx.send(Event::Message(format!(
+                "Borea Live is ready, but no space for other installers was added: {why}."
+            )));
+        }
+    }
+    Ok(outcome)
+}
+
+/// Add the writable data partition after the verified image and format it.
+/// Only the MBR's empty fourth entry changes; the image itself is untouched.
+fn add_data_partition(mut stick: std::fs::File, image: u64, name: &str) -> Result<(), String> {
+    use std::io::{Read, Seek, SeekFrom, Write as _};
+    use std::os::unix::fs::FileExt;
+    let sector = std::fs::read_to_string(format!("/sys/block/{name}/queue/logical_block_size"))
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(512);
+    let disk = stick.seek(SeekFrom::End(0)).map_err(|e| e.to_string())?;
+    let mut mbr = [0u8; 512];
+    stick
+        .seek(SeekFrom::Start(0))
+        .and_then(|_| stick.read_exact(&mut mbr))
+        .map_err(|e| e.to_string())?;
+    let entry = datapart::plan(&mbr, image, disk, sector).map_err(|e| e.to_string())?;
+    // A filesystem a previous stick left at that spot must not reappear.
+    stick
+        .write_all_at(&[0u8; 1 << 20], entry.start * sector)
+        .map_err(|e| format!("clearing the space: {e}"))?;
+    datapart::add(&mut mbr, entry);
+    stick.write_all_at(&mbr, 0).and_then(|_| stick.sync_all()).map_err(|e| e.to_string())?;
+    let _ = stick.flush();
+    // Closing the stick (the last descriptor) makes udev re-read its partition table.
+    drop(stick);
+    device::format_ext4(
+        &datapart::partition_name(name, entry.number),
+        datapart::LABEL,
+        Duration::from_secs(20),
+    )
+    .map_err(|e| e.to_string())
 }
 
 fn check_image(path: PathBuf, expected: String, from: PathBuf, tx: Sender<Event>) {

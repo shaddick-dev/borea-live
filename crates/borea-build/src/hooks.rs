@@ -282,9 +282,9 @@ fn image(
             "-boot-load-size",
             "4",
             "-boot-info-table",
-            "-hfsplus",
-            "-apm-block-size",
-            "2048",
+            // No HFS+/Apple partition map: Borea targets x86-64 PCs, and leaving
+            // them out keeps the fourth MBR entry free for the stick's data
+            // partition (borea-flash::datapart).
             "--efi-boot",
             "boot/limine/limine-uefi-cd.bin",
             "-efi-boot-part",

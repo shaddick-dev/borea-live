@@ -8,6 +8,7 @@
 //!   opening it, opens it exclusively, and reads every byte back to verify.
 
 pub mod app;
+pub mod datapart;
 pub mod device;
 pub mod download;
 pub mod image;

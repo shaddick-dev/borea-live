@@ -37,6 +37,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf
           python3 tests/vm/compose_boot.py target/live/out/borea-live-compose.iso
+      - name: As a stick with its data partition, it still boots to the installer
+        # borea-rataTUI adds this partition after writing; a disposable image
+        # file stands in for the stick.
+        run: |
+          mkdir -p target/vm
+          BOREA_DATAPART_ISO=target/live/out/borea-live-compose.iso \
+          BOREA_DATAPART_STICK=target/vm/stick.img BOREA_DATAPART_SIZE=3000000000 \
+            cargo test --locked -p borea-flash --lib datapart::tests::real_iso
+          python3 tests/vm/compose_boot.py target/vm/stick.img
       - uses: actions/upload-artifact@v4
         with:
           name: borea-live-compose-x86_64
