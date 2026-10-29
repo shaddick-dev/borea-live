@@ -401,17 +401,53 @@ pub fn prepare(review: &Review, note: &mut dyn FnMut(Note<'_>)) -> Result<(), Hi
         make_space(&review.disk_path, &review.changes, review.sector)?;
     }
 
+    let extra_cmdline = stage_extras(up, &review.extras)?;
+    if !review.extras.is_empty() {
+        note(Note::Line(format!(
+            "{} will be added quietly when {} first starts.",
+            review
+                .extras
+                .iter()
+                .filter_map(|id| up.extra(id))
+                .map(|e| e.name)
+                .collect::<Vec<_>>()
+                .join(", "),
+            up.name
+        )));
+    }
+
     note(Note::Stage(&format!("Starting {}'s installer.", up.name)));
     fs::create_dir_all(ISO).map_err(io(ISO))?;
     let iso_str = iso.to_string_lossy().into_owned();
     if run("/usr/bin/findmnt", &["--noheadings", "--output", "TARGET", ISO]).is_err() {
         run("/usr/bin/mount", &["-o", "loop,ro", &iso_str, ISO])?;
     }
-    let result = load(up, &data_str);
+    let result = load(up, &data_str, extra_cmdline.as_deref());
     let _ = run("/usr/bin/umount", &[ISO]);
     result?;
     let _ = run("/usr/bin/sync", &[]);
     Ok(())
+}
+
+/// Write the chosen extras to the stick (or clear old ones) and return what the
+/// installer's command line needs to add them on first start (see `extras`).
+fn stage_extras(up: &Upstream, ids: &[String]) -> Result<Option<String>, Hint> {
+    let dir = Path::new(DATA).join(crate::extras::DIR);
+    let _ = fs::remove_dir_all(&dir);
+    let chosen: Vec<&upstream::Extra> = ids.iter().filter_map(|id| up.extra(id)).collect();
+    if chosen.is_empty() {
+        return Ok(None);
+    }
+    fs::create_dir_all(&dir).map_err(io("the stick"))?;
+    // Only the VM test's Borea Live asks the installed system to power off after.
+    let poweroff = fs::read_to_string("/proc/cmdline")
+        .unwrap_or_default()
+        .split_whitespace()
+        .any(|a| a == "borea.handoff-poweroff");
+    for (name, contents) in crate::extras::files(&chosen, poweroff) {
+        fs::write(dir.join(name), contents).map_err(io("the stick"))?;
+    }
+    Ok(Some(crate::extras::cmdline()))
 }
 
 /// The VM test boots Borea Live with `borea.handoff-console=ttyS0,115200` so it
@@ -426,7 +462,7 @@ pub fn test_console(cmdline: &str) -> Option<String> {
         .then(|| format!("console={value} loglevel=6 systemd.show_status=1"))
 }
 
-fn load(up: &Upstream, data: &str) -> Result<(), Hint> {
+fn load(up: &Upstream, data: &str, extra: Option<&str>) -> Result<(), Hint> {
     let config = fs::read_to_string(Path::new(ISO).join(up.boot_config))
         .map_err(io("the installer's boot configuration"))?;
     let uuid = run("/usr/sbin/blkid", &["--match-tag", "UUID", "--output", "value", data])?;
@@ -434,6 +470,10 @@ fn load(up: &Upstream, data: &str) -> Result<(), Hint> {
     let mut spec =
         boot::boot_spec(&config, up.boot_entry, &IsoFile { uuid: &uuid, path: &path })
             .map_err(|e| hint("handoff", format!("{}'s ISO can't be started: {e}", up.name)))?;
+    if let Some(extra) = extra {
+        spec.cmdline.push(' ');
+        spec.cmdline.push_str(extra);
+    }
     if let Some(extra) = test_console(&fs::read_to_string("/proc/cmdline").unwrap_or_default()) {
         spec.cmdline.push(' ');
         spec.cmdline.push_str(&extra);

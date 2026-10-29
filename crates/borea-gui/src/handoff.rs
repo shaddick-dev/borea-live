@@ -123,6 +123,8 @@ pub struct HandoffLink {
     pub pick: Option<Where>,
     /// For alongside: the person agreed Windows is shrunk now.
     pub confirmed: bool,
+    /// Extras (by id) to add on the installed system's first start.
+    pub extras: Vec<String>,
     service: Service,
     tx: Sender<Msg>,
     rx: Receiver<Msg>,
@@ -149,6 +151,7 @@ impl HandoffLink {
             disks: Vec::new(),
             pick: None,
             confirmed: false,
+            extras: Vec::new(),
             service,
             tx,
             rx,
@@ -196,6 +199,16 @@ impl HandoffLink {
         }
     }
 
+    /// The extras ticked on the Desktop step. A change needs the plan checked again.
+    pub fn set_extras(&mut self, extras: Vec<String>) {
+        if self.extras != extras {
+            self.extras = extras;
+            if matches!(self.phase, Phase::Reviewing | Phase::Reviewed(_)) {
+                self.phase = Phase::Choosing;
+            }
+        }
+    }
+
     pub fn confirm(&mut self, on: bool) {
         self.confirmed = on;
     }
@@ -212,7 +225,7 @@ impl HandoffLink {
                        "linux_size":size})
             }
         };
-        Some(json!({"version":1,"target":self.target,"disk":disk}))
+        Some(json!({"version":1,"target":self.target,"disk":disk,"extras":self.extras}))
     }
 
     pub fn review(&mut self) {

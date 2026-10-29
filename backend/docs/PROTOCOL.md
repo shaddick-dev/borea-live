@@ -27,7 +27,7 @@ JSON-RPC 2.0, one JSON object per line, at `/run/borea/installd.sock`. Socket mo
 | `install.retry` | action_id | null; only the current recoverable action is allowed |
 | `install.log` | none | redacted install log |
 | `system.reboot` | firmware_setup? (boolean, default false) | null; refuses while an installation is active; firmware setup requires supported UEFI |
-| `handoff.review` | handoff (version, target, disk) | Review of a hand-off to another installer (pinned release, disk changes, what to choose in it) and approval digest |
+| `handoff.review` | handoff (version, target, disk, extras) | Review of a hand-off to another installer (pinned release, disk changes, extras added on first start, what to choose in it) and approval digest |
 | `handoff.start` | handoff, approval | job_id; downloads and verifies the installer onto the stick's data partition, applies only the reviewed disk changes, then kexecs into it. Events as install.events |
 
 Errors use `{code:-32000,message,data:{field}}`; malformed JSON-RPC uses -32600. Never log request bodies containing secrets.

@@ -203,7 +203,7 @@ fn size(text: &str) -> Result<u64, Hint> {
         .filter(|n| *n > 0)
         .ok_or_else(|| error("Give the size as 60G, 60GiB or bytes."))
 }
-/// `handoff TARGET (--whole DISK | --alongside WINDOWS_PARTITION --size SIZE) [--approval DIGEST]`
+/// `handoff TARGET (--whole DISK | --alongside WINDOWS_PARTITION --size SIZE) [--extras ID,ID] [--approval DIGEST]`
 fn handoff(args: &[String]) -> Result<Option<Value>, Hint> {
     let target = args.first().filter(|t| !t.starts_with("--")).ok_or_else(|| {
         error("Name the installer to hand off to, e.g. borea-cli handoff omarchy --whole /dev/nvme0n1")
@@ -211,7 +211,7 @@ fn handoff(args: &[String]) -> Result<Option<Value>, Hint> {
     let mut options = std::collections::BTreeMap::new();
     let mut iter = args.iter().skip(1);
     while let Some(key) = iter.next() {
-        if !["--whole", "--alongside", "--size", "--approval"].contains(&key.as_str())
+        if !["--whole", "--alongside", "--size", "--extras", "--approval"].contains(&key.as_str())
             || options.contains_key(key.as_str())
         {
             return Err(error("Unknown or duplicate handoff option."));
@@ -258,7 +258,11 @@ fn handoff(args: &[String]) -> Result<Option<Value>, Hint> {
             ));
         }
     };
-    let plan = json!({"version":1,"target":target,"disk":disk});
+    let extras: Vec<&str> = options
+        .get("--extras")
+        .map(|list| list.split(',').filter(|e| !e.is_empty()).collect())
+        .unwrap_or_default();
+    let plan = json!({"version":1,"target":target,"disk":disk,"extras":extras});
     let Some(approval) = options.get("--approval") else {
         let review = rpc(borea_protocol::method::HANDOFF_REVIEW, json!({"handoff":plan}))?;
         eprintln!(
@@ -286,7 +290,7 @@ fn handoff(args: &[String]) -> Result<Option<Value>, Hint> {
 }
 fn help() {
     println!(
-        "Borea backend\n  probe | catalog | disks | locales\n  net scan | net status\n  validate | review | render --plan PLAN.toml\n  dry-run --plan PLAN.toml --bootstrap BOOTSTRAP.json\n  install --plan PLAN.toml --approval DIGEST < credentials.json\n  events [CURSOR] | log | retry ACTION_ID\n  handoff omarchy --whole DISK [--approval DIGEST]\n  handoff omarchy --alongside WINDOWS_PARTITION --size 60G [--approval DIGEST]\nCredentials must be supplied on stdin; they are never command options."
+        "Borea backend\n  probe | catalog | disks | locales\n  net scan | net status\n  validate | review | render --plan PLAN.toml\n  dry-run --plan PLAN.toml --bootstrap BOOTSTRAP.json\n  install --plan PLAN.toml --approval DIGEST < credentials.json\n  events [CURSOR] | log | retry ACTION_ID\n  handoff omarchy --whole DISK [--extras gaming,codecs,flatpak,printing] [--approval DIGEST]\n  handoff omarchy --alongside WINDOWS_PARTITION --size 60G [--extras …] [--approval DIGEST]\nCredentials must be supplied on stdin; they are never command options."
     );
 }
 #[cfg(test)]

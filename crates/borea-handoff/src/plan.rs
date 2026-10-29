@@ -14,6 +14,9 @@ pub struct Handoff {
     pub version: u32,
     pub target: String,
     pub disk: DiskPlan,
+    /// Extras (by id) to add on the installed system's first start.
+    #[serde(default)]
+    pub extras: Vec<String>,
 }
 
 /// Everything the user approves, in the order it happens.
@@ -33,6 +36,9 @@ pub struct Review {
     pub steps: Vec<String>,
     /// What to pick in the installer so it does what was chosen here.
     pub choose: String,
+    /// Extras added on the installed system's first start, by id.
+    #[serde(default)]
+    pub extras: Vec<String>,
 }
 
 impl Review {
@@ -98,6 +104,26 @@ pub fn review(h: &Handoff, facts: &DiskFacts) -> Result<Review, Hint> {
             )
         }
     };
+    let mut extras = Vec::new();
+    for id in &h.extras {
+        let extra = up
+            .extra(id)
+            .ok_or_else(|| hint("extras", format!("Borea can't add \"{id}\" to {}.", up.name)))?;
+        if !extras.contains(&extra.id.to_owned()) {
+            extras.push(extra.id.to_owned());
+        }
+    }
+    if !extras.is_empty() {
+        let names: Vec<&str> =
+            extras.iter().filter_map(|id| up.extra(id)).map(|e| e.name).collect();
+        let multilib = extras.iter().filter_map(|id| up.extra(id)).any(|e| e.multilib);
+        steps.push(format!(
+            "When {} first starts, add {} quietly from Arch's repositories{}",
+            up.name,
+            names.join(", "),
+            if multilib { ", turning on its multilib repository" } else { "" }
+        ));
+    }
     steps.push(format!("Restart straight into {}'s installer", up.name));
     Ok(Review {
         target: up.id.into(),
@@ -111,6 +137,7 @@ pub fn review(h: &Handoff, facts: &DiskFacts) -> Result<Review, Hint> {
         changes,
         steps,
         choose,
+        extras,
     })
 }
 
@@ -173,13 +200,18 @@ mod tests {
                 windows_part: PartId { path: windows().path, uuid: "WINDOWS".into(), number: 3 },
                 linux_size: size,
             },
+            extras: Vec::new(),
         }
     }
 
     #[test]
     fn whole_disk_changes_nothing_before_omarchys_installer() {
-        let h =
-            Handoff { version: 1, target: "omarchy".into(), disk: DiskPlan::Whole { disk: id() } };
+        let h = Handoff {
+            version: 1,
+            target: "omarchy".into(),
+            disk: DiskPlan::Whole { disk: id() },
+            extras: Vec::new(),
+        };
         let r = review(&h, &facts()).unwrap();
         assert!(r.whole_disk && r.changes.is_empty());
         assert!(r.choose.contains("full-disk install"));
@@ -207,6 +239,7 @@ mod tests {
             version: 1,
             target: "omarchy".into(),
             disk: DiskPlan::Whole { disk: nameless },
+            extras: Vec::new(),
         };
         let r = review(&h, &f).unwrap();
         assert!(r.disk.starts_with("/dev/nvme0n1 · "), "{}", r.disk);
@@ -224,5 +257,30 @@ mod tests {
         other.target = "omarchy".into();
         other.version = 2;
         assert!(review(&other, &facts()).is_err());
+        let mut extras = alongside(60 * GIB);
+        extras.extras = vec!["printing".into()];
+        assert_ne!(a, review(&extras, &facts()).unwrap().digest().unwrap());
+    }
+
+    #[test]
+    fn extras_are_named_in_review_and_unknown_ones_refused() {
+        let mut h = alongside(60 * GIB);
+        h.extras = vec!["gaming".into(), "printing".into(), "gaming".into()];
+        let r = review(&h, &facts()).unwrap();
+        assert_eq!(r.extras, ["gaming", "printing"], "once each, in order");
+        let step = r.steps.iter().find(|s| s.contains("first starts")).unwrap();
+        assert!(step.contains("Gaming, Printing") && step.contains("multilib"), "{step}");
+        h.extras = vec!["printing".into()];
+        let r = review(&h, &facts()).unwrap();
+        assert!(!r.steps.iter().any(|s| s.contains("multilib")));
+        h.extras = vec!["rootkit".into()];
+        assert!(review(&h, &facts()).is_err());
+        // Plans from before extras existed still read.
+        let old: Handoff = serde_json::from_value(serde_json::json!({
+            "version": 1, "target": "omarchy",
+            "disk": serde_json::to_value(alongside(60 * GIB).disk).unwrap()
+        }))
+        .unwrap();
+        assert!(old.extras.is_empty());
     }
 }
