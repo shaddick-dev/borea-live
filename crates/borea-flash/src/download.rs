@@ -70,7 +70,12 @@ pub fn latest_checksum() -> Result<String, String> {
 
 /// The SHA-256 the latest release publishes for one of its files.
 fn published_checksum(name: &str) -> Result<String, String> {
-    let url = format!("{}/{name}.sha256", releases());
+    checksum_at(&releases(), name)
+}
+
+/// The SHA-256 published beside `name` under `base`.
+fn checksum_at(base: &str, name: &str) -> Result<String, String> {
+    let url = format!("{base}/{name}.sha256");
     let mut response = agent().get(&url).call().map_err(describe)?;
     let text = response
         .body_mut()
@@ -95,17 +100,42 @@ fn hex(digest: &[u8]) -> String {
 /// The ready-made borea-rataTUI in every release.
 pub const APP: &str = "borea-rataTUI-x86_64-linux";
 
+/// The same static app, rebuilt from main on every change and served by the
+/// project's GitHub Pages site. `BOREA_PAGES_URL` points elsewhere.
+pub const PAGES: &str = "https://shaddick-dev.github.io/borea-live";
+
+/// Where the ready-made app can come from, in order: the latest release, then
+/// the copy built from main.
+fn app_sources() -> Vec<String> {
+    #[cfg(test)]
+    if let Some(url) = tests::TEST_URL.lock().ok().and_then(|url| url.clone()) {
+        return vec![url.clone(), format!("{url}/pages")];
+    }
+    vec![releases(), std::env::var("BOREA_PAGES_URL").unwrap_or_else(|_| PAGES.to_owned())]
+}
+
 /// Download the latest release's borea-rataTUI into `dir`, checked against its
 /// SHA-256 and made executable. Returns its path.
 pub fn fetch_app(dir: &Path) -> Result<PathBuf, String> {
-    let expected = published_checksum(APP).map_err(|e| {
-        if e.starts_with("No Borea Live release") {
+    let mut found = None;
+    let mut last = String::new();
+    for base in app_sources() {
+        match checksum_at(&base, APP) {
+            Ok(sum) => {
+                found = Some((base, sum));
+                break;
+            }
+            Err(e) => last = e,
+        }
+    }
+    let (base, expected) = found.ok_or_else(|| {
+        if last.starts_with("No Borea Live release") {
             "No ready-made borea-rataTUI has been published yet.".to_owned()
         } else {
-            e
+            last
         }
     })?;
-    let mut response = agent().get(&format!("{}/{APP}", releases())).call().map_err(describe)?;
+    let mut response = agent().get(&format!("{base}/{APP}")).call().map_err(describe)?;
     let bytes = response
         .body_mut()
         .with_config()
@@ -550,6 +580,19 @@ pub(crate) mod tests {
         assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o755);
         use_releases(&format!("{base2}/none"));
         assert!(fetch_app(&other).unwrap_err().contains("No ready-made borea-rataTUI"));
+
+        // No release yet: the copy built from main (served beside it) is used.
+        let (base3, seen3) = serve(vec![
+            ("main/pages/borea-rataTUI-x86_64-linux", app.clone()),
+            (
+                "main/pages/borea-rataTUI-x86_64-linux.sha256",
+                format!("{}  {APP}\n", sha(&app)).into_bytes(),
+            ),
+        ]);
+        use_releases(&format!("{base3}/main"));
+        let path = fetch_app(&other).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), app);
+        assert!(seen3.lock().unwrap().iter().any(|r| r.contains("/main/pages/borea-rataTUI")));
 
         // No release yet: a plain explanation, not an HTTP error.
         use_releases(&format!("{base}/none"));

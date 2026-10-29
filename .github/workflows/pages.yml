@@ -3,11 +3,20 @@ name: Setup page
 #   curl -fsSL https://shaddick-dev.github.io/borea-live/install | sh
 # /install is scripts/install.sh (plain sh, safe to pipe), which fetches /setup
 # (scripts/borea-setup.sh) and runs it with the terminal attached.
+# /borea-rataTUI-x86_64-linux (+ .sha256) is the static app, built from main:
+# the setup installs it in seconds, with no Rust and no release needed.
 # GitHub Pages must be turned on once: Settings → Pages → Source: GitHub Actions.
 on:
   push:
     branches: [main]
-    paths: [scripts/install.sh, scripts/borea-setup.sh, .github/workflows/pages.yml]
+    paths:
+      - scripts/install.sh
+      - scripts/borea-setup.sh
+      - .github/workflows/pages.yml
+      # The app is served from here too, so rebuild when it or its dependencies change.
+      - crates/**
+      - Cargo.toml
+      - Cargo.lock
   workflow_dispatch:
 permissions:
   contents: read
@@ -24,9 +33,24 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the ready-made borea-rataTUI (static, any distribution)
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+          cargo build --locked --release -p borea-flash --bin borea-rataTUI \
+            --target x86_64-unknown-linux-musl
+          app=target/x86_64-unknown-linux-musl/release/borea-rataTUI
+          # Static: no dynamic loader, so it runs on any distribution.
+          ! readelf -l "$app" | grep -q INTERP
+          "$app" --help >/dev/null
       - name: Assemble
         run: |
           mkdir _site
+          cp target/x86_64-unknown-linux-musl/release/borea-rataTUI _site/borea-rataTUI-x86_64-linux
+          (cd _site && sha256sum borea-rataTUI-x86_64-linux > borea-rataTUI-x86_64-linux.sha256)
           cp scripts/install.sh _site/install
           cp scripts/borea-setup.sh _site/setup
           cat > _site/index.html <<'HTML'

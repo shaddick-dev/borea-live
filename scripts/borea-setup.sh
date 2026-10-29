@@ -98,6 +98,8 @@ ask() {
 [ "$(id -u)" -ne 0 ] || die "run this as your normal user, not root: it uses sudo only for packages, and the ISO build refuses root"
 
 RELEASES="${BOREA_RELEASES_URL:-https://github.com/shaddick-dev/borea-live/releases/latest/download}"
+# The same static app, rebuilt from main on every change (.github/workflows/pages.yml).
+PAGES="${BOREA_PAGES_URL:-https://shaddick-dev.github.io/borea-live}"
 helper="${XDG_BIN_HOME:-$HOME/.local/bin}/borea-rataTUI"
 
 # borea-rataTUI --install already says if ~/.local/bin isn't on your PATH.
@@ -111,23 +113,30 @@ finish() {
 }
 
 # ── The quick way: the ready-made program ─────────────────────────────────────
-# Returns non-zero when the release is unavailable. Never falls back to a build.
+# From the latest release, else the copy built from main. Returns non-zero
+# when neither is reachable. Never falls back to a build.
 install_ready_made() {
-    local name=borea-rataTUI-x86_64-linux tmp
+    local name=borea-rataTUI-x86_64-linux tmp source=""
     [ "$(uname -m)" = x86_64 ] || { warn "no ready-made borea-rataTUI for $(uname -m)"; return 1; }
     command -v curl >/dev/null || { warn "curl is needed to download borea-rataTUI"; return 1; }
-    say "Downloading borea-rataTUI from the latest release"
+    say "Downloading the ready-made borea-rataTUI (no compiling)"
     if [ "$DRY" -eq 1 ]; then
-        printf '    $ curl %s/%s (+ .sha256), check it, then: %s --install\n' "$RELEASES" "$name" "$name"
+        printf '    $ curl %s/%s (or %s/%s) + .sha256, check it, then: %s --install\n' "$RELEASES" "$name" "$PAGES" "$name" "$name"
         return 0
     fi
     tmp="$(mktemp -d)"
-    if ! curl -fsL "$RELEASES/$name.sha256" -o "$tmp/$name.sha256"; then
+    for base in "$RELEASES" "$PAGES"; do
+        if curl -fsL "$base/$name.sha256" -o "$tmp/$name.sha256"; then
+            source="$base"
+            break
+        fi
+    done
+    if [ -z "$source" ]; then
         rm -rf "$tmp"
-        warn "no ready-made borea-rataTUI has been published yet"
+        warn "no ready-made borea-rataTUI could be downloaded"
         return 1
     fi
-    curl -fL --progress-bar "$RELEASES/$name" -o "$tmp/$name" || { rm -rf "$tmp"; die "the download failed; run this again to retry"; }
+    curl -fL --progress-bar "$source/$name" -o "$tmp/$name" || { rm -rf "$tmp"; die "the download failed; run this again to retry"; }
     (cd "$tmp" && sha256sum --quiet -c "$name.sha256") || { rm -rf "$tmp"; die "the download doesn't match its published SHA-256"; }
     chmod 755 "$tmp/$name"
     # It installs itself (borea-rataTUI and its older names) and its app launcher.
@@ -137,7 +146,7 @@ install_ready_made() {
 
 if [ "$FROM_SOURCE" -eq 0 ]; then
     install_ready_made && finish
-    die "the ready-made download is unavailable. Check your connection and the releases at $REPO_URL/releases, then retry.
+    die "the ready-made download is unavailable. Check your connection, then retry.
 No compiler or build packages were installed. Developers can explicitly choose --from-source."
 fi
 

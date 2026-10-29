@@ -8,7 +8,7 @@ borea-rataTUI is Borea's terminal app for making a bootable Borea Live USB stick
 curl -fsSL https://shaddick-dev.github.io/borea-live/install | sh
 ```
 
-It downloads the ready-made borea-rataTUI from the latest release, checks it, and starts it. The app then downloads the ready-made Borea Live image (checked against its published SHA-256, resumed if interrupted, kept for next time) and writes it to your stick. Preparation time depends on the download and USB speed. If a release is unavailable, setup reports the problem instead of installing compilers or building an ISO. A release containing both downloads must be published for this path to work.
+It downloads the ready-made borea-rataTUI (from the latest release, or the copy built from main when there is none), checks it, and starts it: seconds, nothing to compile. The app then downloads the ready-made Borea Live image (checked against its published SHA-256, resumed if interrupted, kept for next time) and writes it to your stick. Preparation time depends on the download and USB speed. If a release is unavailable, setup reports the problem instead of installing compilers or building an ISO. A release containing both downloads must be published for this path to work.
 
 - Next time, open **borea-rataTUI** from your app launcher or run `borea-rataTUI`. It only downloads again when a newer release is out.
 - Update the app itself with `borea-rataTUI --update`: it downloads the latest ready-made build in seconds, with nothing to compile.
