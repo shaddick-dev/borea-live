@@ -706,6 +706,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "borea-handoff"
+version = "0.1.0"
+dependencies = [
+ "borea-core",
+ "borea-disk",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "borea-hardware"
 version = "0.1.0"
 dependencies = [
