@@ -171,14 +171,26 @@ def main():
             if status != 0:
                 raise AssertionError(f"the hand-off failed (exit {status})")
             print("PASS: Borea verified Omarchy and loaded its installer", flush=True)
-            # After the kexec: Omarchy's kernel, then its live system.
+            # After the kexec: Omarchy's kernel, then its live system, which logs
+            # root in on the serial console by itself.
             console.expect(r"Linux version", 300)
             m = console.expect(
-                r"(Reached target .*(Multi-User System|Graphical Interface))|"
+                r"(archiso login:)|"
                 r"(ERROR: .*did not show up|Kernel panic|emergency mode|Failed to mount)", args.timeout)
             if not m.group(1):
                 raise AssertionError(f"Omarchy's installer did not start: {m.group(0)}")
-            print("PASS: Omarchy's installer system started from the Borea stick", flush=True)
+            console.expect(r"[#$%] ", 120)
+            # Omarchy's installer is there, and its system came from the ISO file on
+            # the Borea stick's data partition (archiso's loop boot).
+            if console.run("test -x /root/configurator", 60) != 0:
+                raise AssertionError("Omarchy's installer (configurator) is missing")
+            if console.run("findmnt -n -o SOURCE,FSTYPE /run/archiso/img_dev | grep -q ext4", 60) != 0:
+                raise AssertionError("Omarchy did not boot from the ISO file on the Borea stick")
+            if args.layout == "alongside" and console.run(
+                    "parted -ms /dev/vda unit GiB print free | grep -q ':free;'", 60) != 0:
+                raise AssertionError("Omarchy sees no free space beside Windows")
+            print("PASS: Omarchy's installer system started from the ISO on the Borea stick",
+                  flush=True)
         finally:
             if console:
                 console.close()
