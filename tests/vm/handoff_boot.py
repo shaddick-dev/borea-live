@@ -162,6 +162,9 @@ def main():
             console.expect(r"login:", 600)
             console.send("root")
             console.expect(r"[#$] ", 60)
+            # The GUI runs as the live `borea` user: it must reach the service too.
+            if console.run("runuser -u borea -- borea-cli events >/dev/null", 60) != 0:
+                raise AssertionError("the live user (the GUI's) cannot reach borea-installd")
             if console.run(f"{handoff} > /tmp/review.json", 300) != 0:
                 raise AssertionError("handoff review failed")
             console.run("cat /tmp/review.json", 30)
