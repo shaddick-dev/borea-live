@@ -37,6 +37,28 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf
           python3 tests/vm/compose_boot.py target/live/out/borea-live-compose.iso
+      - name: As a stick with its data partition, it still boots to the installer
+        # borea-rataTUI adds partition 4 after writing (crates/borea-flash/src/datapart.rs,
+        # unit-tested there). Here the same layout, made with sfdisk on a
+        # disposable image file, must still boot to the installer.
+        shell: bash
+        run: |
+          set -euo pipefail
+          iso=target/live/out/borea-live-compose.iso
+          stick=target/vm/stick.img
+          mkdir -p target/vm
+          cp --sparse=always "$iso" "$stick"
+          truncate -s 3000000000 "$stick"
+          start=$(( ( $(stat -c %s "$iso") + 1048575 ) / 1048576 * 2048 ))
+          echo "start=$start, type=83" | sfdisk --append --no-reread --wipe never "$stick"
+          size=$(( (3000000000 / 1048576 * 2048 - start) * 512 ))
+          mkfs.ext4 -q -F -L BOREA_DATA -E offset=$((start * 512)) "$stick" "$((size / 1024))k"
+          sfdisk -d "$stick" | sed 's/^/::notice::stick table: /'
+          [ "$(blkid -p -O $((start * 512)) -s LABEL -o value "$stick")" = BOREA_DATA ]
+          if ! python3 tests/vm/compose_boot.py "$stick"; then
+            tail -15 target/vm/compose-smoke/boot.log | tr -d '\r' | sed 's/^/::error::stick boot: /'
+            exit 1
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: borea-live-compose-x86_64

@@ -103,6 +103,49 @@ pub fn open(name: &str) -> Result<File, FlashError> {
     Ok(File::from(std::os::fd::OwnedFd::from(fd)))
 }
 
+/// Format partition `part` (e.g. `sdb4`) as ext4 with `label`. The kernel and
+/// UDisks learn of a new partition shortly after the stick is closed, so this
+/// waits for it, up to `wait`.
+pub fn format_ext4(part: &str, label: &str, wait: std::time::Duration) -> Result<(), FlashError> {
+    if is_root() {
+        let dev = format!("/dev/{part}");
+        let until = std::time::Instant::now() + wait;
+        while !std::path::Path::new(&dev).exists() {
+            if std::time::Instant::now() > until {
+                return Err(FlashError::Access(format!("{dev} did not appear")));
+            }
+            let _ = std::process::Command::new("udevadm").arg("settle").status();
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        let status = std::process::Command::new("mkfs.ext4")
+            .args(["-q", "-F", "-L", label, &dev])
+            .status()
+            .map_err(|e| FlashError::Access(format!("mkfs.ext4: {e}")))?;
+        return status
+            .success()
+            .then_some(())
+            .ok_or_else(|| FlashError::Access(format!("mkfs.ext4 {dev} failed ({status})")));
+    }
+    let bus = udisks()?;
+    let until = std::time::Instant::now() + wait;
+    let block = loop {
+        let block = proxy(&bus, &block_path(part), BLOCK)?;
+        // A property read fails until UDisks has seen the partition.
+        if block.get_property::<String>("Device").is_ok() {
+            break block;
+        }
+        if std::time::Instant::now() > until {
+            return Err(FlashError::Access(format!("{part} did not appear")));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    };
+    let mut options = prompt_options();
+    options.insert("label", Value::from(label));
+    options.insert("update-partition-type", Value::from(false));
+    call_allowing_prompt::<_, ()>(&block, "Format", &("ext4", options))
+        .map_err(|e| refused(&format!("Formatting {part}"), e))
+}
+
 /// Unmount every mounted filesystem on the disk.
 pub fn unmount(disk: &Disk) -> Result<(), FlashError> {
     let bus = udisks()?;

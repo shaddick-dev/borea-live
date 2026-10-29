@@ -62,6 +62,10 @@ cargo run -p borea-flash --bin borea-rataTUI
 3. Select a USB drive. **r** rescans; **u** unmounts a mounted candidate.
 4. Type the selected device name to confirm erasing it.
 5. Write the image raw to the whole drive, flush it, then read every byte back.
+   Then the rest of the stick becomes an ext4 partition labelled `BOREA_DATA`
+   (MBR entry 4; the image is untouched). Borea Live keeps what it downloads to
+   hand over to other installers there, such as Omarchy's. A stick with less than
+   1 GiB to spare still boots; it just can't hand off.
 6. **e** ejects the verified drive when supported.
 
 The raw copy is equivalent to `dd`; it does not copy the ISO as a file into a
