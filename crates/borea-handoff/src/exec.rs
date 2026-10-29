@@ -226,6 +226,11 @@ fn download(
         }
         file.write_all(&buffer[..n]).map_err(io("the stick"))?;
         done += n as u64;
+        // A USB stick writes far slower than a fast line downloads: without this,
+        // gigabytes wait in memory and the bar sits at 100% while they are written.
+        if done % (64 << 20) < n as u64 {
+            file.sync_data().map_err(io("the stick"))?;
+        }
         if let Some(total) = total.filter(|t| *t > 0) {
             note(Note::Fraction(done as f32 / total as f32));
         }
