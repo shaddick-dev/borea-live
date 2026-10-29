@@ -94,9 +94,24 @@ if [[ -f $lib/multilib ]]; then
     esac
   done
 fi
+# A first start may come before the system's own keyring set-up has run.
+if ! pacman-key --list-keys >/dev/null 2>&1; then
+  echo "borea-extras: setting up pacman's keyring"
+  pacman-key --init && pacman-key --populate
+fi
 echo "borea-extras: adding ${packages[*]}"
-# A full sync with the upgrade, as Arch requires: never a partial upgrade.
-if pacman -Syu --noconfirm --needed "${packages[@]}"; then
+# A full sync with the upgrade, as Arch requires: never a partial upgrade. A
+# mirror that is briefly unreachable gets two more tries.
+added=1
+for attempt in 1 2 3; do
+  if pacman -Syu --noconfirm --needed "${packages[@]}"; then
+    added=0
+    break
+  fi
+  echo "borea-extras: attempt $attempt did not succeed"
+  sleep 30
+done
+if ((added == 0)); then
   echo "borea-extras: done"
   systemctl disable borea-extras.service
   rm -f /etc/systemd/system/borea-extras.service
@@ -107,6 +122,8 @@ if pacman -Syu --noconfirm --needed "${packages[@]}"; then
   exit 0
 fi
 echo "borea-extras: could not add them now; trying again at the next start"
+# The VM test's system powers off either way, so the test can read why.
+[[ -f $lib/poweroff-when-done ]] && systemctl poweroff --no-block
 exit 1
 "#;
 

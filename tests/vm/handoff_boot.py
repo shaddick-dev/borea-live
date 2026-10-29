@@ -216,7 +216,9 @@ def diagnose(work, disk):
             ["sudo", "journalctl", f"--directory={logs}/journal", "--no-pager", "-o", "cat",
              "-u", "borea-extras.service"], capture_output=True, text=True).stdout
         (work / "installed-borea-extras.log").write_text(journal)
-        tail = [l for l in journal.splitlines() if l.strip()][-5:]
+        lines = [l for l in journal.splitlines() if l.strip()]
+        errors = [l for l in lines if re.search(r"error|fail|warning|unable|could not", l, re.I)]
+        tail = (errors[-6:] if errors else []) + lines[-3:]
         return f"staged files: {staged or 'none'}; service log: {' | '.join(tail) or 'empty'}"
     except Exception as error:  # a diagnosis never hides the original failure
         return f"(could not read the installed disk: {error})"
@@ -243,8 +245,10 @@ def check_extras(disk, work, packages):
         missing = [p for p in packages if not any(re.fullmatch(rf"{re.escape(p)}-[^-]+-[^-]+", d)
                                                   for d in local)]
         if missing:
-            raise AssertionError(f"not installed on first start: {missing}; "
-                                 f"service log: {journal.strip().splitlines()[-3:]}")
+            lines = [l for l in journal.splitlines() if l.strip()]
+            errors = [l for l in lines if re.search(r"error|fail|unable|could not", l, re.I)]
+            raise AssertionError(f"not installed on first start: {missing}; service log: "
+                                 + " | ".join(errors[-6:] + lines[-2:]))
         leftovers = [f for f in ["usr/local/lib/borea/extras",
                                  "etc/systemd/system/borea-extras.service"]
                      if subprocess.run(["sudo", "test", "-e", f"{root}/{f}"]).returncode == 0]
