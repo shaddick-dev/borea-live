@@ -158,7 +158,7 @@ pub fn files(extras: &[&Extra], poweroff: bool) -> Vec<(&'static str, String)> {
         }
     }
     let mut out = vec![
-        ("packages", packages.iter().map(|p| format!("{p}\n")).collect()),
+        ("packages", packages.join("\n") + "\n"),
         ("stage.sh", STAGE.to_owned()),
         ("install.sh", INSTALL.to_owned()),
         ("borea-extras.service", SERVICE.to_owned()),
