@@ -333,6 +333,8 @@ fn load(up: &Upstream, data: &str) -> Result<(), Hint> {
         std::io::copy(&mut file, &mut joined).map_err(io("the initramfs"))?;
     }
     joined.sync_all().map_err(io("the initramfs"))?;
+    // kexec_file_load refuses a file still open for writing ("Text file busy").
+    drop(joined);
     let kernel = Path::new(ISO).join(spec.kernel.trim_start_matches('/'));
     run(
         "/usr/sbin/kexec",

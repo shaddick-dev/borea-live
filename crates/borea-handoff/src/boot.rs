@@ -218,6 +218,23 @@ mod tests {
         assert!(!spec.kernel.contains("t2"));
     }
 
+    /// The loopback.cfg inside the pinned Omarchy 4.0.6 ISO: one live kernel
+    /// (linux-t2) for every machine. The VM test hands off with exactly this.
+    #[test]
+    fn boots_the_pinned_4_0_6_release() {
+        let config = include_str!("../tests/omarchy-4.0.6-loopback.cfg")
+            .replace("%INSTALL_DIR%", "arch")
+            .replace("%ARCH%", "x86_64");
+        let spec = boot_spec(&config, "archlinux", &ISO).unwrap();
+        assert_eq!(spec.kernel, "/arch/boot/x86_64/vmlinuz-linux-t2");
+        assert_eq!(spec.initrds, ["/arch/boot/x86_64/initramfs-linux-t2.img"]);
+        assert_eq!(
+            spec.cmdline,
+            "archisobasedir=arch img_dev=UUID=0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0 \
+             img_loop=/borea/omarchy-4.0.6.iso quiet splash xe.enable_panel_replay=0 initramfs_async=0"
+        );
+    }
+
     #[test]
     fn refuses_entries_it_cannot_trust() {
         let config = omarchy();
