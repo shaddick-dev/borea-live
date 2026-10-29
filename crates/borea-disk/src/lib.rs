@@ -2,7 +2,7 @@
 //! Read-only device discovery and pure UEFI partition layout calculation.
 mod journal;
 mod ntfs;
-use borea_core::{DiskId, DiskPlan, Distribution as Distro, GIB, Hint, PartId, hint};
+use borea_core::{DiskId, DiskPlan, Distribution as Distro, GIB, Hint, hint};
 use serde::{Deserialize, Serialize};
 use std::{
     fs::File,
@@ -269,14 +269,6 @@ pub fn validate<'a>(
     facts: &'a DiskFacts,
     desktop: bool,
 ) -> Result<&'a Disk, Hint> {
-    validate_for(choice, facts, if desktop { 40 * GIB } else { 25 * GIB })
-}
-/// [`validate`] with the space the system being installed needs.
-pub fn validate_for<'a>(
-    choice: &DiskPlan,
-    facts: &'a DiskFacts,
-    min: u64,
-) -> Result<&'a Disk, Hint> {
     if !facts.uefi {
         return Err(hint("disk", "Boot the live ISO in UEFI mode before installing."));
     }
@@ -297,6 +289,7 @@ pub fn validate_for<'a>(
             "This disk has no stable serial number; installation cannot be approved safely.",
         ));
     }
+    let min = if desktop { 40 * GIB } else { 25 * GIB };
     let available = match choice {
         DiskPlan::Whole { .. } => id.size,
         DiskPlan::Alongside { linux_size, .. } => *linux_size,
@@ -306,82 +299,6 @@ pub fn validate_for<'a>(
     }
     Ok(d)
 }
-/// The Windows partition `windows_part` of `d`, shrunk by `linux_size` (to a
-/// whole MiB), refusing anything that could lose Windows data: BitLocker, an
-/// unchecked, hibernated (Fast Startup) or dirty NTFS, or less than 30 GiB left
-/// free for Windows.
-fn shrink_windows<'a>(
-    d: &'a Disk,
-    windows_part: &PartId,
-    linux_size: u64,
-) -> Result<(&'a Partition, Change), Hint> {
-    let win = d
-        .parts
-        .iter()
-        .find(|p| {
-            p.path == windows_part.path
-                && p.uuid == windows_part.uuid
-                && p.number == windows_part.number
-        })
-        .ok_or_else(|| hint("disk", "The Windows partition has changed."))?;
-    if win.bitlocker {
-        return Err(hint("disk", "Turn off BitLocker in Windows before resizing this partition."));
-    }
-    if win.fs != "ntfs" || !win.ntfs_checked || win.ntfs_hibernated || win.ntfs_dirty {
-        return Err(hint(
-            "disk",
-            "Shut down Windows fully, disable Fast Startup and check its NTFS filesystem before continuing.",
-        ));
-    }
-    let minimum = win
-        .ntfs_min_size
-        .ok_or_else(|| hint("disk", "Windows free space could not be verified."))?;
-    let new_size = win.size.checked_sub(linux_size).ok_or_else(|| {
-        hint("disk", "The requested Linux space is larger than the Windows partition.")
-    })? / (1024 * 1024)
-        * (1024 * 1024);
-    if new_size < minimum.saturating_add(30 * GIB) {
-        return Err(hint("disk", "Leave at least 30 GiB free for Windows."));
-    }
-    let end_sector = (win.start + new_size) / d.id.logical_sector - 1;
-    Ok((
-        win,
-        Change::ResizeNtfs { path: win.path.clone(), new_size, number: win.number, end_sector },
-    ))
-}
-
-/// For handing off to another distribution's installer: what Borea changes
-/// before it starts. A whole-disk install changes nothing here (the installer
-/// wipes the disk after its own confirmation); alongside shrinks Windows with
-/// the same checks as a native install, leaving that much free space after it.
-pub fn make_space(choice: &DiskPlan, facts: &DiskFacts, minimum: u64) -> Result<Vec<Change>, Hint> {
-    let d = validate_for(choice, facts, minimum)?;
-    match choice {
-        DiskPlan::Whole { .. } => Ok(Vec::new()),
-        DiskPlan::Alongside { windows_part, linux_size, .. } => {
-            if ![512, 4096].contains(&d.id.logical_sector) {
-                return Err(hint("disk", "Unsupported logical sector size."));
-            }
-            let (win, shrink) = shrink_windows(d, windows_part, *linux_size)?;
-            // The space must really be free: nothing may follow Windows inside it.
-            let Change::ResizeNtfs { new_size, .. } = &shrink else {
-                return Err(hint("disk", "Unexpected Windows resize."));
-            };
-            let (from, to) = (win.start + new_size, win.start + win.size);
-            if d.parts
-                .iter()
-                .any(|p| p.number != win.number && p.start < to && from < p.start + p.size)
-            {
-                return Err(hint(
-                    "disk",
-                    "Another partition overlaps the space Windows would give up.",
-                ));
-            }
-            Ok(vec![shrink])
-        }
-    }
-}
-
 pub fn layout(
     choice: &DiskPlan,
     facts: &DiskFacts,
@@ -416,10 +333,37 @@ pub fn layout(
             path
         }
         DiskPlan::Alongside { windows_part, linux_size, .. } => {
-            let (win, shrink) = shrink_windows(d, windows_part, *linux_size)?;
-            let Change::ResizeNtfs { new_size, .. } = shrink else {
-                return Err(hint("disk", "Unexpected Windows resize."));
-            };
+            let win = d
+                .parts
+                .iter()
+                .find(|p| {
+                    p.path == windows_part.path
+                        && p.uuid == windows_part.uuid
+                        && p.number == windows_part.number
+                })
+                .ok_or_else(|| hint("disk", "The Windows partition has changed."))?;
+            if win.bitlocker {
+                return Err(hint(
+                    "disk",
+                    "Turn off BitLocker in Windows before resizing this partition.",
+                ));
+            }
+            if win.fs != "ntfs" || !win.ntfs_checked || win.ntfs_hibernated || win.ntfs_dirty {
+                return Err(hint(
+                    "disk",
+                    "Shut down Windows fully, disable Fast Startup and check its NTFS filesystem before continuing.",
+                ));
+            }
+            let minimum = win
+                .ntfs_min_size
+                .ok_or_else(|| hint("disk", "Windows free space could not be verified."))?;
+            let new_size = win.size.checked_sub(*linux_size).ok_or_else(|| {
+                hint("disk", "The requested Linux space is larger than the Windows partition.")
+            })? / (1024 * 1024)
+                * (1024 * 1024);
+            if new_size < minimum.saturating_add(30 * GIB) {
+                return Err(hint("disk", "Leave at least 30 GiB free for Windows."));
+            }
             let esp = d.parts.iter().find(|p| p.efi).ok_or_else(|| {
                 hint(
                     "disk",
@@ -439,7 +383,13 @@ pub fn layout(
             esp_number = esp.number;
             next = d.parts.iter().map(|p| p.number).max().unwrap_or(0) + 1;
             start = (win.start + new_size).div_ceil(1024 * 1024) * (1024 * 1024 / sector);
-            changes.push(shrink);
+            let end = (win.start + new_size) / sector - 1;
+            changes.push(Change::ResizeNtfs {
+                path: win.path.clone(),
+                new_size,
+                number: win.number,
+                end_sector: end,
+            });
             esp.path.clone()
         }
     };
