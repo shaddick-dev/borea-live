@@ -11,8 +11,8 @@
 //!    `systemd.wants=` starts. It waits for the installer to finish, then copies
 //!    a first-start service into the installed system.
 //! 3. On the installed system's first start, that service installs the packages
-//!    the distribution's own way (on Omarchy: `omarchy-pkg-add`, never a direct
-//!    `pacman -Syu`, which Omarchy guards against; on Arch: a full sync), and
+//!    the distribution's own way (on Omarchy: sync and upgrade as `omarchy
+//!    update` does, then `omarchy-pkg-add`; on Arch: one full sync), and
 //!    removes itself. Offline or failed, it tries again next start.
 
 use crate::upstream::Extra;
@@ -83,10 +83,14 @@ if ! pacman-key --list-keys >/dev/null 2>&1; then
   pacman-key --init && pacman-key --populate
 fi
 if command -v omarchy-pkg-add >/dev/null; then
-  # Omarchy's own way: omarchy-pkg-add installs packages (system upgrades
-  # belong to `omarchy update`, and its pacman guard refuses a direct -Syu).
-  # Multilib is already on, and Omarchy picks the 32-bit drivers for Gaming.
+  # Omarchy's own way. Its pacman guard refuses a direct `pacman -Syu`; the
+  # sync and upgrade run exactly as `omarchy update` runs them (an installed
+  # system's databases are still the installer's offline ones, so a sync comes
+  # first, and with the upgrade: never a partial upgrade). Then, for Gaming,
+  # Omarchy's own 32-bit drivers for this machine, then the packages.
   add() {
+    env LC_ALL=C OMARCHY_UPDATE_PACMAN=1 pacman -Syu --noconfirm \
+      --overwrite '/usr/share/omarchy/*' || return 1
     if [[ -f $lib/multilib ]] && command -v omarchy-install-gaming-gpu-lib32 >/dev/null; then
       omarchy-install-gaming-gpu-lib32 || return 1
     fi
