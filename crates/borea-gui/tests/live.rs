@@ -551,7 +551,7 @@ fn omarchy_hands_off_to_its_own_installer_as_chosen() {
     press(&mut h, "Next");
     press(&mut h, "Arch family");
     assert!(
-        h.query_by_label_contains("Official installer, started by Borea").is_some(),
+        h.query_by_label_contains("Official installer, via Borea").is_some(),
         "Omarchy is not shown as planned"
     );
     press(&mut h, "Omarchy");
