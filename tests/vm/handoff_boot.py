@@ -201,6 +201,30 @@ def cidata(work):
     return image
 
 
+def diagnose(work, disk):
+    """What the installed disk says about Borea's extras, in one line."""
+    dev = loop(disk)
+    root = Path(tempfile.mkdtemp(prefix="diag-", dir=work))
+    logs = Path(tempfile.mkdtemp(prefix="diag-log-", dir=work))
+    try:
+        sh("sudo", "udevadm", "settle")
+        sh("sudo", "mount", "-o", "ro,subvol=@", f"{dev}p2", root)
+        sh("sudo", "mount", "-o", "ro,subvol=@log", f"{dev}p2", logs)
+        staged = subprocess.run(["sudo", "ls", f"{root}/usr/local/lib/borea/extras"],
+                                capture_output=True, text=True).stdout.split()
+        journal = subprocess.run(
+            ["sudo", "journalctl", f"--directory={logs}/journal", "--no-pager", "-o", "cat",
+             "-u", "borea-extras.service"], capture_output=True, text=True).stdout
+        (work / "installed-borea-extras.log").write_text(journal)
+        tail = [l for l in journal.splitlines() if l.strip()][-5:]
+        return f"staged files: {staged or 'none'}; service log: {' | '.join(tail) or 'empty'}"
+    except Exception as error:  # a diagnosis never hides the original failure
+        return f"(could not read the installed disk: {error})"
+    finally:
+        subprocess.run(["sudo", "umount", root, logs], capture_output=True)
+        subprocess.run(["sudo", "losetup", "--detach", dev], capture_output=True)
+
+
 def check_extras(disk, work, packages):
     """The installed system has the extras, and Borea's first-start service is gone."""
     dev = loop(disk)
@@ -257,6 +281,7 @@ def main():
     if args.plain_stick:
         args.timeout = max(args.timeout, 2700)
     disk, windows = target(work, args.layout)
+    args.work_dir, args.disk = str(work), disk
     firmware = Path("/usr/share/OVMF")
     shutil.copyfile(firmware / "OVMF_VARS_4M.fd", work / "vars.fd")
     command = [
@@ -367,12 +392,20 @@ def install_and_first_start(console, vm, args):
     """Omarchy's unattended install runs on tty1 and restarts by itself into the
     installed system, whose first start must add the extras and power off. The
     disk is checked afterwards (check_extras); here, wait for the power-off."""
-    # Keep reading the serial console meanwhile: its log shows how far it got.
+    # Keep reading the serial console meanwhile: its log shows how far it got,
+    # and Borea's service writes its lines there too.
     deadline = time.monotonic() + args.timeout * 3
     while vm.poll() is None:
-        if time.monotonic() > deadline:
-            raise AssertionError("the installed system did not power off: Omarchy's install, "
-                                 "its first start or Borea's extras service did not finish")
+        gave_up = "borea-extras: could not add" in console.buf
+        if gave_up or time.monotonic() > deadline:
+            vm.terminate()
+            vm.wait(timeout=30)
+            lines = [l for l in console.buf.splitlines() if "borea-extras" in l][-6:]
+            raise AssertionError(
+                ("Borea's extras service gave up" if gave_up else
+                 "the installed system did not power off") + ": "
+                + " | ".join(lines or ["no borea-extras output on the console"])
+                + " || " + diagnose(Path(args.work_dir), args.disk))
         try:
             console.read()
             console.buf = console.buf[-20000:]

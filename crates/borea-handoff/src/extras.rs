@@ -120,6 +120,7 @@ ConditionPathExists=/usr/local/lib/borea/extras/packages
 [Service]
 Type=oneshot
 ExecStart=/usr/local/lib/borea/extras/install.sh
+StandardOutput=journal+console
 Nice=10
 TimeoutStartSec=3h
 
