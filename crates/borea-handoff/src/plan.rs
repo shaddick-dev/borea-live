@@ -60,7 +60,13 @@ pub fn review(h: &Handoff, facts: &DiskFacts) -> Result<Review, Hint> {
     }
     let changes = borea_disk::make_space(&h.disk, facts, up.minimum)?;
     let id = h.disk.disk();
-    let disk = format!("{} · {} · {}", id.model, id.path.display(), gib(id.size));
+    // Some disks report no model; the device name still identifies them.
+    let model = if id.model.trim().is_empty() {
+        id.path.display().to_string()
+    } else {
+        id.model.trim().to_owned()
+    };
+    let disk = format!("{model} · {} · {}", id.path.display(), gib(id.size));
     let mut steps = vec![
         format!("Download {} {} to the Borea stick: {}", up.name, up.version, up.iso_url()),
         format!(
@@ -73,7 +79,7 @@ pub fn review(h: &Handoff, facts: &DiskFacts) -> Result<Review, Hint> {
             steps.push(format!("Leave {disk} unchanged until {}'s installer erases it", up.name));
             format!(
                 "In {}'s installer, choose {} and a full-disk install. It erases the disk after its own confirmation.",
-                up.name, id.model
+                up.name, model
             )
         }
         DiskPlan::Alongside { linux_size, .. } => {
@@ -84,7 +90,7 @@ pub fn review(h: &Handoff, facts: &DiskFacts) -> Result<Review, Hint> {
             format!(
                 "In {}'s installer, choose {} and \"Free space install\". It installs only into the {} Borea freed, beside Windows.",
                 up.name,
-                id.model,
+                model,
                 gib(*linux_size)
             )
         }
@@ -186,6 +192,22 @@ mod tests {
         assert_eq!(*new_size, 340 * GIB);
         assert!(r.choose.contains("Free space install") && r.choose.contains("60 GiB"));
         assert!(review(&alongside(20 * GIB), &facts()).is_err(), "below Omarchy's 32 GiB");
+    }
+
+    #[test]
+    fn a_disk_without_a_model_is_named_by_its_device() {
+        let mut nameless = id();
+        nameless.model = String::new();
+        let mut f = facts();
+        f.disks[0].id = nameless.clone();
+        let h = Handoff {
+            version: 1,
+            target: "omarchy".into(),
+            disk: DiskPlan::Whole { disk: nameless },
+        };
+        let r = review(&h, &f).unwrap();
+        assert!(r.disk.starts_with("/dev/nvme0n1 · "), "{}", r.disk);
+        assert!(r.choose.contains("choose /dev/nvme0n1 and"), "{}", r.choose);
     }
 
     #[test]

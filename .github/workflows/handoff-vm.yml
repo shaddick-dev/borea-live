@@ -1,0 +1,106 @@
+name: Hand-off to Omarchy in a VM
+# Borea Live as a hub, end to end: boot a Borea stick (composed ISO plus its
+# BOREA_DATA partition) in a disposable UEFI VM, run `borea-cli handoff omarchy`
+# for a whole disk and alongside a synthetic Windows, and require Omarchy's own
+# installer system to start. Alongside must also leave Windows shrunk by
+# exactly the requested size, consistent, with its data intact.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - crates/borea-handoff/**
+      - crates/borea-disk/**
+      - crates/borea-installd/**
+      - crates/borea-cli/**
+      - crates/borea-build/**
+      - live/**
+      - tests/vm/**
+      - .github/workflows/handoff-vm.yml
+  push:
+    branches: [main]
+    paths:
+      - crates/borea-handoff/**
+      - crates/borea-disk/**
+      - crates/borea-installd/**
+      - crates/borea-cli/**
+      - crates/borea-build/**
+      - live/**
+      - tests/vm/**
+      - .github/workflows/handoff-vm.yml
+permissions:
+  contents: read
+env:
+  OMARCHY_ISO: omarchy-4.0.6.iso
+jobs:
+  compose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: '4'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v4
+        with:
+          path: target/live/compose
+          key: compose-rust-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: compose-rust-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+      - name: Compose Borea Live
+        run: cargo run --locked --profile app -p borea-build -- compose
+      - uses: actions/upload-artifact@v4
+        with:
+          name: borea-live-handoff-test
+          path: target/live/out/borea-live-compose.iso
+          compression-level: 0
+          retention-days: 2
+
+  handoff:
+    needs: compose
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        layout: [whole, alongside]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make room and enable KVM
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+          sudo mkdir -p /mnt/handoff && sudo chown "$USER" /mnt/handoff
+          df -h / /mnt
+      - name: Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf ntfs-3g dosfstools e2fsprogs gpgv
+      - uses: actions/download-artifact@v4
+        with:
+          name: borea-live-handoff-test
+          path: /mnt/handoff/borea
+      - name: Omarchy's ISO, checked as Borea checks it
+        working-directory: /mnt/handoff
+        run: |
+          mkdir -p omarchy && cd omarchy
+          for f in "$OMARCHY_ISO" "$OMARCHY_ISO.sha256" "$OMARCHY_ISO.sig"; do
+            curl -fsSL --retry 3 -o "$f" "https://iso.omarchy.org/$f"
+          done
+          ls -l
+          [ "$(cut -d' ' -f1 "$OMARCHY_ISO.sha256")" = "$(sha256sum "$OMARCHY_ISO" | cut -d' ' -f1)" ]
+          gpgv --keyring "$GITHUB_WORKSPACE/backend/dist/keys/omarchy.gpg" "$OMARCHY_ISO.sig" "$OMARCHY_ISO"
+      - name: Hand off (${{ matrix.layout }})
+        run: |
+          python3 tests/vm/handoff_boot.py /mnt/handoff/borea/borea-live-compose.iso /mnt/handoff/omarchy \
+            --layout "${{ matrix.layout }}" --work /mnt/handoff/work \
+            || { tr -d '\r' < /mnt/handoff/work/handoff-${{ matrix.layout }}/failure.txt \
+                   | head -9 | sed 's/^/::error::/'; exit 1; }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: handoff-${{ matrix.layout }}-logs
+          path: |
+            /mnt/handoff/work/handoff-${{ matrix.layout }}/*.log
+          retention-days: 7

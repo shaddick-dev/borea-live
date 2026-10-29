@@ -253,7 +253,12 @@ pub fn prepare(review: &Review, note: &mut dyn FnMut(Note<'_>)) -> Result<(), Hi
     let data_str = data.to_string_lossy().into_owned();
     fs::create_dir_all(DATA).map_err(io(DATA))?;
     if run("/usr/bin/findmnt", &["--noheadings", "--output", "TARGET", DATA]).is_err() {
-        run("/usr/bin/mount", &["-t", "ext4", "-o", "rw,nosuid,nodev,noexec", &data_str, DATA])?;
+        // Through a loop device: Borea Live holds its whole stick mounted, and
+        // the kernel refuses a second, exclusive claim on one of its partitions.
+        run(
+            "/usr/bin/mount",
+            &["-t", "ext4", "-o", "loop,rw,nosuid,nodev,noexec", &data_str, DATA],
+        )?;
     }
     let dir = Path::new(DATA).join(DIR);
     fs::create_dir_all(&dir).map_err(io("the stick"))?;
@@ -295,13 +300,30 @@ pub fn prepare(review: &Review, note: &mut dyn FnMut(Note<'_>)) -> Result<(), Hi
     Ok(())
 }
 
+/// The VM test boots Borea Live with `borea.handoff-console=ttyS0,115200` so it
+/// can watch the installer start on the serial console. Only Borea Live's own
+/// boot configuration sets this; a normal stick never does.
+pub fn test_console(cmdline: &str) -> Option<String> {
+    let value =
+        cmdline.split_whitespace().find_map(|a| a.strip_prefix("borea.handoff-console="))?;
+    value
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == ',')
+        .then(|| format!("console={value} loglevel=6 systemd.show_status=1"))
+}
+
 fn load(up: &Upstream, data: &str) -> Result<(), Hint> {
     let config = fs::read_to_string(Path::new(ISO).join(up.boot_config))
         .map_err(io("the installer's boot configuration"))?;
     let uuid = run("/usr/sbin/blkid", &["--match-tag", "UUID", "--output", "value", data])?;
     let path = format!("/{DIR}/{}", up.iso);
-    let spec = boot::boot_spec(&config, up.boot_entry, &IsoFile { uuid: &uuid, path: &path })
-        .map_err(|e| hint("handoff", format!("{}'s ISO can't be started: {e}", up.name)))?;
+    let mut spec =
+        boot::boot_spec(&config, up.boot_entry, &IsoFile { uuid: &uuid, path: &path })
+            .map_err(|e| hint("handoff", format!("{}'s ISO can't be started: {e}", up.name)))?;
+    if let Some(extra) = test_console(&fs::read_to_string("/proc/cmdline").unwrap_or_default()) {
+        spec.cmdline.push(' ');
+        spec.cmdline.push_str(&extra);
+    }
     // kexec takes one initramfs; several concatenate into one, as the kernel allows.
     let initrd = Path::new("/run/borea/handoff-initrd.img");
     let mut joined = File::create(initrd).map_err(io("the initramfs"))?;
@@ -311,6 +333,8 @@ fn load(up: &Upstream, data: &str) -> Result<(), Hint> {
         std::io::copy(&mut file, &mut joined).map_err(io("the initramfs"))?;
     }
     joined.sync_all().map_err(io("the initramfs"))?;
+    // kexec_file_load refuses a file still open for writing ("Text file busy").
+    drop(joined);
     let kernel = Path::new(ISO).join(spec.kernel.trim_start_matches('/'));
     run(
         "/usr/sbin/kexec",
@@ -329,6 +353,16 @@ fn load(up: &Upstream, data: &str) -> Result<(), Hint> {
 #[allow(clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_plain_test_console_is_passed_on() {
+        assert_eq!(
+            test_console("quiet borea.handoff-console=ttyS0,115200").as_deref(),
+            Some("console=ttyS0,115200 loglevel=6 systemd.show_status=1")
+        );
+        assert_eq!(test_console("quiet splash"), None);
+        assert_eq!(test_console("borea.handoff-console=ttyS0;init=/bin/sh"), None);
+    }
 
     #[test]
     fn only_a_valid_signature_by_the_pinned_key_counts() {
