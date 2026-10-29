@@ -33,6 +33,11 @@ use crate::widgets::{
 use crate::wifi::{WifiForm, WifiLink};
 use crate::wind;
 
+/// The distribution Borea Live hands off to its own installer.
+const HANDOFF_TARGET: &str = "omarchy";
+/// Nord's orange: warnings only.
+const WARN: egui::Color32 = egui::Color32::from_rgb(0xd0, 0x87, 0x70);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Step {
     Connect,
@@ -177,7 +182,7 @@ impl LiveInstaller {
         let dark = ctx.system_theme() != Some(egui::Theme::Light);
         let mut installer =
             Self::assemble(&ctx, Scan::Pending(rx), WifiLink::spawn(ctx.clone()), dark, false);
-        installer.handoff = HandoffLink::system("omarchy", ctx.clone());
+        installer.handoff = HandoffLink::system(HANDOFF_TARGET, ctx.clone());
         installer.firmware = FirmwareLink::system(ctx);
         installer
     }
@@ -237,7 +242,7 @@ impl LiveInstaller {
 
     /// Answer hand-off requests with `service` instead of borea-installd (tests).
     pub fn set_handoff_service(&mut self, service: handoff::Service) {
-        self.handoff = HandoffLink::with_service("omarchy", service);
+        self.handoff = HandoffLink::with_service(HANDOFF_TARGET, service);
     }
 
     pub fn handoff(&self) -> &HandoffLink {
@@ -572,8 +577,19 @@ impl LiveInstaller {
                     p.accent,
                 ));
                 ui.add_space(8.0);
-                ui.label(RichText::new(self.step.title()).family(theme::display()).size(32.0));
-                ui.label(caption(self.step.lead(), &p));
+                let (title, lead) = match (&self.step, &self.handoff.phase) {
+                    (Step::Review, Phase::Running { .. }) if self.handoff_target().is_some() => (
+                        "Getting Omarchy ready.",
+                        "Under way. Leave this computer alone until it restarts by itself.",
+                    ),
+                    (Step::Review, Phase::Finished { .. }) if self.handoff_target().is_some() => (
+                        "Restarting now.",
+                        "Omarchy's installer starts in a moment. Keep the Borea stick in.",
+                    ),
+                    _ => (self.step.title(), self.step.lead()),
+                };
+                ui.label(RichText::new(title).family(theme::display()).size(32.0));
+                ui.label(caption(lead, &p));
                 ui.add_space(26.0);
                 ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                     // Leave room for the scroll bar, and keep lines readable on wide screens.
@@ -900,8 +916,14 @@ impl LiveInstaller {
                                 .size(size::TINY)
                                 .color(p.accent),
                         );
-                        let status = capitalize(&d.status.to_string());
-                        ui.label(caption(format!("· {status} integration"), &p));
+                        // Hand-off targets install with their own installer, which
+                        // Borea verifies and starts; there is no integration to await.
+                        let status = if d.id.as_str() == HANDOFF_TARGET {
+                            "Official installer, started by Borea".to_owned()
+                        } else {
+                            format!("{} integration", capitalize(&d.status.to_string()))
+                        };
+                        ui.label(caption(format!("· {status}"), &p));
                     });
                 },
             );
@@ -1212,9 +1234,26 @@ impl LiveInstaller {
         let link = &self.handoff;
         ui.set_max_width(660.0);
         match &link.phase {
-            Phase::Running { stage, fraction, lines, choose } => {
+            Phase::Running { done, stage, fraction, lines, choose } => {
+                stay_put(
+                    ui,
+                    &p,
+                    "Don't restart this computer or remove the Borea stick.",
+                    "Borea restarts it into Omarchy's installer by itself when everything is ready.",
+                );
                 section(ui, &p, "Getting Omarchy ready");
-                ui.label(RichText::new(stage).size(size::BODY + 2.0));
+                for finished in done {
+                    ui.label(
+                        RichText::new(format!("{}  {finished}", icon::CHECK))
+                            .size(size::SMALL)
+                            .color(p.sub),
+                    );
+                }
+                ui.label(
+                    RichText::new(format!("{}  {stage}", icon::DOT))
+                        .size(size::BODY + 2.0)
+                        .strong(),
+                );
                 ui.add_space(8.0);
                 let bar =
                     egui::ProgressBar::new(fraction.unwrap_or(0.0)).animate(fraction.is_none());
@@ -1222,12 +1261,23 @@ impl LiveInstaller {
                 for line in lines {
                     ui.label(caption(line, &p));
                 }
+                ui.label(
+                    RichText::new(format!("{}  Restart into Omarchy's installer", icon::RING))
+                        .size(size::SMALL)
+                        .color(p.sub),
+                );
                 ui.add_space(12.0);
                 notice(ui, &p, &format!("Then: {choose}"));
                 return;
             }
             Phase::Finished { choose } => {
-                section(ui, &p, "Restarting into Omarchy's installer");
+                stay_put(
+                    ui,
+                    &p,
+                    "Restarting into Omarchy's installer. Don't touch anything.",
+                    "Keep the Borea stick in: Omarchy's installer runs from it. Take it out only when Omarchy has finished installing and asks you to restart.",
+                );
+                ui.add_space(8.0);
                 notice(ui, &p, choose);
                 ui.label(caption(
                     "The screen goes dark for a moment while Omarchy's installer starts.",
@@ -1366,6 +1416,13 @@ impl LiveInstaller {
                     });
                 ui.add_space(8.0);
                 notice(ui, &p, &format!("Then: {}", review.choose));
+                ui.add_space(8.0);
+                stay_put(
+                    ui,
+                    &p,
+                    "Once you begin, leave this computer alone.",
+                    "Don't restart it or remove the Borea stick. Borea restarts it into Omarchy's installer by itself, and Omarchy's installer runs from the stick.",
+                );
                 if matches!(link.pick, Some(Where::Alongside { .. })) {
                     ui.add_space(8.0);
                     let mut on = link.confirmed;
@@ -1478,6 +1535,26 @@ impl eframe::App for LiveInstaller {
 }
 
 // ── Pieces ──────────────────────────────────────────────────────────────────
+
+/// The one warning that must not be missed: an orange-edged panel, large type.
+fn stay_put(ui: &mut Ui, p: &Palette, title: &str, body: &str) {
+    Frame::new()
+        .fill(p.wash)
+        .stroke(Stroke::new(2.0, WARN))
+        .corner_radius(CornerRadius::same(RADIUS))
+        .inner_margin(Margin::same(16))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(
+                RichText::new(format!("{}  {title}", icon::ALERT))
+                    .size(size::BODY + 3.0)
+                    .strong()
+                    .color(p.ink),
+            );
+            ui.label(RichText::new(body).size(size::BODY).color(p.ink));
+        });
+    ui.add_space(10.0);
+}
 
 fn section(ui: &mut Ui, p: &Palette, title: &str) {
     ui.add_space(16.0);

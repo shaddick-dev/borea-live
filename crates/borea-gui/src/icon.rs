@@ -41,6 +41,7 @@ pub const PACKAGE: &str = "\u{f03d6}";
 
 // Marks.
 pub const CHECK: &str = "\u{f012c}";
+pub const ALERT: &str = "\u{f0026}";
 pub const CLOSE: &str = "\u{f0156}";
 pub const NEXT: &str = "\u{f19b0}";
 pub const BACK: &str = "\u{f19b1}";
@@ -111,8 +112,8 @@ pub fn plain(text: &str) -> String {
 pub const ALL: &[&str] = &[
     ARCH, CACHYOS, FEDORA, NOBARA, DEBIAN, OPENSUSE, TUMBLEWEED, TUX, HYPRLAND, FLATHUB, CPU, GPU,
     MEMORY, CHIP, DISK, MONITOR, LAPTOP, WIFI, WIFI_OFF, ETHERNET, SHIELD, BLUETOOTH, KEYBOARD,
-    WINDOW, DASHBOARD, CONSOLE, GAMEPAD, FILM, PRINTER, PACKAGE, CHECK, CLOSE, NEXT, BACK, OPEN,
-    CHEVRON, STAR, DOT, RING, THEME, WIND, ONE, TWO,
+    WINDOW, DASHBOARD, CONSOLE, GAMEPAD, FILM, PRINTER, PACKAGE, CHECK, ALERT, CLOSE, NEXT, BACK,
+    OPEN, CHEVRON, STAR, DOT, RING, THEME, WIND, ONE, TWO,
 ];
 
 #[cfg(test)]
