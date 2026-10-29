@@ -18,6 +18,8 @@ panic = "deny"
 [dependencies]
 borea-core.workspace = true
 borea-disk.workspace = true
+borea-http.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+ureq.workspace = true

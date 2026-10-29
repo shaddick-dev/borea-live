@@ -13,4 +13,6 @@
 //! against its published SHA-256 and the distribution's pinned signing key, and
 //! booted from that file with `kexec`, using the ISO's own loopback entry.
 pub mod boot;
+pub mod exec;
+pub mod plan;
 pub mod upstream;

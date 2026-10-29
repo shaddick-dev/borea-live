@@ -165,8 +165,10 @@ fn handing_off_changes_nothing_for_a_whole_disk_and_only_shrinks_windows_alongsi
     // No ESP is needed beside Windows: the other installer makes its own.
     let changes = make_space(&p.disk, &f, 20 * GIB).unwrap();
     assert_eq!(changes.len(), 1);
-    let Change::ResizeNtfs { number, new_size, .. } = &changes[0] else { panic!("{changes:?}") };
-    assert_eq!((*number, *new_size), (3, 45 * GIB));
+    assert!(
+        matches!(changes[0], Change::ResizeNtfs { number: 3, new_size, .. } if new_size == 45 * GIB),
+        "{changes:?}"
+    );
     assert!(make_space(&p.disk, &f, 50 * GIB).is_err(), "too little for the system");
 
     for flag in 0..4 {

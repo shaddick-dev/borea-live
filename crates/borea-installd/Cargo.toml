@@ -19,6 +19,7 @@ borea-core.workspace = true
 borea-locale.workspace = true
 borea-net.workspace = true
 borea-disk.workspace = true
+borea-handoff.workspace = true
 borea-job.workspace = true
 borea-exec.workspace = true
 borea-catalog.workspace = true

@@ -92,6 +92,17 @@ struct PlanParams {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct HandoffParams {
+    handoff: borea_handoff::plan::Handoff,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HandoffStart {
+    handoff: borea_handoff::plan::Handoff,
+    approval: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct StartParams {
     plan: Plan,
     secrets: Secrets,
@@ -415,6 +426,88 @@ impl Backend {
                     if let Ok(mut s) = state.lock() {
                         s.busy = false;
                         s.worker = None;
+                    }
+                });
+                Ok(json!({"job_id":id}))
+            }
+            method::HANDOFF_REVIEW => {
+                let p: HandoffParams = params(input)?;
+                let review = borea_handoff::plan::review(&p.handoff, &borea_disk::probe()?)?;
+                Ok(json!({"approval":review.digest()?,"review":review}))
+            }
+            method::HANDOFF_START => {
+                let p: HandoffStart = params(input)?;
+                // Reviewed again against the disk as it is now: a changed disk,
+                // plan or pinned release is a different approval.
+                let review = borea_handoff::plan::review(&p.handoff, &borea_disk::probe()?)?;
+                let id = review.digest()?;
+                if id != p.approval {
+                    return Err(fail("The hand-off changed after Review; review it again."));
+                }
+                {
+                    let mut state = self
+                        .state
+                        .lock()
+                        .map_err(|_| fail("The installation state is unavailable."))?;
+                    if state.busy {
+                        return Err(fail("An installation is already running."));
+                    }
+                    state.busy = true;
+                    state.event_base += state.events.len();
+                    state.events.clear();
+                    state.fault = None;
+                    state.worker = None;
+                    state.job_id = Some(id.clone());
+                }
+                let state = Arc::clone(&self.state);
+                thread::spawn(move || {
+                    let push = |event: Event| {
+                        if let Ok(mut s) = state.lock() {
+                            s.push(event);
+                        }
+                    };
+                    let mut stage = 0;
+                    let result = borea_handoff::exec::prepare(&review, &mut |note| match note {
+                        borea_handoff::exec::Note::Stage(title) => {
+                            push(Event::StageStarted { stage, title: title.into() });
+                            stage += 1;
+                        }
+                        borea_handoff::exec::Note::Line(text) => {
+                            push(Event::Line { stderr: false, text })
+                        }
+                        borea_handoff::exec::Note::Fraction(fraction) => {
+                            push(Event::Progress { fraction })
+                        }
+                    });
+                    match result {
+                        Ok(()) => {
+                            push(Event::Line { stderr: false, text: review.choose.clone() });
+                            push(Event::Finished);
+                            // Let clients show the instruction before the screen changes.
+                            thread::sleep(Duration::from_secs(5));
+                            if let Ok(mut s) = state.lock() {
+                                s.busy = false;
+                            }
+                            let _ = std::process::Command::new("/usr/bin/systemctl")
+                                .arg("kexec")
+                                .status();
+                        }
+                        Err(e) => {
+                            push(Event::Failed {
+                                fault: borea_exec::Fault {
+                                    action_id: "handoff".into(),
+                                    title: e.message,
+                                    command: "handoff".into(),
+                                    exit_code: None,
+                                    stderr_tail: Vec::new(),
+                                    suggestion: "Nothing was handed off. Fix the problem and review the hand-off again.".into(),
+                                    retryable: false,
+                                },
+                            });
+                            if let Ok(mut s) = state.lock() {
+                                s.busy = false;
+                            }
+                        }
                     }
                 });
                 Ok(json!({"job_id":id}))

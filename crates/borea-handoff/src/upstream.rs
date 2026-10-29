@@ -19,6 +19,8 @@ pub struct Upstream {
     pub boot_entry: &'static str,
     /// The installer can install into free space left beside another system.
     pub alongside: bool,
+    /// The least space its installer accepts, whole disk or alongside.
+    pub minimum: u64,
 }
 
 impl Upstream {
@@ -48,6 +50,8 @@ pub const OMARCHY: Upstream = Upstream {
     boot_config: "boot/grub/loopback.cfg",
     boot_entry: "archlinux",
     alongside: true,
+    // The configurator's MIN_INSTALL_B: its 2 GiB ESP plus the system.
+    minimum: 32 << 30,
 };
 
 pub const ALL: &[Upstream] = &[OMARCHY];
@@ -57,6 +61,7 @@ pub fn find(id: &str) -> Option<&'static Upstream> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
 

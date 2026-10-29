@@ -711,9 +711,11 @@ version = "0.1.0"
 dependencies = [
  "borea-core",
  "borea-disk",
+ "borea-http",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "ureq",
 ]
 
 [[package]]
@@ -757,6 +759,7 @@ dependencies = [
  "borea-core",
  "borea-disk",
  "borea-exec",
+ "borea-handoff",
  "borea-job",
  "borea-locale",
  "borea-net",

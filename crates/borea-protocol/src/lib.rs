@@ -44,6 +44,8 @@ pub mod method {
     pub const INSTALL_RETRY: &str = "install.retry";
     pub const INSTALL_LOG: &str = "install.log";
     pub const SYSTEM_REBOOT: &str = "system.reboot";
+    pub const HANDOFF_REVIEW: &str = "handoff.review";
+    pub const HANDOFF_START: &str = "handoff.start";
 }
 
 /// Result of `system.info`. Hardware-specific facts stay as JSON because their
@@ -153,7 +155,7 @@ mod tests {
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), count);
-        assert_eq!(count, 21);
+        assert_eq!(count, 23);
     }
 
     #[test]

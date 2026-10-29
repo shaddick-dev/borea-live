@@ -54,6 +54,14 @@ const SESSION_NEEDS: &[(&str, &str)] = &[
     ("usr/bin/mkfs.btrfs", "btrfs-progs: the root filesystem is Btrfs"),
     ("usr/bin/gpgv", "gpgv: native bootstrap archives are signature-checked before use"),
     (
+        "usr/sbin/kexec",
+        "kexec-tools: Borea Live could not start other installers (the hub hand-off)",
+    ),
+    (
+        "usr/share/keyrings/borea/omarchy.gpg",
+        "Omarchy's ISO signing key: the hand-off to Omarchy would refuse every ISO",
+    ),
+    (
         "usr/share/keyrings/borea/arch.gpg",
         "pinned signing keys: every bootstrap signature check would refuse",
     ),

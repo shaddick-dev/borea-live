@@ -427,7 +427,7 @@ pub fn root() -> Result {
     fs::set_permissions(root.join("usr/bin/borea-firstboot"), fs::Permissions::from_mode(0o755))
         .map_err(|e| e.to_string())?;
     overlay(&repo.join("live/buildroot/board/borea/rootfs-overlay"), root)?;
-    for key in ["arch", "fedora", "opensuse"] {
+    for key in ["arch", "fedora", "opensuse", "omarchy"] {
         copy(
             &repo.join(format!("backend/dist/keys/{key}.gpg")),
             &root.join(format!("usr/share/keyrings/borea/{key}.gpg")),

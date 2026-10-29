@@ -183,6 +183,7 @@ pub fn boot_spec(config: &str, entry: &str, iso: &IsoFile<'_>) -> Result<BootSpe
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic)]
 mod tests {
     use super::*;
 
