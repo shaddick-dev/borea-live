@@ -68,5 +68,7 @@ The **Compose and publish Borea Live** GitHub workflow exercises the normal path
 boots a disposable copy as a read-only UEFI USB device, requires native GUI frames,
 and uploads the ISO and checksum as a seven-day Actions artifact. On main, only an
 image that passed that boot is published, with the static borea-rataTUI, as the
-rolling `latest-main` release that borea-rataTUI and the setup download. No image
+latest release (`main-<date>-<commit>`, the newest three kept) that borea-rataTUI and
+the setup download. Releases are immutable, so each image is a new release: a draft
+that receives every file, then published. No image
 is published merely because its build succeeded.

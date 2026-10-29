@@ -64,7 +64,6 @@ jobs:
       cancel-in-progress: false
     env:
       GH_TOKEN: ${{ github.token }}
-      TAG: latest-main
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -94,8 +93,11 @@ jobs:
           [ "$(cut -d' ' -f1 borea-live-x86_64.iso.sha256)" = "$(cut -d' ' -f1 ../composed/borea-live-compose.iso.sha256)" ]
           ls -l
       - name: Publish as the latest release
+        # Releases here are immutable once published, so each image gets its own
+        # release: created as a draft, given every file, then published.
         run: |
           short=$(git rev-parse --short HEAD)
+          tag="main-$(date -u +%Y%m%d-%H%M)-$short"
           notes="Borea Live composed from main at $short and booted to the installer in a disposable UEFI VM before publishing ($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID).
 
           Install borea-rataTUI and write a USB stick:
@@ -103,13 +105,26 @@ jobs:
               curl -fsSL https://shaddick-dev.github.io/borea-live/install | sh
 
           The GUI is a preview; installs are not yet certified for every target."
-          # One rolling release, moved to this commit each time.
-          git tag -f "$TAG" && git push -f origin "refs/tags/$TAG"
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --title "Borea Live (main, $short)" --notes "$notes" --latest
+          gh release create "$tag" --draft --target "$GITHUB_SHA" \
+            --title "Borea Live (main, $short)" --notes "$notes" \
+            dist/borea-live-x86_64.iso dist/borea-live-x86_64.iso.sha256 \
+            dist/borea-rataTUI-x86_64-linux dist/borea-rataTUI-x86_64-linux.sha256
+          # Every file must be there before anyone can download it.
+          for f in borea-live-x86_64.iso borea-live-x86_64.iso.sha256 \
+                   borea-rataTUI-x86_64-linux borea-rataTUI-x86_64-linux.sha256; do
+            gh release view "$tag" --json assets --jq '.assets[].name' | grep -qx "$f" \
+              || { echo "$f did not upload" >&2; exit 1; }
+          done
+          gh release edit "$tag" --draft=false --latest
+          echo "Published $tag"
+      - name: Keep the three newest images
+        # Older rolling releases, and the empty one the first attempt left.
+        continue-on-error: true
+        run: |
+          gh release list --limit 100 --json tagName,isDraft --jq '.[] | select(.isDraft | not) | .tagName' \
+            | grep '^main-' | sort -r | tail -n +4 | while read -r old; do
+            gh release delete "$old" --yes
+          done
+          if gh release view latest-main --json assets --jq '.assets | length' 2>/dev/null | grep -qx 0; then
+            gh release delete latest-main --yes
           fi
-          # Images first, checksums last, so a download never pairs a new
-          # checksum with an old image for longer than one upload.
-          gh release upload "$TAG" dist/borea-live-x86_64.iso dist/borea-rataTUI-x86_64-linux --clobber
-          gh release upload "$TAG" dist/*.sha256 --clobber
-          gh release edit "$TAG" --title "Borea Live (main, $short)" --notes "$notes" --latest
