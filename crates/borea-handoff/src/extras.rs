@@ -25,29 +25,42 @@ pub const STAGE_UNIT: &str = "borea-extras-stage.service";
 /// first-start service into the installed system.
 pub const STAGE: &str = r#"#!/bin/bash
 # Borea: stage the chosen extras into the system Omarchy's installer installs.
+# Runs until the install finishes; with --now (the unit's ExecStop, as the live
+# system shuts down or restarts) it stages at once if the install is done, so a
+# restart straight after the install still carries the extras.
 set -uo pipefail
 src=$(dirname "$(readlink -f "$0")")
 state=/run/omarchy-install/state.json
-echo "borea-extras: waiting for the installer to finish"
-until [[ -f $state ]] && jq -e '.finished_at != null' "$state" >/dev/null 2>&1; do
-  sleep 2
-done
-target=$(jq -r '.target // "/mnt"' "$state")
-if [[ ! -d $target/etc/systemd/system ]]; then
-  echo "borea-extras: no installed system at $target; nothing staged"
-  exit 1
+done_flag=/run/borea-extras-staged
+finished() { [[ -f $state ]] && jq -e '.finished_at != null' "$state" >/dev/null 2>&1; }
+stage() {
+  [[ -e $done_flag ]] && return 0
+  local target lib
+  target=$(jq -r '.target // "/mnt"' "$state")
+  if [[ ! -d $target/etc/systemd/system ]]; then
+    echo "borea-extras: no installed system at $target; nothing staged"
+    return 1
+  fi
+  lib=$target/usr/local/lib/borea/extras
+  install -d -m 755 "$lib" "$target/etc/systemd/system/multi-user.target.wants"
+  install -m 644 "$src/packages" "$lib/packages"
+  for flag in multilib poweroff-when-done; do
+    [[ -f $src/$flag ]] && install -m 644 "$src/$flag" "$lib/$flag"
+  done
+  install -m 755 "$src/install.sh" "$lib/install.sh"
+  install -m 644 "$src/borea-extras.service" "$target/etc/systemd/system/borea-extras.service"
+  ln -sf ../borea-extras.service "$target/etc/systemd/system/multi-user.target.wants/borea-extras.service"
+  sync
+  touch "$done_flag"
+  echo "borea-extras: staged for the first start: $(tr '\n' ' ' <"$src/packages")"
+}
+if [[ ${1:-} == --now ]]; then
+  finished && stage
+  exit 0
 fi
-lib=$target/usr/local/lib/borea/extras
-install -d -m 755 "$lib" "$target/etc/systemd/system/multi-user.target.wants"
-install -m 644 "$src/packages" "$lib/packages"
-for flag in multilib poweroff-when-done; do
-  [[ -f $src/$flag ]] && install -m 644 "$src/$flag" "$lib/$flag"
-done
-install -m 755 "$src/install.sh" "$lib/install.sh"
-install -m 644 "$src/borea-extras.service" "$target/etc/systemd/system/borea-extras.service"
-ln -sf ../borea-extras.service "$target/etc/systemd/system/multi-user.target.wants/borea-extras.service"
-sync
-echo "borea-extras: staged for the first start: $(tr '\n' ' ' <"$src/packages")"
+echo "borea-extras: waiting for the installer to finish"
+until finished; do sleep 1; done
+stage
 "#;
 
 /// Runs on the installed system's first start (and again until it succeeds).
@@ -117,7 +130,7 @@ WantedBy=multi-user.target
 /// The live-system unit, small enough for the kernel command line.
 pub fn stage_unit() -> String {
     format!(
-        "[Unit]\nDescription=Borea: stage the chosen extras\n\n[Service]\nExecStart=/bin/bash {LIVE_DIR}/stage.sh\n"
+        "[Unit]\nDescription=Borea: stage the chosen extras\n\n[Service]\nExecStart=/bin/bash {LIVE_DIR}/stage.sh\nExecStop=/bin/bash {LIVE_DIR}/stage.sh --now\n"
     )
 }
 

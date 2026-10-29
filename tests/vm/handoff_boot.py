@@ -364,36 +364,21 @@ EXTRAS = {"printing": ["cups", "system-config-printer"], "flatpak": ["flatpak"]}
 
 
 def install_and_first_start(console, vm, args):
-    """Omarchy's unattended install runs on tty1; then Borea's stage service must
-    have put its first-start service in, and the installed system must power off
-    by itself once that service has added the extras."""
-    failed = "jq -e '[.phases[]? | select(.status==\"failed\")] | length > 0' /run/omarchy-install/state.json"
-    done = "jq -e '.finished_at != null' /run/omarchy-install/state.json"
-    for _ in range(args.timeout // 20 * 4):
-        if console.run(f"{failed} >/dev/null 2>&1", 60) == 0:
-            console.run("jq -c '.phases[-1]' /run/omarchy-install/state.json; tail -n 20 /var/log/omarchy-install.log", 60)
-            raise AssertionError("Omarchy's unattended install failed")
-        if console.run(f"{done} >/dev/null 2>&1", 60) == 0:
-            break
-        time.sleep(20)
-    else:
-        raise AssertionError("Omarchy's unattended install did not finish")
-    print("PASS: Omarchy installed itself onto the target", flush=True)
-    for _ in range(12):
-        if console.run("journalctl -b -u borea-extras-stage.service --no-pager | grep -q 'staged for the first start'", 60) == 0:
-            break
-        time.sleep(10)
-    else:
-        console.run("systemctl status borea-extras-stage.service --no-pager; journalctl -b -u borea-extras-stage.service --no-pager | tail", 60)
-        raise AssertionError("Borea did not stage its extras into the installed system")
-    print("PASS: Borea staged its first-start service into the installed system", flush=True)
-    console.send("systemctl reboot")
-    try:
-        vm.wait(timeout=args.timeout * 3)
-    except subprocess.TimeoutExpired:
-        raise AssertionError("the installed system did not power off after its first start "
-                             "(Borea's extras service did not finish)") from None
-    print("PASS: the installed system started and powered off by itself", flush=True)
+    """Omarchy's unattended install runs on tty1 and restarts by itself into the
+    installed system, whose first start must add the extras and power off. The
+    disk is checked afterwards (check_extras); here, wait for the power-off."""
+    # Keep reading the serial console meanwhile: its log shows how far it got.
+    deadline = time.monotonic() + args.timeout * 3
+    while vm.poll() is None:
+        if time.monotonic() > deadline:
+            raise AssertionError("the installed system did not power off: Omarchy's install, "
+                                 "its first start or Borea's extras service did not finish")
+        try:
+            console.read()
+            console.buf = console.buf[-20000:]
+        except OSError:
+            time.sleep(1)
+    print("PASS: Omarchy installed itself, started, added the extras and powered off", flush=True)
 
 
 def check_stick(image):
