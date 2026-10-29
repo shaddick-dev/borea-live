@@ -253,7 +253,12 @@ pub fn prepare(review: &Review, note: &mut dyn FnMut(Note<'_>)) -> Result<(), Hi
     let data_str = data.to_string_lossy().into_owned();
     fs::create_dir_all(DATA).map_err(io(DATA))?;
     if run("/usr/bin/findmnt", &["--noheadings", "--output", "TARGET", DATA]).is_err() {
-        run("/usr/bin/mount", &["-t", "ext4", "-o", "rw,nosuid,nodev,noexec", &data_str, DATA])?;
+        // Through a loop device: Borea Live holds its whole stick mounted, and
+        // the kernel refuses a second, exclusive claim on one of its partitions.
+        run(
+            "/usr/bin/mount",
+            &["-t", "ext4", "-o", "loop,rw,nosuid,nodev,noexec", &data_str, DATA],
+        )?;
     }
     let dir = Path::new(DATA).join(DIR);
     fs::create_dir_all(&dir).map_err(io("the stick"))?;
