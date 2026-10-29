@@ -376,7 +376,7 @@ pub fn prepare(review: &Review, note: &mut dyn FnMut(Note<'_>)) -> Result<(), Hi
     let sig = dir.join(format!("{}.sig", up.iso));
 
     note(Note::Stage(&format!("Downloading {} {}.", up.name, up.version)));
-    let agent = borea_http::agent(Duration::from_secs(60))?;
+    let agent = borea_http::stream_agent(Duration::from_secs(60))?;
     download(&agent, &up.sha256_url(), &sums, &mut |_| {})?;
     download(&agent, &up.sig_url(), &sig, &mut |_| {})?;
     let cached = iso.exists() && verify(up, &iso, &sums, &sig).is_ok();
