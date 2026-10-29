@@ -701,6 +701,7 @@ dependencies = [
  "borea-protocol",
  "eframe",
  "egui_kittest",
+ "serde",
  "serde_json",
  "zbus",
 ]

@@ -20,6 +20,7 @@ use eframe::egui::{
 };
 
 use crate::firmware::{Choice, FirmwareLink};
+use crate::handoff::{self, HandoffLink, Phase, Where};
 use crate::icon;
 use crate::model::{
     DesktopMode, Selection, ShellPick, capitalize, compose_teaser, device_name, family_line,
@@ -123,6 +124,11 @@ pub enum Action {
     OpenFirmware,
     CancelFirmware,
     RestartFirmware,
+    /// Where a hand-off install goes (Omarchy): whole disk or beside Windows.
+    HandoffChoose(Where),
+    HandoffConfirm(bool),
+    HandoffReview,
+    HandoffRetry,
 }
 
 enum Scan {
@@ -152,6 +158,8 @@ pub struct LiveInstaller {
     picked_shell: bool,
     firmware: FirmwareLink,
     firmware_dialog: bool,
+    /// Omarchy installs through its own installer, started from this stick.
+    handoff: HandoffLink,
 }
 
 impl LiveInstaller {
@@ -169,6 +177,7 @@ impl LiveInstaller {
         let dark = ctx.system_theme() != Some(egui::Theme::Light);
         let mut installer =
             Self::assemble(&ctx, Scan::Pending(rx), WifiLink::spawn(ctx.clone()), dark, false);
+        installer.handoff = HandoffLink::system("omarchy", ctx.clone());
         installer.firmware = FirmwareLink::system(ctx);
         installer
     }
@@ -217,7 +226,28 @@ impl LiveInstaller {
             picked_shell: false,
             firmware: FirmwareLink::preview(),
             firmware_dialog: false,
+            handoff: HandoffLink::with_service(
+                "omarchy",
+                std::sync::Arc::new(|_, _| {
+                    Err("borea-installd is not running in this preview".to_owned())
+                }),
+            ),
         }
+    }
+
+    /// Answer hand-off requests with `service` instead of borea-installd (tests).
+    pub fn set_handoff_service(&mut self, service: handoff::Service) {
+        self.handoff = HandoffLink::with_service("omarchy", service);
+    }
+
+    pub fn handoff(&self) -> &HandoffLink {
+        &self.handoff
+    }
+
+    /// The installer the chosen distribution hands off to, once it is chosen.
+    fn handoff_target(&self) -> Option<&'static str> {
+        (self.picked_edition && self.distro().id.as_str() == self.handoff.target)
+            .then_some(self.handoff.target)
     }
 
     pub fn step(&self) -> Step {
@@ -269,6 +299,10 @@ impl LiveInstaller {
         }
         self.wifi.poll();
         self.firmware.poll();
+        self.handoff.poll();
+        if self.step == Step::Review && self.handoff_target().is_some() {
+            self.handoff.load();
+        }
         self.automate();
     }
 
@@ -312,6 +346,7 @@ impl LiveInstaller {
                     && (self.distro().variants.is_empty() || self.picked_variant)
             }
             Step::Desktop => self.desktop_picked(),
+            Step::Review if self.handoff_target().is_some() => self.handoff.ready(),
             Step::Review => Self::CAN_INSTALL,
             _ => true,
         }
@@ -348,6 +383,14 @@ impl LiveInstaller {
 
     pub fn apply(&mut self, ctx: &egui::Context, action: Action) {
         if action == Action::Next && !self.can_continue() {
+            return;
+        }
+        // Once the hand-off runs, the machine is about to restart into it.
+        if self.handoff.busy() && !matches!(action, Action::ToggleTheme | Action::ToggleMotion) {
+            return;
+        }
+        if action == Action::Next && self.step == Step::Review && self.handoff_target().is_some() {
+            self.handoff.start();
             return;
         }
         let catalog = &self.catalog;
@@ -455,6 +498,18 @@ impl LiveInstaller {
                 if self.firmware_dialog && self.uefi() {
                     self.firmware.reboot(ctx.clone());
                 }
+            }
+            Action::HandoffChoose(pick) => self.handoff.choose(pick),
+            Action::HandoffConfirm(on) => self.handoff.confirm(on),
+            Action::HandoffReview => self.handoff.review(),
+            Action::HandoffRetry => self.handoff.retry(),
+        }
+        // Another target, or another edition, needs its disk chosen again.
+        if resets {
+            self.handoff.pick = None;
+            self.handoff.confirmed = false;
+            if matches!(self.handoff.phase, Phase::Reviewing | Phase::Reviewed(_)) {
+                self.handoff.phase = Phase::Choosing;
             }
         }
         if resets {
@@ -566,7 +621,7 @@ impl LiveInstaller {
             ui.label(eyebrow("Live", p.sub));
         });
         ui.label(caption("Go wherever the wind takes you.", &p));
-        if !Self::CAN_INSTALL {
+        if !Self::CAN_INSTALL && self.handoff_target().is_none() {
             ui.add_space(10.0);
             let text = RichText::new("Preview build · cannot install yet").size(size::SMALL);
             tag(ui, p.wash, Stroke::new(1.0, p.line), text);
@@ -721,10 +776,19 @@ impl LiveInstaller {
                     actions.push(Action::Next);
                 }
                 if !ready && self.step == Step::Review {
-                    ui.label(caption("Not in this preview build", &p));
+                    let why = match (self.handoff_target(), &self.handoff.phase) {
+                        (None, _) => "Not in this preview build",
+                        (Some(_), Phase::Running { .. } | Phase::Finished { .. }) => "Under way",
+                        (Some(_), Phase::Reviewed(_)) => "Confirm shrinking Windows first",
+                        (Some(_), _) => "Choose where it goes, then check the plan",
+                    };
+                    ui.label(caption(why, &p));
                 }
                 let back = format!("{}  Back", icon::BACK);
-                if self.step.back().is_some() && quiet(ui, &p, &back).clicked() {
+                if self.step.back().is_some()
+                    && !self.handoff.busy()
+                    && quiet(ui, &p, &back).clicked()
+                {
                     actions.push(Action::Back);
                 }
             });
@@ -1098,6 +1162,12 @@ impl LiveInstaller {
         let p = self.palette;
         let s = &self.selection;
         let family = self.family();
+        if self.handoff_target().is_some() {
+            ui.label(RichText::new(s.title(&self.catalog, family)).size(size::TITLE));
+            ui.add_space(12.0);
+            self.handoff_review(ui, actions);
+            return;
+        }
         if !Self::CAN_INSTALL {
             ui.set_max_width(660.0);
             notice(
@@ -1134,6 +1204,199 @@ impl LiveInstaller {
             &p,
             "Next comes storage: you pick the disk to use, and nothing is ever preselected. Then account settings, and one final review before anything is written.",
         );
+    }
+
+    /// Omarchy's Review: where it goes, Borea's plan, then the hand-off itself.
+    fn handoff_review(&self, ui: &mut Ui, actions: &mut Vec<Action>) {
+        let p = self.palette;
+        let link = &self.handoff;
+        ui.set_max_width(660.0);
+        match &link.phase {
+            Phase::Running { stage, fraction, lines, choose } => {
+                section(ui, &p, "Getting Omarchy ready");
+                ui.label(RichText::new(stage).size(size::BODY + 2.0));
+                ui.add_space(8.0);
+                let bar =
+                    egui::ProgressBar::new(fraction.unwrap_or(0.0)).animate(fraction.is_none());
+                ui.add(if fraction.is_some() { bar.show_percentage() } else { bar });
+                for line in lines {
+                    ui.label(caption(line, &p));
+                }
+                ui.add_space(12.0);
+                notice(ui, &p, &format!("Then: {choose}"));
+                return;
+            }
+            Phase::Finished { choose } => {
+                section(ui, &p, "Restarting into Omarchy's installer");
+                notice(ui, &p, choose);
+                ui.label(caption(
+                    "The screen goes dark for a moment while Omarchy's installer starts.",
+                    &p,
+                ));
+                return;
+            }
+            _ => {}
+        }
+        notice(
+            ui,
+            &p,
+            "Omarchy installs with its own installer. Borea gets it ready: it downloads Omarchy and checks its signature, makes room beside Windows if you choose to keep it, then restarts straight into Omarchy's installer. Nothing changes until you begin.",
+        );
+        if let Some(hw) = self.hardware()
+            && hw.secure_boot == Fact::Known(true)
+        {
+            ui.add_space(8.0);
+            let text = RichText::new("Omarchy needs Secure Boot off. Turn it off in UEFI setup (the control at the bottom of the side panel) before installing.").size(size::SMALL);
+            tag(ui, p.wash, Stroke::new(1.0, p.accent), text);
+        }
+        section(ui, &p, "Where Omarchy goes");
+        match &link.phase {
+            Phase::Idle | Phase::Loading => {
+                ui.label(caption("Looking at the disks…", &p));
+                return;
+            }
+            Phase::Failed(why) if link.disks.is_empty() => {
+                notice(ui, &p, why);
+                if quiet(ui, &p, "Try again").clicked() {
+                    actions.push(Action::HandoffRetry);
+                }
+                return;
+            }
+            _ => {}
+        }
+        let mut offered = false;
+        for (i, disk) in link.disks.iter().enumerate().filter(|(_, d)| d.usable()) {
+            if disk.size() < 32 * handoff::GIB {
+                continue;
+            }
+            offered = true;
+            let whole = link.pick == Some(Where::Whole { disk: i });
+            let label = format!("Erase {}", disk.name());
+            let card = choice_card(ui, &p, ("handoff-whole", i), &label, whole, true, |ui| {
+                ui.label(RichText::new(format!("{}  {label}", icon::DISK)).size(size::BODY));
+                ui.label(caption(
+                    format!("Omarchy takes the whole disk ({}). Everything on it is erased by Omarchy's installer, after its own confirmation.", disk.path()),
+                    &p,
+                ));
+            });
+            if card.clicked() {
+                actions.push(Action::HandoffChoose(Where::Whole { disk: i }));
+            }
+            ui.add_space(4.0);
+            for (j, part) in disk.parts.iter().enumerate() {
+                let Some(max) =
+                    part.max_linux_size.filter(|m| part.fs == "ntfs" && *m >= 32 * handoff::GIB)
+                else {
+                    continue;
+                };
+                let size = match link.pick {
+                    Some(Where::Alongside { disk, part, size }) if disk == i && part == j => {
+                        Some(size)
+                    }
+                    _ => None,
+                };
+                let label = format!("Beside Windows on {}", disk.name());
+                let card = choice_card(
+                    ui,
+                    &p,
+                    ("handoff-beside", i, j),
+                    &label,
+                    size.is_some(),
+                    true,
+                    |ui| {
+                        ui.label(
+                            RichText::new(format!("{}  {label}", icon::DISK)).size(size::BODY),
+                        );
+                        ui.label(caption(
+                        format!("Borea shrinks Windows ({}) to make room; Omarchy's installer uses only that space. Windows keeps everything else.", part.path),
+                        &p,
+                    ));
+                    },
+                );
+                if card.clicked() && size.is_none() {
+                    let size = (60 * handoff::GIB).min(max) / handoff::GIB * handoff::GIB;
+                    actions.push(Action::HandoffChoose(Where::Alongside {
+                        disk: i,
+                        part: j,
+                        size,
+                    }));
+                }
+                if let Some(size) = size {
+                    let mut gib = size / handoff::GIB;
+                    let slider = egui::Slider::new(&mut gib, 32..=max / handoff::GIB)
+                        .suffix(" GiB")
+                        .text("for Omarchy");
+                    if ui.add(slider).changed() {
+                        actions.push(Action::HandoffChoose(Where::Alongside {
+                            disk: i,
+                            part: j,
+                            size: gib * handoff::GIB,
+                        }));
+                    }
+                }
+                ui.add_space(4.0);
+            }
+        }
+        if !offered {
+            notice(
+                ui,
+                &p,
+                "No disk here can take Omarchy: it needs a disk of at least 32 GiB that is not the Borea stick and not in use.",
+            );
+            return;
+        }
+        ui.add_space(10.0);
+        match &link.phase {
+            Phase::Reviewing => {
+                ui.label(caption("Checking the plan…", &p));
+            }
+            Phase::Reviewed(review) => {
+                section(ui, &p, "Borea's plan");
+                Frame::new()
+                    .fill(p.paper)
+                    .stroke(Stroke::new(1.0, p.line))
+                    .corner_radius(CornerRadius::same(RADIUS))
+                    .inner_margin(Margin::same(20))
+                    .show(ui, |ui| {
+                        for step in &review.steps {
+                            ui.label(
+                                RichText::new(format!("{}  {step}", icon::CHECK)).size(size::SMALL),
+                            );
+                        }
+                    });
+                ui.add_space(8.0);
+                notice(ui, &p, &format!("Then: {}", review.choose));
+                if matches!(link.pick, Some(Where::Alongside { .. })) {
+                    ui.add_space(8.0);
+                    let mut on = link.confirmed;
+                    if ui
+                        .checkbox(
+                            &mut on,
+                            "Shrink Windows now. I have a backup of anything important on it.",
+                        )
+                        .changed()
+                    {
+                        actions.push(Action::HandoffConfirm(on));
+                    }
+                }
+                ui.add_space(6.0);
+                ui.label(caption("Begin installation starts it; the machine then restarts into Omarchy's installer.", &p));
+            }
+            phase => {
+                if let Phase::Failed(why) = phase {
+                    notice(ui, &p, why);
+                    ui.add_space(8.0);
+                }
+                let ready = link.pick.is_some();
+                if ui
+                    .add_enabled_ui(ready, |ui| primary(ui, &p, "Check this plan", false))
+                    .inner
+                    .clicked()
+                {
+                    actions.push(Action::HandoffReview);
+                }
+            }
+        }
     }
 
     /// Secure Boot for the new system: off unless chosen, with every step shown first.

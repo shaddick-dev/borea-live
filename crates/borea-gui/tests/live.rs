@@ -516,3 +516,81 @@ fn short_window_keeps_navigation_reachable() {
         h.render().unwrap().save(format!("{dir}/live-small-family.png")).unwrap();
     }
 }
+
+/// Choosing Omarchy installs it: pick where it goes (nothing preselected), check
+/// the plan with the service, confirm shrinking Windows, begin, and the hand-off
+/// runs with exactly the reviewed plan and its approval.
+#[test]
+fn omarchy_hands_off_to_its_own_installer_as_chosen() {
+    use serde_json::{Value, json};
+    use std::sync::{Arc, Mutex};
+    const GIB: u64 = 1 << 30;
+    let calls = Arc::new(Mutex::new(Vec::<(String, Value)>::new()));
+    let seen = Arc::clone(&calls);
+    let service: borea_gui::handoff::Service = Arc::new(move |method, params| {
+        seen.lock().unwrap().push((method.into(), params.clone()));
+        Ok(match method {
+            "disks.list" => json!({"uefi":true,"disks":[
+                {"id":{"logical_sector":512,"path":"/dev/sda","serial":"STICK","size":32_000_000_000_u64,"model":"Borea stick"},
+                 "readonly":false,"in_use":true,"live":true,"parts":[]},
+                {"id":{"logical_sector":512,"path":"/dev/nvme0n1","serial":"S6P7","size":512_000_000_000_u64,"model":"Samsung 980"},
+                 "readonly":false,"in_use":false,"live":false,"parts":[
+                    {"path":"/dev/nvme0n1p3","number":3,"uuid":"WIN","fs":"ntfs","max_linux_size":200*GIB}]}]}),
+            "handoff.review" => json!({"approval":"feed","review":{
+                "steps":["Download Omarchy 4.0.6 to the Borea stick","Shrink Windows on Samsung 980 by 60 GiB"],
+                "choose":"In Omarchy's installer, choose Samsung 980 and \"Free space install\"."}}),
+            "handoff.start" => json!({"job_id":"feed"}),
+            _ => json!({"events":[
+                {"event":"stage-started","stage":0,"title":"Downloading Omarchy 4.0.6."},
+                {"event":"finished"}],"cursor":2,"more":false}),
+        })
+    });
+    let mut h = harness(false);
+    h.state_mut().as_mut().unwrap().set_handoff_service(service);
+    press(&mut h, "Next");
+    press(&mut h, "Next");
+    press(&mut h, "Arch family");
+    press(&mut h, "Omarchy");
+    press(&mut h, "Hyprland · Omarchy");
+    press(&mut h, "Next");
+    press(&mut h, "Review");
+    let settle = |h: &mut Installer| {
+        for _ in 0..60 {
+            h.run();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    };
+    settle(&mut h);
+    assert!(h.query_by_label_contains("Preview build").is_none(), "Omarchy can install");
+    assert!(h.query_by_label_contains("Borea stick").is_none(), "never the live stick");
+    assert!(!app(&h).can_continue(), "nothing is preselected");
+    press(&mut h, "Beside Windows on Samsung 980 · 512 GB");
+    press(&mut h, "Check this plan");
+    settle(&mut h);
+    assert!(h.query_by_label_contains("Shrink Windows on Samsung 980 by 60 GiB").is_some());
+    assert!(!app(&h).can_continue(), "shrinking Windows needs a confirmation");
+    let confirm = "Shrink Windows now. I have a backup of anything important on it.";
+    h.get_by_role_and_label(Role::CheckBox, confirm).scroll_to_me();
+    h.run();
+    h.get_by_role_and_label(Role::CheckBox, confirm).click();
+    h.run();
+    assert!(app(&h).can_continue());
+    if let Ok(dir) = std::env::var("WINDPAD_SHOTS") {
+        h.render().unwrap().save(format!("{dir}/live-omarchy-review.png")).unwrap();
+    }
+    press(&mut h, "Begin installation");
+    settle(&mut h);
+    assert!(
+        matches!(app(&h).handoff().phase, borea_gui::handoff::Phase::Finished { .. }),
+        "{:?}",
+        app(&h).handoff().phase
+    );
+    assert!(h.query_by_label_contains("choose Samsung 980 and \"Free space install\"").is_some());
+    let calls = calls.lock().unwrap();
+    let start = &calls.iter().find(|(m, _)| m == "handoff.start").unwrap().1;
+    assert_eq!(start["approval"], "feed");
+    assert_eq!(start["handoff"]["target"], "omarchy");
+    assert_eq!(start["handoff"]["disk"]["kind"], "alongside");
+    assert_eq!(start["handoff"]["disk"]["linux_size"], 60 * GIB);
+    assert_eq!(start["handoff"]["disk"]["disk"]["serial"], "S6P7");
+}
