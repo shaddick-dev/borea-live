@@ -1,11 +1,15 @@
-name: Compose Borea Live without a release
+name: Compose and publish Borea Live
+# Composes the ISO from prebuilt packages (minutes, not hours) and boots it in a
+# disposable VM. On main, an image that reaches the installer is published as
+# the latest release, with the static borea-rataTUI, so users download both
+# instead of building anything.
 on:
   workflow_dispatch:
   pull_request:
-    paths: ['live/compose/**', 'crates/borea-build/**', 'crates/borea-init/**', '.github/workflows/compose.yml']
+    paths: ['live/**', 'crates/**', 'Cargo.toml', 'Cargo.lock', 'tests/vm/**', '.github/workflows/compose.yml']
   push:
     branches: [main]
-    paths: ['live/compose/**', 'crates/borea-build/**', 'crates/borea-init/**', '.github/workflows/compose.yml']
+    paths: ['live/**', 'crates/**', 'Cargo.toml', 'Cargo.lock', 'tests/vm/**', '.github/workflows/compose.yml']
 permissions:
   contents: read
 jobs:
@@ -47,3 +51,65 @@ jobs:
           name: compose-boot-logs
           path: target/vm/compose-smoke/*.log
           retention-days: 7
+
+  publish:
+    # Only images built from main that booted to the installer above.
+    needs: iso
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: publish-release
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: latest-main
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the static borea-rataTUI
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+          cargo build --locked --release -p borea-flash --bin borea-rataTUI \
+            --target x86_64-unknown-linux-musl
+      - uses: actions/download-artifact@v4
+        with:
+          name: borea-live-compose-x86_64
+          path: composed
+      - name: Name the files as borea-rataTUI and the setup expect
+        run: |
+          mkdir dist
+          cp composed/borea-live-compose.iso dist/borea-live-x86_64.iso
+          cp target/x86_64-unknown-linux-musl/release/borea-rataTUI dist/borea-rataTUI-x86_64-linux
+          # Static: no dynamic loader, so it runs on any distribution.
+          if readelf -l dist/borea-rataTUI-x86_64-linux | grep -q INTERP; then echo "dist/borea-rataTUI-x86_64-linux is not static" >&2; exit 1; fi
+          cd dist
+          sha256sum borea-live-x86_64.iso > borea-live-x86_64.iso.sha256
+          sha256sum borea-rataTUI-x86_64-linux > borea-rataTUI-x86_64-linux.sha256
+          # The artifact's own checksum must still hold after the copy.
+          [ "$(cut -d' ' -f1 borea-live-x86_64.iso.sha256)" = "$(cut -d' ' -f1 ../composed/borea-live-compose.iso.sha256)" ]
+          ls -l
+      - name: Publish as the latest release
+        run: |
+          short=$(git rev-parse --short HEAD)
+          notes="Borea Live composed from main at $short and booted to the installer in a disposable UEFI VM before publishing ($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID).
+
+          Install borea-rataTUI and write a USB stick:
+
+              curl -fsSL https://shaddick-dev.github.io/borea-live/install | sh
+
+          The GUI is a preview; installs are not yet certified for every target."
+          # One rolling release, moved to this commit each time.
+          git tag -f "$TAG" && git push -f origin "refs/tags/$TAG"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "Borea Live (main, $short)" --notes "$notes" --latest
+          fi
+          # Images first, checksums last, so a download never pairs a new
+          # checksum with an old image for longer than one upload.
+          gh release upload "$TAG" dist/borea-live-x86_64.iso dist/borea-rataTUI-x86_64-linux --clobber
+          gh release upload "$TAG" dist/*.sha256 --clobber
+          gh release edit "$TAG" --title "Borea Live (main, $short)" --notes "$notes" --latest

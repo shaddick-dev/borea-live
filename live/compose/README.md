@@ -64,8 +64,9 @@ skips Rust compilation when compatible x86-64 binaries already exist: `borea-liv
 `borea-build`, and a static `borea-firstboot`. It is intended for validated build
 pipelines. Ordinary users should let the composer build matching binaries.
 
-The **Compose Borea Live without a release** GitHub workflow exercises the normal
-path, boots a disposable copy as a read-only UEFI USB device, requires native GUI
-frames, and uploads the ISO and checksum as a seven-day Actions artifact. Publishing
-a GitHub release is not required. No artifact is labelled as a tested release
-merely because its build succeeded.
+The **Compose and publish Borea Live** GitHub workflow exercises the normal path,
+boots a disposable copy as a read-only UEFI USB device, requires native GUI frames,
+and uploads the ISO and checksum as a seven-day Actions artifact. On main, only an
+image that passed that boot is published, with the static borea-rataTUI, as the
+rolling `latest-main` release that borea-rataTUI and the setup download. No image
+is published merely because its build succeeded.

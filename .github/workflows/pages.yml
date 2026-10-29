@@ -44,7 +44,7 @@ jobs:
             --target x86_64-unknown-linux-musl
           app=target/x86_64-unknown-linux-musl/release/borea-rataTUI
           # Static: no dynamic loader, so it runs on any distribution.
-          ! readelf -l "$app" | grep -q INTERP
+          if readelf -l "$app" | grep -q INTERP; then echo "$app is not static" >&2; exit 1; fi
           "$app" --help >/dev/null
       - name: Assemble
         run: |
