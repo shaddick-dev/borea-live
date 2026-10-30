@@ -1,0 +1,118 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  CARGO_TERM_COLOR: always
+  # Installer backend crates keep Rust 1.85 (Debian 13's compiler). The live GUI
+  # crates need newer (eframe/egui 0.37 require 1.95), so only stable builds them.
+  BACKEND: >-
+    -p borea-core -p borea-catalog -p borea-locale -p borea-net -p borea-disk
+    -p borea-backend -p borea-job -p borea-exec -p borea-http -p borea-platform
+    -p borea-protocol -p borea-installd -p borea-cli -p borea-vm-test
+jobs:
+  workspace:
+    name: fmt, clippy, test (whole workspace, stable)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo test --locked --workspace
+      - name: Native installer starts with software graphics
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cage libegl-mesa0 libgl1-mesa-dri libwayland-egl1
+          cargo build --locked -p borea-gui --bin borea-live
+          borea_runtime=$(mktemp -d)
+          trap 'rm -rf "$borea_runtime"' EXIT
+          chmod 700 "$borea_runtime"
+          timeout 60 env XDG_RUNTIME_DIR="$borea_runtime" \
+            WLR_BACKENDS=headless WLR_HEADLESS_OUTPUTS=1 WLR_RENDERER=pixman \
+            WLR_RENDERER_ALLOW_SOFTWARE=1 LIBGL_ALWAYS_SOFTWARE=1 \
+            cage -d -s -- target/debug/borea-live --window --boot-smoke \
+            2>&1 | tee borea-boot-smoke.log
+          grep -qx BOREA_GUI_READY borea-boot-smoke.log
+      - name: VM harness unit tests
+        run: python3 -m unittest discover -s tests/vm -v
+      - name: Setup script (shellcheck)
+        run: shellcheck -S warning scripts/*.sh
+
+  borea-command-arch:
+    name: borea install on Arch
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    steps:
+      - name: Tools
+        run: pacman -Syu --noconfirm --needed rust gcc git pkgconf
+      - uses: actions/checkout@v4
+      - run: cargo build --locked -p borea-bootstrap
+      # The real thing on a real Arch system: add an extra, see it recorded,
+      # remove exactly what was added, and refuse what Borea never added.
+      - name: borea install printing, then remove it
+        run: |
+          set -x
+          borea=./target/debug/borea
+          $borea extras
+          $borea install printing --yes
+          pacman -Q cups system-config-printer
+          grep -q '^printing .*cups' /var/lib/borea/extras
+          $borea extras | grep 'printing.*added by Borea'
+          $borea remove printing --yes
+          ! pacman -Q cups
+          ! $borea remove printing 2>err.txt
+          grep -q "didn't add" err.txt
+
+  backend-msrv:
+    name: backend on Rust 1.85
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.85.0
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # Failures are repeated as annotations, readable without the full log.
+      - run: |
+          set -o pipefail
+          cargo clippy --locked --all-targets $BACKEND -- -D warnings 2>&1 | tee clippy.log \
+            || { sed 's/\x1b\[[0-9;]*m//g' clippy.log | grep -E '^(error|warning)' -A7 | head -45 | sed 's/^/::error::/'; exit 1; }
+      - run: |
+          set -o pipefail
+          cargo test --locked $BACKEND 2>&1 | tee test.log \
+            || { sed 's/\x1b\[[0-9;]*m//g' test.log | grep -E '^error|panicked|FAILED' -A7 | head -45 | sed 's/^/::error::/'; exit 1; }
+
+  static-app:
+    name: borea-rataTUI static build (what releases ship)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+      - run: |
+          cargo build --locked --release -p borea-flash --bin borea-rataTUI --target x86_64-unknown-linux-musl
+          bin=target/x86_64-unknown-linux-musl/release/borea-rataTUI
+          if readelf -l "$bin" | grep -q INTERP; then echo "$bin is not static" >&2; exit 1; fi
+          "$bin" --help >/dev/null
+          ls -la "$bin"
+
+  dependencies:
+    name: advisories and sources (cargo-deny)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories sources

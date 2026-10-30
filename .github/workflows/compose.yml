@@ -1,0 +1,152 @@
+name: Compose and publish Borea Live
+# Composes the ISO from prebuilt packages (minutes, not hours) and boots it in a
+# disposable VM. On main, an image that reaches the installer is published as
+# the latest release, with the static borea-rataTUI, so users download both
+# instead of building anything.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ['live/**', 'crates/**', 'Cargo.toml', 'Cargo.lock', 'tests/vm/**', '.github/workflows/compose.yml']
+  push:
+    branches: [main]
+    paths: ['live/**', 'crates/**', 'Cargo.toml', 'Cargo.lock', 'tests/vm/**', '.github/workflows/compose.yml']
+permissions:
+  contents: read
+jobs:
+  iso:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: '4'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v4
+        with:
+          path: target/live/compose
+          key: compose-rust-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
+          restore-keys: compose-rust-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
+      - name: Compose from prebuilt Linux packages and current Rust apps
+        run: cargo run --locked --profile app -p borea-build -- compose
+      - name: Verify the completed image checksum
+        working-directory: target/live/out
+        run: sha256sum --check borea-live-compose.iso.sha256
+      - name: Disposable UEFI USB boot reaches the installer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf
+          python3 tests/vm/compose_boot.py target/live/out/borea-live-compose.iso
+      - name: As a stick with its data partition, it still boots to the installer
+        # borea-rataTUI adds partition 4 after writing (crates/borea-flash/src/datapart.rs,
+        # unit-tested there). Here the same layout, made with sfdisk on a
+        # disposable image file, must still boot to the installer.
+        shell: bash
+        run: |
+          set -euo pipefail
+          iso=target/live/out/borea-live-compose.iso
+          stick=target/vm/stick.img
+          mkdir -p target/vm
+          cp --sparse=always "$iso" "$stick"
+          truncate -s 3000000000 "$stick"
+          start=$(( ( $(stat -c %s "$iso") + 1048575 ) / 1048576 * 2048 ))
+          echo "start=$start, type=83" | sfdisk --append --no-reread --wipe never "$stick"
+          size=$(( (3000000000 / 1048576 * 2048 - start) * 512 ))
+          mkfs.ext4 -q -F -L BOREA_DATA -E offset=$((start * 512)) "$stick" "$((size / 1024))k"
+          sfdisk -d "$stick" | sed 's/^/::notice::stick table: /'
+          [ "$(blkid -p -O $((start * 512)) -s LABEL -o value "$stick")" = BOREA_DATA ]
+          if ! python3 tests/vm/compose_boot.py "$stick"; then
+            tail -15 target/vm/compose-smoke/boot.log | tr -d '\r' | sed 's/^/::error::stick boot: /'
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: borea-live-compose-x86_64
+          path: |
+            target/live/out/borea-live-compose.iso
+            target/live/out/borea-live-compose.iso.sha256
+          compression-level: 0
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compose-boot-logs
+          path: target/vm/compose-smoke/*.log
+          retention-days: 7
+
+  publish:
+    # Only images built from main that booted to the installer above.
+    needs: iso
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: publish-release
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the static borea-rataTUI
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends musl-tools
+          cargo build --locked --release -p borea-flash --bin borea-rataTUI \
+            --target x86_64-unknown-linux-musl
+      - uses: actions/download-artifact@v4
+        with:
+          name: borea-live-compose-x86_64
+          path: composed
+      - name: Name the files as borea-rataTUI and the setup expect
+        run: |
+          mkdir dist
+          cp composed/borea-live-compose.iso dist/borea-live-x86_64.iso
+          cp target/x86_64-unknown-linux-musl/release/borea-rataTUI dist/borea-rataTUI-x86_64-linux
+          # Static: no dynamic loader, so it runs on any distribution.
+          if readelf -l dist/borea-rataTUI-x86_64-linux | grep -q INTERP; then echo "dist/borea-rataTUI-x86_64-linux is not static" >&2; exit 1; fi
+          cd dist
+          sha256sum borea-live-x86_64.iso > borea-live-x86_64.iso.sha256
+          sha256sum borea-rataTUI-x86_64-linux > borea-rataTUI-x86_64-linux.sha256
+          # The artifact's own checksum must still hold after the copy.
+          [ "$(cut -d' ' -f1 borea-live-x86_64.iso.sha256)" = "$(cut -d' ' -f1 ../composed/borea-live-compose.iso.sha256)" ]
+          ls -l
+      - name: Publish as the latest release
+        # Releases here are immutable once published, so each image gets its own
+        # release: created as a draft, given every file, then published.
+        run: |
+          short=$(git rev-parse --short HEAD)
+          tag="main-$(date -u +%Y%m%d-%H%M)-$short"
+          notes="Borea Live composed from main at $short and booted to the installer in a disposable UEFI VM before publishing ($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID).
+
+          Install borea-rataTUI and write a USB stick:
+
+              curl -fsSL https://shaddick-dev.github.io/borea-live/install | sh
+
+          The GUI is a preview; installs are not yet certified for every target."
+          gh release create "$tag" --draft --target "$GITHUB_SHA" \
+            --title "Borea Live (main, $short)" --notes "$notes" \
+            dist/borea-live-x86_64.iso dist/borea-live-x86_64.iso.sha256 \
+            dist/borea-rataTUI-x86_64-linux dist/borea-rataTUI-x86_64-linux.sha256
+          # Every file must be there before anyone can download it.
+          for f in borea-live-x86_64.iso borea-live-x86_64.iso.sha256 \
+                   borea-rataTUI-x86_64-linux borea-rataTUI-x86_64-linux.sha256; do
+            gh release view "$tag" --json assets --jq '.assets[].name' | grep -qx "$f" \
+              || { echo "$f did not upload" >&2; exit 1; }
+          done
+          gh release edit "$tag" --draft=false --latest
+          echo "Published $tag"
+      - name: Keep the three newest images
+        # Older rolling releases, and the empty one the first attempt left.
+        continue-on-error: true
+        run: |
+          gh release list --limit 100 --json tagName,isDraft --jq '.[] | select(.isDraft | not) | .tagName' \
+            | grep '^main-' | sort -r | tail -n +4 | while read -r old; do
+            gh release delete "$old" --yes
+          done
+          if gh release view latest-main --json assets --jq '.assets | length' 2>/dev/null | grep -qx 0; then
+            gh release delete latest-main --yes
+          fi

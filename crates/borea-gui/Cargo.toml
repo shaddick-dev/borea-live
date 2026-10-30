@@ -15,14 +15,20 @@ name = "borea-live"
 path = "src/live_main.rs"
 
 [dependencies]
-borea-core.workspace = true
-borea-catalog.workspace = true
+borea-live-core.workspace = true
+borea-live-catalog.workspace = true
 borea-distro.workspace = true
 borea-hardware.workspace = true
 borea-host.workspace = true
 borea-network.workspace = true
 zbus.workspace = true
+borea-protocol.workspace = true
+borea-core.workspace = true
+borea-catalog.workspace = true
+borea-locale.workspace = true
+zeroize.workspace = true
 serde_json = "1"
+serde.workspace = true
 eframe = { version = "0.37.0", default-features = false, features = ["accesskit", "default_fonts", "glow", "wayland", "x11"] }
 
 [dev-dependencies]

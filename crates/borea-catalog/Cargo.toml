@@ -1,16 +1,20 @@
 [package]
 name = "borea-catalog"
-description = "Windpad family/distribution/edition catalog and its validation rules"
 version.workspace = true
 edition.workspace = true
-rust-version.workspace = true
 publish.workspace = true
+rust-version = "1.85"
+description = "Borea's software catalogue: one app list, resolved against the chosen distro's repos, the AUR and Flathub."
+license = "GPL-3.0-or-later"
 
 [dependencies]
-borea-core.workspace = true
 serde.workspace = true
-thiserror.workspace = true
-toml.workspace = true
+# Deliberately none: this crate is pure data + rules so it can be tested without a system.
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"

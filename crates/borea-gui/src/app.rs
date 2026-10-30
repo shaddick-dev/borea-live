@@ -6,19 +6,24 @@
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 
-use borea_catalog::Catalog;
-use borea_core::{Fact, Family};
-use borea_hardware::{DiskUsage, HardwareSnapshot};
+use borea_hardware::HardwareSnapshot;
+use borea_live_catalog::Catalog;
+use borea_live_core::{Fact, Family, FirmwareMode};
 use eframe::egui::{
-    self, Align, CentralPanel, ComboBox, CornerRadius, Frame, Id, Layout, Margin, Modal, RichText,
+    self, Align, CentralPanel, ComboBox, CornerRadius, Frame, Id, Layout, Margin, RichText,
     ScrollArea, Stroke, Ui, UiBuilder, text::LayoutJob,
 };
 
+use crate::firmware::{Choice, FirmwareLink};
 use crate::icon;
-use crate::model::{DesktopMode, Selection, ShellPick, capitalize, compose_teaser, device_name};
+use crate::model::{
+    DesktopMode, Selection, ShellPick, capitalize, compose_teaser, device_name, family_line,
+    gigabytes, hardware_facts,
+};
 use crate::theme::{self, DARK, LIGHT, Palette, RADIUS, size};
 use crate::widgets::{
-    self, badge, caption, choice_card, eyebrow, glyph, notice, primary, quiet, rows, segmented,
+    self, badge, caption, choice_card, dialog, dialog_head, eyebrow, glyph, notice, primary, quiet,
+    rows, segmented,
 };
 use crate::wifi::{Command, WifiForm, WifiLink};
 use crate::wind;
@@ -42,6 +47,8 @@ pub enum Dialog {
     Wifi,
     Compose(Family, Step),
     Continue(Family),
+    /// The confirmation before restarting into UEFI firmware setup.
+    Firmware,
 }
 
 /// Everything a user can do, recorded during rendering.
@@ -63,6 +70,7 @@ pub enum Action {
     Close,
     ToggleTheme,
     ToggleMotion,
+    RestartFirmware,
 }
 
 enum Scan {
@@ -79,6 +87,7 @@ pub struct Windpad {
     wifi: WifiLink,
     form: WifiForm,
     dialog: Option<Dialog>,
+    firmware: FirmwareLink,
 }
 
 impl Windpad {
@@ -96,7 +105,10 @@ impl Windpad {
             .expect("spawn hardware scan");
         let dark = ctx.system_theme() == Some(egui::Theme::Dark);
         let catalog = Catalog::bundled().expect("bundled catalog is validated by tests");
-        Self::assemble(&ctx, catalog, Scan::Pending(rx), WifiLink::spawn(ctx.clone()), dark)
+        let mut app =
+            Self::assemble(&ctx, catalog, Scan::Pending(rx), WifiLink::spawn(ctx.clone()), dark);
+        app.firmware = FirmwareLink::system(ctx);
+        app
     }
 
     /// A still window with fixed hardware and no network backend, for tests and
@@ -132,6 +144,7 @@ impl Windpad {
             wifi,
             form: WifiForm::default(),
             dialog: None,
+            firmware: FirmwareLink::preview(),
         }
     }
 
@@ -161,6 +174,12 @@ impl Windpad {
             self.scan = Scan::Done(Box::new(snapshot));
         }
         self.wifi.poll();
+        self.firmware.poll();
+    }
+
+    fn uefi(&self) -> bool {
+        self.hardware()
+            .is_some_and(|hw| matches!(hw.firmware, Fact::Known(FirmwareMode::Uefi { .. })))
     }
 
     pub fn apply(&mut self, ctx: &egui::Context, action: Action) {
@@ -196,9 +215,16 @@ impl Windpad {
                 }
                 self.dialog = Some(dialog);
             }
+            // A restart already on its way cannot be cancelled.
+            Action::Close if self.firmware.restarting => {}
             Action::Close => {
                 self.dialog = None;
                 self.form.forget_passphrase();
+            }
+            Action::RestartFirmware => {
+                if self.dialog == Some(Dialog::Firmware) && self.uefi() {
+                    self.firmware.reboot(ctx.clone());
+                }
             }
             Action::ToggleTheme => {
                 self.palette = if self.palette.dark { LIGHT } else { DARK };
@@ -241,6 +267,11 @@ impl Windpad {
             Some(Dialog::Continue(f)) => self.continue_dialog(ui.ctx(), f, &mut actions),
             Some(Dialog::Hardware) => self.hardware_dialog(ui.ctx(), &mut actions),
             Some(Dialog::Wifi) => self.wifi_dialog(ui.ctx(), &mut actions),
+            Some(Dialog::Firmware) => match self.firmware.confirmation(ui.ctx(), &p) {
+                Some(Choice::Cancel) => actions.push(Action::Close),
+                Some(Choice::Restart) => actions.push(Action::RestartFirmware),
+                None => {}
+            },
             None => {}
         }
 
@@ -258,7 +289,7 @@ impl Windpad {
         ui.horizontal(|ui| {
             ui.label(RichText::new(icon::WIND).size(20.0).color(p.accent));
             ui.label(
-                RichText::new("BOREA")
+                RichText::new("Borea")
                     .family(theme::display())
                     .size(20.0)
                     .extra_letter_spacing(3.5)
@@ -281,6 +312,17 @@ impl Windpad {
                 if nav_button(ui, &p, &hardware, "Hardware").clicked() {
                     actions.push(Action::Open(Dialog::Hardware));
                 }
+                let (enabled, hint) = self.firmware.control(self.uefi());
+                let firmware = ui
+                    .add_enabled_ui(enabled, |ui| {
+                        nav_button(ui, &p, &FirmwareLink::label(), "UEFI setup")
+                    })
+                    .inner
+                    .on_disabled_hover_text(hint)
+                    .on_hover_text(hint);
+                if firmware.clicked() {
+                    actions.push(Action::Open(Dialog::Firmware));
+                }
             });
         });
         ui.add_space(18.0);
@@ -293,7 +335,12 @@ impl Windpad {
         let (rect, _) =
             ui.allocate_exact_size(egui::vec2(ui.available_width(), height), egui::Sense::hover());
         let time = moving.then(|| ui.input(|i| i.time));
-        wind::paint(&ui.painter_at(rect.expand2(egui::vec2(0.0, 20.0))), rect, p.accent, time);
+        wind::paint(
+            &ui.painter_at(rect.expand2(egui::vec2(0.0, 20.0))),
+            rect,
+            p.accent,
+            time.map(wind::Air::calm),
+        );
 
         ui.scope_builder(
             UiBuilder::new().max_rect(rect).layout(Layout::top_down(Align::Center)),
@@ -344,12 +391,7 @@ impl Windpad {
                             .join(" + "),
                     },
                 ),
-                (
-                    "Memory",
-                    hw.memory_bytes
-                        .known()
-                        .map_or("Unknown".into(), |b| format!("{:.0} GB", *b as f64 / 1e9)),
-                ),
+                ("Memory", hw.memory_bytes.known().map_or("Unknown".into(), |b| gigabytes(*b))),
                 ("Platform", format!("{} · {}", hw.firmware, device_name(hw))),
             ],
         };
@@ -492,6 +534,9 @@ impl Windpad {
         self.desktop_block(ui, family, actions);
         ui.add_space(4.0);
         ui.label(caption(&distro.summary, &p));
+        if distro.source.is_none() {
+            ui.label(caption("Upstream source pending verification.", &p));
+        }
     }
 
     /// The card's last lines, level across a row: channel and status, then the
@@ -592,20 +637,7 @@ impl Windpad {
             actions.push(Action::Mode(family, mode));
         }
         if mode == DesktopMode::Bare {
-            let ticked: Vec<_> =
-                s.ticked(catalog, family).iter().map(|o| o.extra.name.as_str()).collect();
-            let extra = match ticked.as_slice() {
-                [] => ", nothing extra".to_owned(),
-                names => format!(" plus {}", names.join(", ")),
-            };
-            ui.label(caption(
-                format!(
-                    "Installs {} {} as shipped: a console login{extra}. You can add a desktop any time later.",
-                    s.distro(catalog, family).name,
-                    s.edition(catalog, family).name
-                ),
-                &p,
-            ));
+            ui.label(caption(s.bare_summary(catalog, family), &p));
             return;
         }
         let compositor = s.compositor_name(catalog, family).unwrap_or("Choose").to_owned();
@@ -702,7 +734,9 @@ impl Windpad {
         let choice = s.choice(family);
 
         let modal = dialog(ctx, "compose", &p, 720.0, |ui| {
-            dialog_head(ui, &p, "Compose your desktop.", actions);
+            if dialog_head(ui, &p, "Compose your desktop.") {
+                actions.push(Action::Close);
+            }
             ui.label(caption(format!("{} · {}", distro.name, edition.name), &p));
             ui.add_space(10.0);
             let mut tab = step;
@@ -850,7 +884,9 @@ impl Windpad {
     fn continue_dialog(&self, ctx: &egui::Context, family: Family, actions: &mut Vec<Action>) {
         let p = self.palette;
         let modal = dialog(ctx, "continue", &p, 480.0, |ui| {
-            dialog_head(ui, &p, "Your next direction.", actions);
+            if dialog_head(ui, &p, "Your next direction.") {
+                actions.push(Action::Close);
+            }
             notice(
                 ui,
                 &p,
@@ -875,7 +911,9 @@ impl Windpad {
     fn hardware_dialog(&self, ctx: &egui::Context, actions: &mut Vec<Action>) {
         let p = self.palette;
         let modal = dialog(ctx, "hardware", &p, 520.0, |ui| {
-            dialog_head(ui, &p, "A sense of your system.", actions);
+            if dialog_head(ui, &p, "A sense of your system.") {
+                actions.push(Action::Close);
+            }
             let Some(hw) = self.hardware() else {
                 ui.label(caption("Scanning…", &p));
                 return;
@@ -886,9 +924,10 @@ impl Windpad {
                 "Read on this machine, read-only. Unknown stays unknown, and disks need your explicit choice.",
             );
             ui.add_space(8.0);
-            ScrollArea::vertical()
-                .max_height(420.0)
-                .show(ui, |ui| rows(ui, &p, &hardware_rows(hw)));
+            ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
+                rows(ui, &p, &hardware_rows(hw));
+                widgets::findings(ui, &p, hw);
+            });
         });
         if modal.should_close() {
             actions.push(Action::Close);
@@ -899,7 +938,9 @@ impl Windpad {
         let p = self.palette;
         let Windpad { wifi, form, .. } = self;
         let modal = dialog(ctx, "wifi", &p, 500.0, |ui| {
-            dialog_head(ui, &p, "Catch a connection.", actions);
+            if dialog_head(ui, &p, "Catch a connection.") {
+                actions.push(Action::Close);
+            }
             if let Some(command) = crate::wifi::panel(ui, &p, wifi, form) {
                 wifi.send(command);
             }
@@ -951,15 +992,6 @@ fn section_line(ui: &mut Ui, p: &Palette) {
         });
     });
     ui.add_space(10.0);
-}
-
-fn family_line(family: Family) -> &'static str {
-    match family {
-        Family::Arch => "A system shaped by you.",
-        Family::Fedora => "A fresh perspective.",
-        Family::Debian => "A foundation to settle into.",
-        Family::Opensuse => "Ready for your next adventure.",
-    }
 }
 
 fn hairline(ui: &mut Ui, p: &Palette) {
@@ -1017,97 +1049,14 @@ fn select_mark(ui: &mut Ui, p: &Palette, family: Family, selected: bool) -> egui
     response
 }
 
-fn dialog<R>(
-    ctx: &egui::Context,
-    id: &str,
-    p: &Palette,
-    width: f32,
-    add: impl FnOnce(&mut Ui) -> R,
-) -> egui::ModalResponse<R> {
-    let frame = Frame::new()
-        .fill(p.paper)
-        .stroke(Stroke::new(1.0, p.line))
-        .corner_radius(CornerRadius::same(RADIUS + 2))
-        .inner_margin(Margin::same(26));
-    Modal::new(Id::unique(("windpad-dialog", id))).frame(frame).show(ctx, |ui| {
-        ui.set_width(width.min(ctx.content_rect().width() - 32.0));
-        add(ui)
-    })
-}
-
-fn dialog_head(ui: &mut Ui, p: &Palette, title: &str, actions: &mut Vec<Action>) {
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(title).size(size::TITLE));
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let close = ui.add(
-                egui::Button::new(RichText::new(icon::CLOSE).size(size::HEADING).color(p.sub))
-                    .frame(false),
-            );
-            close.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Close"));
-            if close.clicked() {
-                actions.push(Action::Close);
-            }
-        });
-    });
-}
-
+/// The Hardware drawer's rows: the shared machine facts, then the storage target.
 fn hardware_rows(hw: &HardwareSnapshot) -> Vec<(&'static str, String)> {
-    let mut rows = Vec::new();
-    match &hw.cpu {
-        Fact::Known(cpu) => {
-            rows.push(("Processor", cpu.model.clone().unwrap_or_else(|| "Unknown model".into())));
-            let level = cpu.x86_level.map(|l| format!(" · {l}")).unwrap_or_default();
-            rows.push(("Threads", format!("{}{level}", cpu.logical_cores)));
-        }
-        Fact::Unknown { reason } => rows.push(("Processor", format!("unknown ({reason})"))),
-    }
-    for gpu in &hw.gpus {
-        let driver = gpu.host_driver.as_deref().unwrap_or("no driver");
-        rows.push(("Graphics", format!("{} · {driver}", gpu.label())));
-    }
-    rows.push((
-        "Memory",
-        hw.memory_bytes
-            .known()
-            .map_or("Unknown".into(), |b| format!("{:.1} GiB", *b as f64 / (1u64 << 30) as f64)),
-    ));
-    let secure = match hw.secure_boot {
-        Fact::Known(true) => "on",
-        Fact::Known(false) => "off",
-        Fact::Unknown { .. } => "unknown",
-    };
-    rows.push(("Firmware", format!("{} · Secure Boot {secure}", hw.firmware)));
-    rows.push(("Device", capitalize(&hw.device_class.to_string())));
-    for display in &hw.displays {
-        let place = if display.internal { "built-in" } else { "external" };
-        rows.push((
-            "Display",
-            format!("{} · {place} · {}", display.connector, display.mode.as_deref().unwrap_or("?")),
-        ));
-    }
-    for disk in &hw.disks {
-        let usage = if disk.usage == DiskUsage::Free {
-            "available".to_owned()
-        } else {
-            disk.usage.to_string()
-        };
-        rows.push((
-            "Disk",
-            format!("{} · {:.0} GB · {}", disk.name, disk.size_bytes as f64 / 1e9, usage),
-        ));
-    }
-    for nic in &hw.network {
-        rows.push((
-            "Network",
-            format!("{} · {}", nic.interface, if nic.wireless { "Wi-Fi" } else { "wired" }),
-        ));
-    }
-    if !hw.bluetooth.is_empty() {
-        rows.push(("Bluetooth", hw.bluetooth.join(", ")));
-    }
-    for input in &hw.inputs {
-        rows.push(("Input", format!("{} · {}", input.kind, input.name)));
-    }
+    let mut rows: Vec<_> = hardware_facts(hw)
+        .into_iter()
+        .map(|(label, value, detail)| {
+            (label, if detail.is_empty() { value } else { format!("{value} · {detail}") })
+        })
+        .collect();
     rows.push(("Storage target", "None selected".into()));
     rows
 }

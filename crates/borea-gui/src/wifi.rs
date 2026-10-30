@@ -96,13 +96,21 @@ impl WifiLink {
                 // Scan straight away rather than showing whatever NetworkManager saw last.
                 let _ = wifi.rescan();
                 refresh(&wifi);
+                // A USB adapter plugged in later is scanned with as soon as it appears.
+                let mut adapters = wifi.adapter_count();
                 loop {
                     let command = match inbox.recv_timeout(WATCH) {
                         Ok(command) => command,
                         Err(mpsc::RecvTimeoutError::Timeout) => Command::Refresh,
                         Err(mpsc::RecvTimeoutError::Disconnected) => return,
                     };
+                    let now = wifi.adapter_count();
+                    let plugged_in = now > adapters;
+                    adapters = now;
                     let outcome = match command {
+                        Command::Refresh if plugged_in => wifi
+                            .rescan()
+                            .map(|()| Some("Found a Wi-Fi adapter. Scanning…".to_owned())),
                         Command::Refresh => Ok(None),
                         Command::Rescan => wifi.rescan().map(|()| Some("Scanning…".to_owned())),
                         Command::Join { network, passphrase } => wifi

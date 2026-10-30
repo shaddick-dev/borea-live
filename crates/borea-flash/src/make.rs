@@ -4,18 +4,16 @@
 
 use std::collections::{BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Instant, SystemTime};
 
 use ratatui::Frame;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style, Stylize};
+use ratatui::layout::{Constraint, Layout};
+use ratatui::style::{Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Padding, Paragraph, Wrap};
+use ratatui::widgets::Paragraph;
 
-const ACCENT: Color = Color::Rgb(0xa2, 0xc4, 0xa8);
-const SUB: Color = Color::Rgb(0x8a, 0x96, 0x8c);
-const WARN: Color = Color::Rgb(0xe3, 0x9b, 0x84);
+use crate::ui::{self, ACCENT, SUB, WARN};
 
 /// Lines of build output kept on screen.
 const TAIL: usize = 12;
@@ -47,8 +45,15 @@ pub fn newest_image(repo: &Path) -> Option<PathBuf> {
 /// made from changed after the newest one.
 pub fn needs_build(repo: &Path, image: Option<&Path>) -> bool {
     let Some(built) = image.and_then(|i| i.metadata().ok()?.modified().ok()) else { return true };
-    let sources =
-        [repo.join("crates"), repo.join("live"), repo.join("Cargo.lock"), repo.join("Cargo.toml")];
+    // backend/dist holds the installer's service files and signing keys, which
+    // go into the image; the rest of backend/ (docs, VM tests) does not.
+    let sources = [
+        repo.join("crates"),
+        repo.join("live"),
+        repo.join("backend/dist"),
+        repo.join("Cargo.lock"),
+        repo.join("Cargo.toml"),
+    ];
     sources.iter().any(|source| {
         // Build output and documentation never change the image.
         newest(source, &|p| {
@@ -84,6 +89,7 @@ pub enum BuildRequest {
 }
 
 pub struct BuildView {
+    compose: bool,
     started: Instant,
     /// The package Buildroot is working on.
     current: Option<String>,
@@ -97,6 +103,7 @@ pub struct BuildView {
 impl BuildView {
     pub fn new(log: PathBuf) -> Self {
         BuildView {
+            compose: false,
             started: Instant::now(),
             current: None,
             finished: BTreeSet::new(),
@@ -105,6 +112,16 @@ impl BuildView {
             failed: None,
             log,
         }
+    }
+
+    pub fn composition(log: PathBuf) -> Self {
+        let mut view = Self::new(log);
+        view.compose = true;
+        view
+    }
+
+    pub fn is_composing(&self) -> bool {
+        self.compose
     }
 
     /// One line of build output.
@@ -164,80 +181,177 @@ impl BuildView {
         }
     }
 
-    pub fn render(&self, frame: &mut Frame, area: Rect) {
-        let area = area.inner(ratatui::layout::Margin { horizontal: 2, vertical: 0 });
-        let [_, title, status, _, output, ask] = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Length(2),
-            Constraint::Length(2),
-            Constraint::Length(1),
-            Constraint::Fill(1),
-            Constraint::Length(3),
-        ])
-        .areas(area);
-
-        let elapsed = clock(self.started.elapsed());
-        let heading = match &self.failed {
-            Some(_) => Span::styled("✕ The build stopped.", Style::new().fg(WARN).bold()),
-            None => Span::raw("Building Borea Live").bold(),
+    pub fn render(&self, frame: &mut Frame) {
+        let (note, keys): (Option<&str>, Vec<(&str, &str)>) = match (&self.failed, self.stop_asked)
+        {
+            (Some(_), _) => (None, vec![("r", "resume (keeps what was built)"), ("q", "quit")]),
+            (None, true) => (
+                Some("Stop the build? Everything finished so far is kept for next time."),
+                vec![("y", "stop"), ("any other key", "keep building")],
+            ),
+            (None, false) => (None, vec![("Esc", "stop")]),
         };
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![heading, Span::styled(format!("   {elapsed}"), SUB)])),
-            title,
+        let area = ui::screen(frame, ui::Step::Image, note, &keys);
+        let width = area.width;
+        let elapsed =
+            Span::styled(format!("   {}", ui::clock(self.started.elapsed().as_secs())), SUB);
+        let mut lines = vec![Line::from("")];
+        match &self.failed {
+            Some(why) => {
+                lines.push(Line::from(vec![
+                    Span::styled("✕ The build stopped", Style::new().fg(WARN).bold()),
+                    elapsed,
+                ]));
+                lines.push(Line::from(""));
+                lines.extend(ui::text(why, width, Style::new().fg(WARN)));
+            }
+            None => {
+                lines.push(Line::from(vec![Span::raw("Building Borea Live").bold(), elapsed]));
+                lines.push(Line::from(""));
+                lines.push(match &self.current {
+                    Some(current) => {
+                        Line::from(vec![Span::styled("● ", ACCENT), Span::raw(current.clone())])
+                    }
+                    None => Line::from(Span::styled("Preparing…", SUB)),
+                });
+                if !self.compose {
+                    lines.push(Line::from(Span::styled(
+                        format!("{} built", ui::count(self.finished.len(), "package", "packages")),
+                        SUB,
+                    )));
+                }
+                lines.push(Line::from(""));
+                lines.extend(ui::text(
+                    if self.compose {
+                        "Assembling prebuilt Linux packages and Borea's Rust apps. No Borea release is needed. First use downloads the runtime and compiles the apps; later runs reuse both caches. When ready, choose your USB stick."
+                    } else {
+                        "The first build compiles a whole Linux system from source: an hour or more, depending on your machine. Later builds reuse what is unchanged. When it finishes, Borea moves straight on to your USB stick."
+                    },
+                    width,
+                    Style::new().fg(SUB),
+                ));
+            }
+        }
+        lines.push(Line::from(""));
+        let height = lines.len() as u16;
+        let [top, output] =
+            Layout::vertical([Constraint::Length(height), Constraint::Fill(1)]).areas(area);
+        frame.render_widget(Paragraph::new(lines), top);
+
+        let tail: Vec<Line> = self
+            .tail
+            .iter()
+            .skip(self.tail.len().saturating_sub(output.height.saturating_sub(2) as usize))
+            .map(|l| Line::from(Span::styled(l.clone(), SUB)))
+            .collect();
+        let mut log = match std::env::var_os("HOME") {
+            Some(home) => match self.log.strip_prefix(&home) {
+                Ok(rest) => format!("~/{}", rest.display()),
+                Err(_) => self.log.display().to_string(),
+            },
+            None => self.log.display().to_string(),
+        };
+        // Too long for the box's bottom edge: the checkout-relative path will do.
+        if log.chars().count() + 16 > width as usize {
+            log = "target/live/build.log".into();
+        }
+        let block = ui::panel(" Build output ").title_bottom(
+            Line::from(Span::styled(format!(" full log: {log} "), SUB)).right_aligned(),
         );
-
-        let status_line = match (&self.failed, &self.current) {
-            (Some(why), _) => Line::from(Span::styled(why.clone(), WARN)),
-            (None, Some(current)) => Line::from(vec![
-                Span::styled("● ", ACCENT),
-                Span::raw(current.clone()),
-                Span::styled(format!("   {} packages done", self.finished.len()), SUB),
-            ]),
-            (None, None) => Line::from(Span::styled("Preparing…", SUB)),
-        };
-        let note = Line::from(Span::styled(
-            "The first build compiles everything from source and takes a few hours. Later ones reuse what is unchanged.",
-            SUB,
-        ));
-        frame.render_widget(
-            Paragraph::new(vec![status_line, note]).wrap(Wrap { trim: true }),
-            status,
-        );
-
-        let lines: Vec<Line> =
-            self.tail.iter().map(|l| Line::from(Span::styled(l.clone(), SUB))).collect();
-        let block = Block::new()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .border_style(Style::new().fg(Color::Rgb(0x39, 0x44, 0x3b)))
-            .title(Span::styled(format!(" Build output · full log: {} ", self.log.display()), SUB))
-            .padding(Padding::horizontal(1));
-        frame.render_widget(Paragraph::new(lines).block(block), output);
-
-        let footer = match (&self.failed, self.stop_asked) {
-            (Some(_), _) => vec![Line::from(Span::styled(
-                "r try again (picks up where it stopped) · q quit",
-                SUB,
-            ))],
-            (None, true) => vec![
-                Line::from(Span::styled(
-                    "Stop the build? Everything finished so far is kept for next time.",
-                    Style::new().fg(WARN).add_modifier(Modifier::BOLD),
-                )),
-                Line::from(Span::styled("y stop · any other key keep building", SUB)),
-            ],
-            (None, false) => vec![Line::from(Span::styled(
-                "When it finishes, Borea moves straight on to writing your USB stick · Esc stop",
-                SUB,
-            ))],
-        };
-        frame.render_widget(Paragraph::new(footer), ask);
+        if output.height >= 3 {
+            frame.render_widget(Paragraph::new(tail).block(block), output);
+        }
     }
 }
 
-fn clock(elapsed: Duration) -> String {
-    let s = elapsed.as_secs();
-    format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
+/// What failed in the latest build, from its log: "package: error". With
+/// packages building side by side, the log's last lines are usually another
+/// package still finishing, so this looks for the first failed step instead.
+pub fn failure(log: &str) -> Option<String> {
+    let run = log.rsplit("── borea-flash --make ──").next().unwrap_or(log);
+    let lines: Vec<&str> = run.lines().collect();
+    let failed = lines
+        .iter()
+        .position(|l| l.starts_with("make[") && l.contains("]: *** ") && l.contains("/build/"))?;
+    let package = lines[failed]
+        .split("/build/")
+        .nth(1)
+        .and_then(|rest| rest.split('/').next())
+        .unwrap_or("a package");
+    let error = lines[failed.saturating_sub(60)..failed]
+        .iter()
+        .rev()
+        .map(|l| l.trim())
+        .find(|l| l.contains("error:") || l.contains("ERROR:") || l.starts_with("Error"))
+        .map(|l| l.chars().take(240).collect::<String>());
+    Some(match error {
+        Some(error) => format!("{package} failed: {error}"),
+        None => {
+            format!("{package} failed; its error is just above the first `***` line in the log")
+        }
+    })
+}
+
+/// The end of a possibly very large log, at most `limit` bytes.
+pub fn log_tail(path: &Path, limit: u64) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).ok()?;
+    let length = file.metadata().ok()?.len();
+    file.seek(SeekFrom::Start(length.saturating_sub(limit))).ok()?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).ok()?;
+    Some(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+#[cfg(test)]
+mod rebuild_tests {
+    use super::needs_build;
+    use std::time::{Duration, SystemTime};
+
+    fn touch(path: &std::path::Path, age: Duration) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, b"x").unwrap();
+        let when = SystemTime::now() - age;
+        std::fs::File::options().write(true).open(path).unwrap().set_modified(when).unwrap();
+    }
+
+    #[test]
+    fn installer_service_files_and_keys_count_but_backend_docs_do_not() {
+        let repo = crate::image::tests::temp_dir("rebuild");
+        let iso = repo.join("target/live/out/borea-live-0.1.0.iso");
+        touch(&repo.join("crates/a.rs"), Duration::from_secs(300));
+        touch(&iso, Duration::from_secs(200));
+        assert!(!needs_build(&repo, Some(&iso)));
+        touch(&repo.join("backend/docs/verification/run.txt"), Duration::from_secs(100));
+        assert!(!needs_build(&repo, Some(&iso)), "verification logs don't change the image");
+        touch(&repo.join("backend/dist/keys/arch.gpg"), Duration::from_secs(100));
+        assert!(needs_build(&repo, Some(&iso)), "a new signing key does");
+    }
+}
+
+#[cfg(test)]
+mod failure_tests {
+    use super::failure;
+
+    #[test]
+    fn names_the_package_that_failed_not_the_last_one_printed() {
+        let log = "── borea-flash --make ──\n\
+            make[1]: *** [package/pkg-generic.mk:263: /x/output/build/polkit-126/.stamp_configured] Error 1\n\
+            ── borea-flash --make ──\n\
+            checking for clang... no\n\
+            configure: error: clang invalid, set CC_FOR_TARGET to a valid program\n\
+            make[1]: *** [package/pkg-generic.mk:263: /x/output/build/host-limine-12.9.4/.stamp_configured] Error 1\n\
+            make[1]: *** Waiting for unfinished jobs....\n\
+            [100%] Built target spirv-reduce\n\
+            make: *** [Makefile:83: _all] Error 2\n";
+        assert_eq!(
+            failure(log).as_deref(),
+            Some(
+                "host-limine-12.9.4 failed: configure: error: clang invalid, set CC_FOR_TARGET to a valid program"
+            )
+        );
+        assert_eq!(failure("all good\n"), None);
+    }
 }
 
 #[cfg(test)]
@@ -246,6 +360,7 @@ mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::crossterm::event::{KeyEventKind, KeyEventState};
+    use std::time::Duration;
 
     fn press(view: &mut BuildView, code: KeyCode) -> Option<BuildRequest> {
         view.key(KeyEvent {
@@ -258,7 +373,7 @@ mod tests {
 
     fn screen(view: &BuildView) -> String {
         let mut terminal = Terminal::new(TestBackend::new(110, 26)).unwrap();
-        terminal.draw(|f| view.render(f, f.area())).unwrap();
+        terminal.draw(|f| view.render(f)).unwrap();
         let buffer = terminal.backend().buffer().clone();
         buffer
             .content
@@ -277,7 +392,7 @@ mod tests {
         view.line(">>> mesa3d 26.1.0 Configuring");
         let text = screen(&view);
         assert!(text.contains("mesa3d · configuring"), "{text}");
-        assert!(text.contains("1 packages done"));
+        assert!(text.contains("1 package built"));
         assert!(text.contains("gcc -O2 -c foo.c"));
     }
 
@@ -291,7 +406,7 @@ mod tests {
         assert_eq!(press(&mut view, KeyCode::Char('y')), Some(BuildRequest::Stop));
 
         view.failed("make failed (exit status: 2)".into());
-        assert!(screen(&view).contains("The build stopped."));
+        assert!(screen(&view).contains("The build stopped"));
         assert_eq!(press(&mut view, KeyCode::Char('r')), Some(BuildRequest::Retry));
     }
 

@@ -33,6 +33,9 @@ CONFIG_SCSI_VIRTIO=y
 CONFIG_EFI=y
 CONFIG_EFI_STUB=y
 CONFIG_EFIVAR_FS=y
+# Starting other installers from the stick: kexec_file_load
+CONFIG_KEXEC=y
+CONFIG_KEXEC_FILE=y
 
 # Filesystems the installer reads and writes.
 CONFIG_EXT4_FS=y

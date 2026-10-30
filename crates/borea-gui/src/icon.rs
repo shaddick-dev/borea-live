@@ -1,7 +1,7 @@
 //! Nerd Font icons the interface uses, by meaning. Each is one glyph of the bundled
 //! JetBrains Mono Nerd Font; names follow nerdfonts.com's cheat sheet.
 
-use borea_core::Family;
+use borea_live_core::Family;
 
 // Distributions and desktops (nf-linux-*).
 pub const ARCH: &str = "\u{f303}";
@@ -27,6 +27,8 @@ pub const WIFI: &str = "\u{f05a9}";
 pub const WIFI_OFF: &str = "\u{f05aa}";
 pub const ETHERNET: &str = "\u{f0200}";
 pub const SHIELD: &str = "\u{f0565}";
+pub const BLUETOOTH: &str = "\u{f00af}";
+pub const KEYBOARD: &str = "\u{f030c}";
 
 // Desktop and extras.
 pub const WINDOW: &str = "\u{f10ac}";
@@ -39,6 +41,7 @@ pub const PACKAGE: &str = "\u{f03d6}";
 
 // Marks.
 pub const CHECK: &str = "\u{f012c}";
+pub const ALERT: &str = "\u{f0026}";
 pub const CLOSE: &str = "\u{f0156}";
 pub const NEXT: &str = "\u{f19b0}";
 pub const BACK: &str = "\u{f19b1}";
@@ -108,9 +111,9 @@ pub fn plain(text: &str) -> String {
 #[cfg(test)]
 pub const ALL: &[&str] = &[
     ARCH, CACHYOS, FEDORA, NOBARA, DEBIAN, OPENSUSE, TUMBLEWEED, TUX, HYPRLAND, FLATHUB, CPU, GPU,
-    MEMORY, CHIP, DISK, MONITOR, LAPTOP, WIFI, WIFI_OFF, ETHERNET, SHIELD, WINDOW, DASHBOARD,
-    CONSOLE, GAMEPAD, FILM, PRINTER, PACKAGE, CHECK, CLOSE, NEXT, BACK, OPEN, CHEVRON, STAR, DOT,
-    RING, THEME, WIND, ONE, TWO,
+    MEMORY, CHIP, DISK, MONITOR, LAPTOP, WIFI, WIFI_OFF, ETHERNET, SHIELD, BLUETOOTH, KEYBOARD,
+    WINDOW, DASHBOARD, CONSOLE, GAMEPAD, FILM, PRINTER, PACKAGE, CHECK, ALERT, CLOSE, NEXT, BACK,
+    OPEN, CHEVRON, STAR, DOT, RING, THEME, WIND, ONE, TWO,
 ];
 
 #[cfg(test)]

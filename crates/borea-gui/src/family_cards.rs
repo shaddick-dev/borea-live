@@ -1,5 +1,5 @@
 //! Portrait family cards, following the hero-select treatment in Claude's prototype.
-use borea_core::Family;
+use borea_live_core::Family;
 use eframe::egui::{
     self, Align2, Color32, CornerRadius, FontId, Pos2, Response, Shape, Stroke, Ui,
 };
@@ -69,8 +69,8 @@ pub fn card(
         0.0
     };
     // Reserve the lift inside the allocation, so neighboring cards never move.
-    let rect =
-        response.rect.shrink2(egui::vec2(2.0, 9.0)).translate(egui::vec2(0.0, -5.0 * emphasis));
+    let lift = if motion { -5.0 * emphasis } else { 0.0 };
+    let rect = response.rect.shrink2(egui::vec2(2.0, 9.0)).translate(egui::vec2(0.0, lift));
     let painter = ui.painter_at(rect);
     let radius = CornerRadius::same(12);
     let stroke = if active { Stroke::new(1.7, accent) } else { Stroke::new(1.0, palette.line) };

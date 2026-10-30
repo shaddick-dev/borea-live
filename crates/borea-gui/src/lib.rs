@@ -1,7 +1,7 @@
 //! Windpad and the Borea Live installer.
 //!
-//! Two faces of one workflow, sharing the catalog model, theme, widgets, wind, and
-//! Wi-Fi: `windpad` is the landing pad; `borea-live` is the guided, full-screen
+//! Two faces of one workflow, sharing the catalog model, theme, widgets, wind,
+//! Wi-Fi, hardware facts, and the firmware-setup restart: `windpad` is the landing pad; `borea-live` is the guided, full-screen
 //! installer the live ISO boots into.
 //!
 //! Windpad:
@@ -12,10 +12,13 @@
 
 pub mod app;
 mod family_cards;
-mod firmware;
+pub mod firmware;
+pub mod handoff;
 pub mod icon;
+pub mod install;
 pub mod live;
 pub mod model;
+pub mod powerup;
 pub mod theme;
 pub mod widgets;
 pub mod wifi;

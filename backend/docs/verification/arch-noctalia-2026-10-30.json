@@ -1,0 +1,228 @@
+{
+  "checked": "2026-10-30",
+  "source": [
+    "https://geo.mirror.pkgbuild.com/core/os/x86_64/core.db",
+    "https://geo.mirror.pkgbuild.com/extra/os/x86_64/extra.db",
+    "https://geo.mirror.pkgbuild.com/multilib/os/x86_64/multilib.db"
+  ],
+  "packages": [
+    {
+      "name": "accountsservice",
+      "repo": "extra",
+      "version": "26.27.3-1",
+      "found": true
+    },
+    {
+      "name": "cups",
+      "repo": "extra",
+      "version": "2:2.4.20-1",
+      "found": true
+    },
+    {
+      "name": "dbus",
+      "repo": "core",
+      "version": "1.16.2-2",
+      "found": true
+    },
+    {
+      "name": "ffmpeg",
+      "repo": "extra",
+      "version": "2:9.0.2-2",
+      "found": true
+    },
+    {
+      "name": "flatpak",
+      "repo": "extra",
+      "version": "1:1.18.4-2",
+      "found": true
+    },
+    {
+      "name": "foot",
+      "repo": "extra",
+      "version": "1.28.0-2",
+      "found": true
+    },
+    {
+      "name": "gamemode",
+      "repo": "extra",
+      "version": "1.8.2-3",
+      "found": true
+    },
+    {
+      "name": "gamescope",
+      "repo": "extra",
+      "version": "3.17.0-1",
+      "found": true
+    },
+    {
+      "name": "greetd",
+      "repo": "extra",
+      "version": "0.10.3-2",
+      "found": true
+    },
+    {
+      "name": "gst-libav",
+      "repo": "extra",
+      "version": "1.28.8-1",
+      "found": true
+    },
+    {
+      "name": "gst-plugins-bad",
+      "repo": "extra",
+      "version": "1.28.8-1",
+      "found": true
+    },
+    {
+      "name": "gst-plugins-good",
+      "repo": "extra",
+      "version": "1.28.8-1",
+      "found": true
+    },
+    {
+      "name": "gst-plugins-ugly",
+      "repo": "extra",
+      "version": "1.28.8-1",
+      "found": true
+    },
+    {
+      "name": "hyprland",
+      "repo": "extra",
+      "version": "0.57.0-1",
+      "found": true
+    },
+    {
+      "name": "intel-media-driver",
+      "repo": "extra",
+      "version": "26.3.5-1",
+      "found": true
+    },
+    {
+      "name": "lib32-gamemode",
+      "repo": "multilib",
+      "version": "1.8.2-1",
+      "found": true
+    },
+    {
+      "name": "lib32-mangohud",
+      "repo": "multilib",
+      "version": "0.8.4-1",
+      "found": true
+    },
+    {
+      "name": "linux-firmware",
+      "repo": "core",
+      "version": "20260916-1",
+      "found": true
+    },
+    {
+      "name": "lutris",
+      "repo": "extra",
+      "version": "0.5.22-3",
+      "found": true
+    },
+    {
+      "name": "mangohud",
+      "repo": "extra",
+      "version": "0.8.4-1",
+      "found": true
+    },
+    {
+      "name": "mesa",
+      "repo": "extra",
+      "version": "1:26.2.6-1",
+      "found": true
+    },
+    {
+      "name": "noctalia",
+      "repo": "extra",
+      "version": "5.4.0-1",
+      "found": true
+    },
+    {
+      "name": "noctalia-greeter",
+      "repo": "extra",
+      "version": "1.7.0-1",
+      "found": true
+    },
+    {
+      "name": "pipewire",
+      "repo": "extra",
+      "version": "1:1.6.10-1",
+      "found": true
+    },
+    {
+      "name": "pipewire-pulse",
+      "repo": "extra",
+      "version": "1:1.6.10-1",
+      "found": true
+    },
+    {
+      "name": "plymouth",
+      "repo": "extra",
+      "version": "26.134.222-3",
+      "found": true
+    },
+    {
+      "name": "polkit",
+      "repo": "extra",
+      "version": "128-1",
+      "found": true
+    },
+    {
+      "name": "steam",
+      "repo": "multilib",
+      "version": "1.0.0.87-3",
+      "found": true
+    },
+    {
+      "name": "system-config-printer",
+      "repo": "extra",
+      "version": "1.5.18-7",
+      "found": true
+    },
+    {
+      "name": "ttf-dejavu",
+      "repo": "extra",
+      "version": "2.37+18+g9b5d1b2f-8",
+      "found": true
+    },
+    {
+      "name": "vulkan-intel",
+      "repo": "extra",
+      "version": "1:26.2.6-1",
+      "found": true
+    },
+    {
+      "name": "wine",
+      "repo": "extra",
+      "version": "11.20-1",
+      "found": true
+    },
+    {
+      "name": "wireplumber",
+      "repo": "extra",
+      "version": "0.5.18-1",
+      "found": true
+    },
+    {
+      "name": "xdg-desktop-portal-gtk",
+      "repo": "extra",
+      "version": "1.15.3-2",
+      "found": true
+    },
+    {
+      "name": "xdg-desktop-portal-hyprland",
+      "repo": "extra",
+      "version": "1.4.1-2",
+      "found": true
+    },
+    {
+      "name": "xdg-user-dirs",
+      "repo": "extra",
+      "version": "0.20-1",
+      "found": true
+    }
+  ],
+  "latest_upstream_noctalia": "5.4.1",
+  "note": "Read-only official mirror database audit. Not a package-signature, installed-system or Arc hardware test."
+}

@@ -1,18 +1,24 @@
 //! Firmware actions run off the UI thread. Preview instances never contact the host.
 use std::{
-    io::{BufRead, BufReader, Read, Write},
-    os::unix::net::UnixStream,
-    path::Path,
     sync::mpsc::{self, Receiver},
     thread,
     time::Duration,
 };
 
 use eframe::egui;
-use serde_json::{Value, json};
-use zbus::blocking::{Connection, Proxy};
+use serde_json::Value;
 
-const SOCKET: &str = "/run/borea/installd.sock";
+use crate::icon;
+use crate::theme::{Palette, size};
+use crate::widgets::{caption, dialog, dialog_head, notice, primary, quiet};
+
+/// What was chosen in the restart confirmation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Choice {
+    Cancel,
+    Restart,
+}
+use zbus::blocking::{Connection, Proxy};
 
 pub struct FirmwareLink {
     pub available: bool,
@@ -79,6 +85,65 @@ impl FirmwareLink {
         }
     }
 
+    /// Whether the "UEFI setup" control is usable, and the hint that explains it.
+    /// `uefi` is whether this session booted with UEFI. Both windows use this, each
+    /// drawing the control in its own place: Windpad's header, Borea Live's rail.
+    pub fn control(&self, uefi: bool) -> (bool, &str) {
+        let enabled = uefi && self.available && !self.restarting;
+        let hint = if !uefi {
+            "Restarting into firmware setup requires a UEFI session. Use your firmware's startup key instead."
+        } else if !self.available {
+            self.reason.as_str()
+        } else {
+            "Restart into UEFI Firmware Setup to change Secure Boot settings."
+        };
+        (enabled, hint)
+    }
+
+    /// The label both windows give the control.
+    pub fn label() -> String {
+        format!("{}  UEFI setup", icon::CPU)
+    }
+
+    /// The restart confirmation. Returns what was chosen this frame, if anything.
+    pub fn confirmation(&self, ctx: &egui::Context, p: &Palette) -> Option<Choice> {
+        let mut choice = None;
+        let response = dialog(ctx, "firmware", p, 440.0, |ui| {
+            if dialog_head(ui, p, "Restart into UEFI setup?") {
+                choice = Some(Choice::Cancel);
+            }
+            ui.add_space(8.0);
+            ui.label(egui::RichText::new("The computer will restart into its firmware settings, where you can change Secure Boot. Return to the BOREA USB afterwards to continue installation.").size(size::BODY));
+            ui.label(caption("Your current choices are not saved across this restart.", p));
+            if let Some(error) = &self.error {
+                ui.add_space(8.0);
+                notice(ui, p, error);
+            }
+            ui.add_space(16.0);
+            ui.add_enabled_ui(!self.restarting, |ui| {
+                ui.horizontal(|ui| {
+                    if quiet(ui, p, "Cancel").clicked() {
+                        choice = Some(Choice::Cancel);
+                    }
+                    if primary(ui, p, "Restart into firmware", false).clicked() {
+                        choice = Some(Choice::Restart);
+                    }
+                });
+            });
+            if self.restarting {
+                ui.label(caption("Restarting into firmware setup…", p));
+            }
+        });
+        if response.should_close() && choice.is_none() {
+            choice = Some(Choice::Cancel);
+        }
+        // Nothing can be cancelled once the restart request is on its way.
+        if self.restarting && choice == Some(Choice::Cancel) {
+            return None;
+        }
+        choice
+    }
+
     pub fn reboot(&mut self, ctx: egui::Context) {
         if !self.available || self.restarting {
             return;
@@ -94,34 +159,31 @@ impl FirmwareLink {
 }
 
 fn backend_request(reboot: bool) -> Result<(), String> {
-    let mut stream = UnixStream::connect(SOCKET).map_err(|e| e.to_string())?;
-    let timeout = Some(Duration::from_secs(30));
-    stream.set_read_timeout(timeout).map_err(|e| e.to_string())?;
-    stream.set_write_timeout(timeout).map_err(|e| e.to_string())?;
-    let request = if reboot {
-        json!({"jsonrpc":"2.0","id":1,"method":"system.reboot","params":{"firmware_setup":true}})
-    } else {
-        json!({"jsonrpc":"2.0","id":1,"method":"system.info"})
-    };
-    writeln!(stream, "{request}").map_err(|e| e.to_string())?;
-    let mut line = String::new();
-    BufReader::new(stream).take(64 * 1024).read_line(&mut line).map_err(|e| e.to_string())?;
-    let response: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
-    if let Some(error) = response.get("error") {
-        return Err(error["message"].as_str().unwrap_or("Firmware restart was refused.").into());
+    let timeout = Duration::from_secs(30);
+    if reboot {
+        let params = borea_protocol::RebootParams { firmware_setup: true };
+        return borea_protocol::call::<_, Value>(
+            borea_protocol::method::SYSTEM_REBOOT,
+            &params,
+            timeout,
+        )
+        .map(drop)
+        .map_err(|e| e.to_string());
     }
-    if response["id"] != 1 || response.get("result").is_none() {
-        return Err("The installer returned an invalid firmware response.".into());
-    }
-    if !reboot && response["result"]["firmware_setup"] != true {
+    let info: borea_protocol::SystemInfo =
+        borea_protocol::call(borea_protocol::method::SYSTEM_INFO, &Value::Null, timeout)
+            .map_err(|e| e.to_string())?;
+    if !info.firmware_setup {
         return Err("This firmware does not support restarting directly into setup. Use its startup key instead.".into());
     }
     Ok(())
 }
 
 fn request(reboot: bool) -> Result<(), String> {
-    // Once installd is present it owns the action, including its active-job guard.
-    if Path::new(SOCKET).exists() {
+    // installd owns the action, including its active-job guard. The logind path is
+    // only for development sessions without the service: installs need installd, so
+    // with no socket there is no installation to interrupt.
+    if borea_protocol::present() {
         return backend_request(reboot);
     }
     let connection = Connection::system().map_err(|e| e.to_string())?;

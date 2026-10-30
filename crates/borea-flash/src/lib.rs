@@ -8,12 +8,15 @@
 //!   opening it, opens it exclusively, and reads every byte back to verify.
 
 pub mod app;
+pub mod datapart;
 pub mod device;
+pub mod download;
 pub mod image;
 pub mod install;
 pub mod make;
 pub mod target;
 pub mod terminal;
+pub mod ui;
 pub mod write;
 
 use std::path::PathBuf;

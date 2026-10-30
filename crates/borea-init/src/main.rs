@@ -48,6 +48,7 @@ fn main() {
 }
 
 fn boot(signed: bool) -> Result<(), String> {
+    say("Borea: starting the live environment…");
     for (fs_type, target) in [("proc", "/proc"), ("sysfs", "/sys"), ("devtmpfs", "/dev")] {
         fs::create_dir_all(target).ok();
         mount(fs_type, target, fs_type, MountFlags::empty(), None)
@@ -56,9 +57,21 @@ fn boot(signed: bool) -> Result<(), String> {
     for dir in [MEDIUM, SYSTEM, WRITABLE, ROOT] {
         fs::create_dir_all(dir).map_err(|e| format!("could not create {dir}: {e}"))?;
     }
+    if let Ok(modules) = fs::read_to_string("/boot-modules") {
+        for module in modules.lines() {
+            let status = Command::new("/sbin/modprobe")
+                .arg(module)
+                .status()
+                .map_err(|e| format!("could not load {module}: {e}"))?;
+            if !status.success() {
+                return Err(format!("early-boot driver {module} could not load"));
+            }
+        }
+    }
 
     let want =
         fs::read_to_string("/build-id").map_err(|e| format!("the build ID is missing: {e}"))?;
+    say("Borea: looking for the live USB…");
     let device = find_medium(want.trim()).ok_or("its USB stick or disc was not found")?;
     say(&format!("Borea Live: starting from {device}"));
 
@@ -76,8 +89,25 @@ fn boot(signed: bool) -> Result<(), String> {
     }
 
     // EROFS mounts straight from the image file (Linux 6.12 and later).
-    mount(IMAGE, SYSTEM, "erofs", MountFlags::RDONLY, None)
-        .map_err(|e| format!("the system image would not mount: {e}"))?;
+    if let Err(direct) = mount(IMAGE, SYSTEM, "erofs", MountFlags::RDONLY, None) {
+        if !Path::new("/sbin/losetup").is_file() {
+            return Err(format!("the system image would not mount: {direct}"));
+        }
+        let device = Command::new("/sbin/losetup")
+            .args(["--find", "--show", "--read-only", IMAGE])
+            .output()
+            .map_err(|e| format!("could not attach the live image read-only: {e}"))?;
+        if !device.status.success() {
+            return Err(format!(
+                "could not attach the live image read-only: {}",
+                String::from_utf8_lossy(&device.stderr)
+            ));
+        }
+        let path = String::from_utf8(device.stdout).map_err(|e| e.to_string())?;
+        mount(path.trim(), SYSTEM, "erofs", MountFlags::RDONLY, None)
+            .map_err(|e| format!("the system image would not mount: {e}"))?;
+    }
+    say("Borea: live system image mounted.");
     mount("tmpfs", WRITABLE, "tmpfs", MountFlags::empty(), Some(c"mode=0755"))
         .map_err(|e| format!("no memory for the writable layer: {e}"))?;
     let (upper, work) = (format!("{WRITABLE}/upper"), format!("{WRITABLE}/work"));
@@ -94,6 +124,7 @@ fn boot(signed: bool) -> Result<(), String> {
     unmount("/sys", UnmountFlags::DETACH).ok();
     mount_move("/dev", "/root/dev").map_err(|e| format!("could not hand over /dev: {e}"))?;
 
+    say("Borea: starting system services and the installer…");
     switch_root()
 }
 

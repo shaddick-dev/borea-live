@@ -2,6 +2,7 @@ use borea_core::*;
 use std::collections::{BTreeMap, BTreeSet};
 pub fn plan(d: Distribution, desktop: bool) -> Plan {
     Plan {
+        extras: BTreeSet::new(),
         version: 1,
         net: NetChoice::Ethernet,
         locale: LocaleChoice {

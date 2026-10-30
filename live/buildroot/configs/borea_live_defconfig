@@ -1,16 +1,23 @@
 # Borea Live: a standalone installer image, built from upstream sources.
 # Toolchain and target
 BR2_x86_64=y
-BR2_TOOLCHAIN_BUILDROOT_GLIBC=y
-BR2_TOOLCHAIN_BUILDROOT_CXX=y
-BR2_KERNEL_HEADERS_AS_KERNEL=y
+# A prebuilt Bootlin glibc toolchain (GCC, C++, glibc) instead of compiling one
+# first: the single biggest saving on a first build. Plain x86-64, so the image
+# runs on any 64-bit PC.
+BR2_TOOLCHAIN_EXTERNAL=y
+BR2_TOOLCHAIN_EXTERNAL_BOOTLIN=y
+BR2_TOOLCHAIN_EXTERNAL_BOOTLIN_X86_64_GLIBC_STABLE=y
 BR2_CCACHE=y
 BR2_CCACHE_DIR="$(BASE_DIR)/../ccache"
+# Lets borea-build run independent packages side by side (top-level `make -j`).
+BR2_PER_PACKAGE_DIRECTORIES=y
 
 # System
 BR2_TARGET_GENERIC_HOSTNAME="borea-live"
 BR2_TARGET_GENERIC_ISSUE="Borea Live"
 BR2_INIT_SYSTEMD=y
+# Boot into the installer's session (borea-live.service), not a bare console.
+BR2_PACKAGE_SYSTEMD_DEFAULT_TARGET="graphical.target"
 BR2_ROOTFS_MERGED_USR=y
 BR2_SYSTEM_BIN_SH_BASH=y
 BR2_TARGET_GENERIC_ROOT_PASSWD=""
@@ -88,7 +95,6 @@ BR2_PACKAGE_XKEYBOARD_CONFIG=y
 BR2_PACKAGE_LIBINPUT=y
 BR2_PACKAGE_DEJAVU=y
 BR2_PACKAGE_SYSTEMD_LOGIND=y
-BR2_PACKAGE_SYSTEMD_POLKIT=y
 BR2_PACKAGE_SYSTEMD_RESOLVED=y
 BR2_PACKAGE_LINUX_PAM=y
 BR2_PACKAGE_POLKIT=y
@@ -106,7 +112,7 @@ BR2_PACKAGE_CA_CERTIFICATES=y
 # Disks
 BR2_PACKAGE_UDISKS=y
 BR2_PACKAGE_UTIL_LINUX_BINARIES=y
-# borea-worker runs in a private mount namespace
+# borea-installd runs native tools in a private mount namespace
 BR2_PACKAGE_UTIL_LINUX_UNSHARE=y
 BR2_PACKAGE_E2FSPROGS=y
 BR2_PACKAGE_DOSFSTOOLS=y
@@ -114,6 +120,23 @@ BR2_PACKAGE_DOSFSTOOLS=y
 BR2_PACKAGE_DOSFSTOOLS_MKFS_FAT=y
 BR2_PACKAGE_DOSFSTOOLS_FSCK_FAT=y
 BR2_PACKAGE_GPTFDISK=y
+# Native tools borea-installd runs on the live host (crates/borea-exec preflight).
+# borea-build's dropped-option check fails the build if Buildroot rejects any of these.
+BR2_PACKAGE_CRYPTSETUP=y
+BR2_PACKAGE_BTRFS_PROGS=y
+BR2_PACKAGE_NTFS_3G=y
+BR2_PACKAGE_NTFS_3G_NTFSPROGS=y
+BR2_PACKAGE_GNUPG2=y
+BR2_PACKAGE_GNUPG2_GPGV=y
+BR2_PACKAGE_EFIBOOTMGR=y
+BR2_PACKAGE_PARTED=y
+# Starting other installers from the stick (crates/borea-handoff)
+BR2_PACKAGE_KEXEC=y
+BR2_PACKAGE_TAR=y
+BR2_PACKAGE_XZ=y
+BR2_PACKAGE_ZSTD=y
+BR2_PACKAGE_OPENSSL=y
+BR2_PACKAGE_LIBOPENSSL_BIN=y
 
 # Borea itself
 BR2_PACKAGE_HOST_RUSTC=y
@@ -126,11 +149,10 @@ BR2_PACKAGE_BUSYBOX=y
 # The image: an EROFS root, mounted straight from its file by borea-init, inside a
 # hybrid BIOS/UEFI ISO booted by Limine
 BR2_TARGET_ROOTFS_EROFS=y
-# LZMA through "custom": the plain LZMA choice is also named like Buildroot's
-# generic BR2_TARGET_ROOTFS_<FS>_LZMA switch, which then wraps the whole image
-# in an unused rootfs.erofs.lzma at lzma -9 (minutes of single-threaded work).
+# Fast LZ4 packing instead of LZMA: rebuilding the live root should not spend
+# minutes recompressing firmware. This trades some image size for much less CPU.
 BR2_TARGET_ROOTFS_EROFS_CUSTOM_COMPRESSION=y
-BR2_TARGET_ROOTFS_EROFS_COMPRESSION_ALGORITHMS="lzma,6"
+BR2_TARGET_ROOTFS_EROFS_COMPRESSION_ALGORITHMS="lz4"
 # BR2_TARGET_ROOTFS_TAR is not set
 BR2_PACKAGE_HOST_XORRISO=y
 BR2_PACKAGE_HOST_LIMINE=y

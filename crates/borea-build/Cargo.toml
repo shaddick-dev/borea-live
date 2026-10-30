@@ -12,13 +12,14 @@ path = "src/main.rs"
 
 [dependencies]
 blake2 = "0.11.0"
-borea-catalog.workspace = true
-borea-core.workspace = true
+borea-live-catalog.workspace = true
+borea-live-core.workspace = true
 flate2 = "1.1.10"
 goblin = "0.10.7"
 rustix = { version = "1.1.5", features = ["fs", "process"] }
 serde_json = "1.0.154"
 sha2 = "0.11.1"
+signal-hook = "0.3.18"
 
 [dev-dependencies]
 toml.workspace = true

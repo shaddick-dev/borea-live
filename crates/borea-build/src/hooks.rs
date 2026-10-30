@@ -37,13 +37,44 @@ fn copy(from: &Path, to: &Path) -> Result {
 const SESSION_NEEDS: &[(&str, &str)] = &[
     ("usr/share/X11/xkb/rules/evdev", "keymaps (xkeyboard-config): cage would have no keyboard"),
     ("usr/bin/cage", "the kiosk compositor"),
+    ("usr/bin/borea-session", "the live session's safe-graphics launcher"),
+    ("etc/systemd/system/borea-live.service", "the live display manager unit"),
     ("usr/bin/borea-live", "the installer"),
-    ("usr/bin/borea-worker", "the privileged installer"),
+    ("usr/bin/borea-installd", "the privileged installation service"),
+    ("usr/bin/borea-cli", "the installer service's command line"),
+    (
+        "usr/bin/borea-firstboot",
+        "the static first-boot helper: installd refuses every install without it",
+    ),
+    (
+        "etc/systemd/system/multi-user.target.wants/borea-installd.service",
+        "the installation service would not start, so nothing could install",
+    ),
+    ("usr/bin/cryptsetup", "cryptsetup: every install is encrypted"),
+    ("usr/bin/mkfs.btrfs", "btrfs-progs: the root filesystem is Btrfs"),
+    ("usr/bin/gpgv", "gpgv: native bootstrap archives are signature-checked before use"),
+    (
+        "usr/sbin/kexec",
+        "kexec-tools: Borea Live could not start other installers (the hub hand-off)",
+    ),
+    (
+        "usr/share/keyrings/borea/omarchy.gpg",
+        "Omarchy's ISO signing key: the hand-off to Omarchy would refuse every ISO",
+    ),
+    (
+        "usr/share/keyrings/borea/arch.gpg",
+        "pinned signing keys: every bootstrap signature check would refuse",
+    ),
+    ("usr/bin/ntfsinfo", "ntfsprogs: alongside-Windows safety checks would fail closed"),
     ("usr/bin/mkfs.fat", "dosfstools' mkfs.fat: EFI partitions could not be formatted"),
     ("usr/bin/sfdisk", "util-linux's sfdisk: disks could not be partitioned"),
-    ("usr/bin/unshare", "util-linux's unshare: the worker needs a private mount namespace"),
+    ("usr/bin/unshare", "util-linux's unshare: the installer needs a private mount namespace"),
     ("usr/bin/chroot", "chroot: Arch's bootstrap tools run through it"),
     ("etc/pam.d/borea-live", "the installer's PAM session: no XDG_RUNTIME_DIR without it"),
+    (
+        "etc/systemd/system/graphical.target.wants/borea-live.service",
+        "the installer's session would never start: the boot would end at a blank console",
+    ),
     (
         "etc/systemd/system/sysinit.target.wants/sys-firmware-efi-efivars.mount",
         "the UEFI variables mount: Secure Boot state would be unknown",
@@ -58,6 +89,10 @@ const LINKED: &[(&str, &str, &str)] = &[(
     "polkit without logind sees no session as local or active, so the live user's rule never applies",
 )];
 
+// These are loaded with dlopen by the GUI, so ldd on borea-live cannot catch
+// their absence. A compositor alone does not guarantee an EGL client can start.
+const SESSION_LIBRARIES: &[&str] = &["usr/lib/libwayland-egl.so.1", "usr/lib/libEGL.so.1"];
+
 /// What the session needs and `target` lacks.
 fn missing(target: &Path) -> Vec<String> {
     let files = SESSION_NEEDS
@@ -71,18 +106,89 @@ fn missing(target: &Path) -> Vec<String> {
                 .is_ok_and(|bytes| bytes.windows(library.len()).any(|w| w == library.as_bytes()))
         })
         .map(|(path, library, why)| format!("/{path} is not linked with {library}: {why}"));
-    files.chain(links).collect()
+    let libraries =
+        SESSION_LIBRARIES.iter().filter(|path| !target.join(path).is_file()).map(|path| {
+            format!("/{path}: the Wayland/EGL installer cannot start without this runtime library")
+        });
+    files.chain(links).chain(libraries).collect()
+}
+
+/// What would stop systemd starting the live session: the boot must reach
+/// graphical.target, and every enablement link must be a link to a unit in the
+/// image. systemd ignores anything in a `.wants/` directory that isn't a link,
+/// and a regular-file default.target is a target of its own that never reaches
+/// graphical.target.
+fn unit_problems(target: &Path) -> Vec<String> {
+    let mut problems = Vec::new();
+    let shown = |path: &Path| format!("/{}", path.strip_prefix(target).unwrap_or(path).display());
+    let default = ["etc/systemd/system/default.target", "usr/lib/systemd/system/default.target"]
+        .iter()
+        .map(|p| target.join(p))
+        .find(|p| fs::symlink_metadata(p).is_ok());
+    match default {
+        None => problems.push(
+            "no default.target: set BR2_PACKAGE_SYSTEMD_DEFAULT_TARGET=\"graphical.target\"".into(),
+        ),
+        Some(path) => match fs::read_link(&path) {
+            Ok(to) if to.file_name().is_some_and(|n| n == "graphical.target") => {}
+            Ok(to) => problems.push(format!(
+                "{} leads to {}, not graphical.target: the installer's session would never start",
+                shown(&path),
+                to.display()
+            )),
+            Err(_) => problems.push(format!(
+                "{} is a file, not a link to graphical.target: systemd would never start the installer's session",
+                shown(&path)
+            )),
+        },
+    }
+    let system = target.join("etc/systemd/system");
+    for dir in fs::read_dir(&system).into_iter().flatten().flatten() {
+        let name = dir.file_name().to_string_lossy().into_owned();
+        if !(name.ends_with(".wants") || name.ends_with(".requires")) {
+            continue;
+        }
+        for entry in fs::read_dir(dir.path()).into_iter().flatten().flatten() {
+            let path = entry.path();
+            match fs::read_link(&path) {
+                Err(_) => problems.push(format!(
+                    "{} is a copy, not a link: systemd ignores it, so the unit never starts",
+                    shown(&path)
+                )),
+                Ok(to) => {
+                    let resolved = match to.strip_prefix("/") {
+                        Ok(inside) => target.join(inside),
+                        Err(_) => dir.path().join(&to),
+                    };
+                    if fs::symlink_metadata(&resolved).is_err() {
+                        problems.push(format!(
+                            "{} links to {}, which is not in the image",
+                            shown(&path),
+                            to.display()
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    problems
 }
 
 pub fn post_build(target: &Path) -> Result {
-    let missing = missing(target);
-    if !missing.is_empty() {
-        return Err(format!("the live session would be broken:\n  {}", missing.join("\n  ")));
-    }
+    check_root(target)?;
     // The marker that tells Borea it runs in its own reference environment.
     write(&target.join("etc/borea-live"), format!("{}\n", env("BOREA_LIVE_VERSION")?))?;
     // Identifies this build, so the early boot finds its own medium and no other.
     write(&target.join("etc/borea-live-build"), format!("{}\n", env("BOREA_LIVE_BUILD_ID")?))
+}
+
+pub(crate) fn check_root(target: &Path) -> Result {
+    let mut missing = missing(target);
+    missing.extend(unit_problems(target));
+    if !missing.is_empty() {
+        return Err(format!("the live session would be broken:\n  {}", missing.join("\n  ")));
+    }
+    Ok(())
 }
 
 struct Signing {
@@ -100,10 +206,31 @@ pub fn post_image(images: &Path) -> Result {
         (Ok(key), Ok(cert)) => Some(Signing { key, cert }),
         _ => None,
     };
+    image(images, &host, &target, &board, &build_id, signing.as_ref())
+}
 
+pub(crate) fn compose_image(
+    images: &Path,
+    host: &Path,
+    target: &Path,
+    board: &Path,
+    build_id: &str,
+) -> Result {
+    image(images, host, target, board, build_id, None)
+}
+
+fn image(
+    images: &Path,
+    host: &Path,
+    target: &Path,
+    board: &Path,
+    build_id: &str,
+    signing: Option<&Signing>,
+) -> Result {
     // ── Early boot ──────────────────────────────────────────────────────────
     let mut early = Image::new();
-    early.program(&target, "/usr/lib/borea/borea-init", "/init")?;
+    early.program(target, "/usr/lib/borea/borea-init", "/init")?;
+    early.kernel_modules(target)?;
     early.file("/build-id", 0o644, format!("{build_id}\n").into_bytes());
     match &signing {
         // Signed builds check the system image before trusting it, and carry no
@@ -114,7 +241,7 @@ pub fn post_image(images: &Path) -> Result {
             format!("{}\n", sha256(&images.join("rootfs.erofs"))?).into_bytes(),
         ),
         // Unsigned builds keep busybox's shell for rescue.
-        None => early.program(&target, "/bin/busybox", "/bin/busybox")?,
+        None => early.program(target, "/bin/busybox", "/bin/busybox")?,
     }
     write(&images.join("initramfs.img"), early.pack()?)?;
 
@@ -126,7 +253,12 @@ pub fn post_image(images: &Path) -> Result {
     let limine = host.join("share/limine");
     copy(&images.join("bzImage"), &root.join("boot/vmlinuz"))?;
     copy(&images.join("initramfs.img"), &root.join("boot/initramfs.img"))?;
-    copy(&images.join("rootfs.erofs"), &root.join("live/rootfs.erofs"))?;
+    let rootfs = root.join("live/rootfs.erofs");
+    fs::create_dir_all(rootfs.parent().ok_or("missing ISO live directory")?)
+        .map_err(|e| e.to_string())?;
+    if fs::hard_link(images.join("rootfs.erofs"), &rootfs).is_err() {
+        copy(&images.join("rootfs.erofs"), &rootfs)?;
+    }
     write(&root.join("live/build-id"), format!("{build_id}\n"))?;
     for file in ["limine-bios.sys", "limine-bios-cd.bin", "limine-uefi-cd.bin"] {
         copy(&limine.join(file), &root.join("boot/limine").join(file))?;
@@ -135,7 +267,7 @@ pub fn post_image(images: &Path) -> Result {
 
     let config = fs::read_to_string(board.join("limine.conf")).map_err(|e| e.to_string())?;
     match &signing {
-        Some(signing) => sign(&host, &root, &config, signing)?,
+        Some(signing) => sign(host, &root, &config, signing)?,
         None => write(&root.join("boot/limine/limine.conf"), config)?,
     }
 
@@ -158,9 +290,9 @@ pub fn post_image(images: &Path) -> Result {
             "-boot-load-size",
             "4",
             "-boot-info-table",
-            "-hfsplus",
-            "-apm-block-size",
-            "2048",
+            // No HFS+/Apple partition map: Borea targets x86-64 PCs, and leaving
+            // them out keeps the fourth MBR entry free for the stick's data
+            // partition (borea-flash::datapart).
             "--efi-boot",
             "boot/limine/limine-uefi-cd.bin",
             "-efi-boot-part",
@@ -249,6 +381,9 @@ mod tests {
             fs::create_dir_all(target.join(path).parent().unwrap()).unwrap();
             fs::write(target.join(path), format!("ELF…{library}.0…")).unwrap();
         }
+        for path in SESSION_LIBRARIES {
+            fs::write(target.join(path), "library fixture").unwrap();
+        }
         assert!(missing(&target).is_empty());
         fs::remove_file(target.join("usr/share/X11/xkb/rules/evdev")).unwrap();
         let missing = missing(&target);
@@ -256,7 +391,74 @@ mod tests {
         assert!(missing[0].contains("keyboard"));
         fs::write(target.join(LINKED[0].0), "ELF without it").unwrap();
         assert_eq!(super::missing(&target).len(), 2);
+        fs::remove_file(target.join(SESSION_LIBRARIES[0])).unwrap();
+        assert!(
+            super::missing(&target).iter().any(|error| error.contains("Wayland/EGL installer"))
+        );
         fs::remove_dir_all(&target).unwrap();
+    }
+
+    #[test]
+    fn the_boot_must_reach_the_installer_session() {
+        use std::os::unix::fs::symlink;
+        let target = std::env::temp_dir().join(format!("borea-units-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&target);
+        let lib = target.join("usr/lib/systemd/system");
+        let etc = target.join("etc/systemd/system");
+        fs::create_dir_all(&lib).unwrap();
+        fs::create_dir_all(etc.join("graphical.target.wants")).unwrap();
+        fs::create_dir_all(etc.join("multi-user.target.wants")).unwrap();
+        fs::write(lib.join("graphical.target"), "").unwrap();
+        fs::write(lib.join("NetworkManager.service"), "").unwrap();
+        fs::write(etc.join("borea-live.service"), "").unwrap();
+        symlink("graphical.target", lib.join("default.target")).unwrap();
+        symlink("../borea-live.service", etc.join("graphical.target.wants/borea-live.service"))
+            .unwrap();
+        symlink(
+            "/usr/lib/systemd/system/NetworkManager.service",
+            etc.join("multi-user.target.wants/NetworkManager.service"),
+        )
+        .unwrap();
+        assert_eq!(unit_problems(&target), Vec::<String>::new());
+
+        // What the first ISO shipped: a copied default.target and copied units.
+        fs::write(etc.join("default.target"), "[Unit]\nDescription=Graphical Interface\n").unwrap();
+        fs::remove_file(etc.join("multi-user.target.wants/NetworkManager.service")).unwrap();
+        fs::write(etc.join("multi-user.target.wants/NetworkManager.service"), "").unwrap();
+        symlink("../gone.service", etc.join("graphical.target.wants/gone.service")).unwrap();
+        let problems = unit_problems(&target);
+        assert_eq!(problems.len(), 3, "{problems:?}");
+        assert!(problems.iter().any(|p| p.contains("default.target is a file")));
+        assert!(problems.iter().any(|p| p.contains("NetworkManager.service is a copy")));
+        assert!(problems.iter().any(|p| p.contains("not in the image")));
+        fs::remove_dir_all(&target).unwrap();
+    }
+
+    #[test]
+    fn the_overlay_enables_units_with_links() {
+        let system = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../live/buildroot/board/borea/rootfs-overlay/etc/systemd/system");
+        assert!(
+            fs::symlink_metadata(system.join("default.target")).is_err(),
+            "the overlay must not override default.target; the defconfig sets it"
+        );
+        for dir in fs::read_dir(&system).unwrap().flatten() {
+            if dir.file_name().to_string_lossy().ends_with(".wants") {
+                for entry in fs::read_dir(dir.path()).unwrap().flatten() {
+                    assert!(
+                        fs::read_link(entry.path()).is_ok(),
+                        "{} must be a link: systemd ignores copies",
+                        entry.path().display()
+                    );
+                }
+            }
+        }
+        let defconfig = fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../live/buildroot/configs/borea_live_defconfig"),
+        )
+        .unwrap();
+        assert!(defconfig.contains("BR2_PACKAGE_SYSTEMD_DEFAULT_TARGET=\"graphical.target\""));
     }
 
     #[test]

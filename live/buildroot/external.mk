@@ -3,11 +3,33 @@ include $(sort $(wildcard $(BR2_EXTERNAL_BOREA_PATH)/package/*/*.mk))
 # Buildroot builds polkit for ConsoleKit, which a systemd system never runs, so
 # polkit could not see any session as local or active: the live user's polkit
 # rule never applied, and logind refused Ctrl+Alt+F2. Track sessions through
-# logind instead. (After changing this, `make polkit-dirclean` once.)
+# logind instead, which needs systemd's libsystemd when polkit is built.
+#
+# Buildroot's BR2_PACKAGE_SYSTEMD_POLKIT would make systemd wait for polkit,
+# the opposite order, so the two waited on each other and a fresh build
+# configured polkit before libsystemd existed. That option stays off in the
+# defconfig: systemd only looks polkit up at build time (meson: required
+# false) and talks to it over D-Bus, so its polkit support is enabled here
+# without that ordering.
 ifeq ($(BR2_PACKAGE_POLKIT)$(BR2_INIT_SYSTEMD),yy)
 POLKIT_CONF_OPTS := $(filter-out -Dsession_tracking=ConsoleKit,$(POLKIT_CONF_OPTS)) \
 	-Dsession_tracking=logind
-polkit-depends: systemd
+# Order polkit's configure after systemd, and (with per-package directories)
+# give it systemd's files.
+POLKIT_DEPENDENCIES += systemd
+$(POLKIT_TARGET_CONFIGURE): | systemd
+SYSTEMD_CONF_OPTS := $(filter-out -Dpolkit=disabled,$(SYSTEMD_CONF_OPTS)) \
+	-Dpolkit=enabled
+endif
+
+# Linux-PAM 1.7 (meson) generates its pam_conv1 parser with bison, or byacc,
+# but Buildroot's package doesn't depend on host-bison: it only built where the
+# build machine had bison installed ("Program 'byacc' not found", seen on
+# Debian once per-package directories stopped packages borrowing undeclared
+# tools). Give it Buildroot's own bison, and order its configure after it.
+ifeq ($(BR2_PACKAGE_LINUX_PAM),y)
+LINUX_PAM_DEPENDENCIES += host-bison
+$(LINUX_PAM_TARGET_CONFIGURE): | host-bison
 endif
 
 # Every Intel Wi-Fi card. Buildroot's per-generation options leave out some of the

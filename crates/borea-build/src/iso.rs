@@ -6,6 +6,7 @@
 
 use crate::run::{arg, command, on_path, output, prefer, sha256, tool};
 use crate::{Result, keys};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::fs;
 use std::io::Read;
@@ -95,7 +96,6 @@ pub fn run(args: &[&str]) -> Result {
     }
 
     fetch_buildroot(&work, &buildroot)?;
-    pack_source(&repo, &work)?;
     link_hooks(&work)?;
 
     let version = workspace_version(&repo);
@@ -106,9 +106,18 @@ pub fn run(args: &[&str]) -> Result {
         let cpus = std::thread::available_parallelism().map_or(1, |n| n.get());
         default_jobs(cpus, memory_bytes())
     });
-    let make = |targets: &[&str]| -> Result {
+    let cpus = std::thread::available_parallelism().map_or(1, |n| n.get());
+    // `parallel` builds independent packages side by side (top-level `make -j`,
+    // with per-package directories). Make-based packages share those job slots;
+    // ninja, meson and cargo ones (LLVM, Mesa) take BR2_JLEVEL each, so the load
+    // limit keeps the machine from being oversubscribed while they overlap.
+    let make = |targets: &[&str], parallel: bool| -> Result {
         // Signing variables come only from this run, never from the caller's shell.
-        let status = command("make")
+        let mut make = command("make");
+        if parallel {
+            make.arg(format!("-j{jobs}")).arg(format!("--load-average={cpus}"));
+        }
+        let status = make
             .arg("-C")
             .arg(&buildroot)
             .arg(format!("O={}", output_dir.display()))
@@ -129,7 +138,7 @@ pub fn run(args: &[&str]) -> Result {
     };
 
     step("Configuring");
-    make(&["borea_live_defconfig"])?;
+    make(&["borea_live_defconfig"], false)?;
     let dropped = dropped_options(
         &fs::read_to_string(external.join("configs/borea_live_defconfig"))
             .map_err(|e| e.to_string())?,
@@ -142,16 +151,56 @@ pub fn run(args: &[&str]) -> Result {
         ));
     }
     println!("All Buildroot {BUILDROOT_VERSION} options accepted.");
+
+    // Buildroot never rebuilds a package whose options changed (a new sub-option
+    // like gnupg2's gpgv would never appear). Configuring kept the previous
+    // configuration as .config.old, so rebuild exactly those packages.
+    if let (Ok(old), Ok(new)) = (
+        fs::read_to_string(output_dir.join(".config.old")),
+        fs::read_to_string(output_dir.join(".config")),
+    ) {
+        let known = package_names(&[buildroot.join("package"), external.join("package")]);
+        let changed = changed_packages(&old, &new, |name| known.contains(name));
+        if !changed.is_empty() {
+            step(&format!("Options changed for {}: rebuilding them", changed.join(", ")));
+            let targets: Vec<String> = changed.iter().map(|p| format!("{p}-dirclean")).collect();
+            make(&targets.iter().map(String::as_str).collect::<Vec<_>>(), false)?;
+        }
+    }
+
     if options.configure_only {
         step(&format!("Configured: {}", output_dir.join(".config").display()));
         return Ok(());
     }
 
     step(&format!(
-        "Building with {jobs} parallel jobs (the first build takes hours; later ones reuse what is unchanged)"
+        "Building with {jobs} parallel jobs, several packages at once (the first build can take up to a few hours, depending on your machine; later ones reuse what is unchanged)"
     ));
-    make(&["borea-dirclean"])?;
-    make(&[])?;
+    // Buildroot needs a clean build after the toolchain or directory layout
+    // changes, and does not notice by itself. Downloads and ccache survive.
+    let layout = build_layout(
+        &fs::read_to_string(external.join("configs/borea_live_defconfig"))
+            .map_err(|e| e.to_string())?,
+    );
+    let stamp = output_dir.join(".borea-layout");
+    if fs::read_to_string(&stamp).is_ok_and(|built| built != layout)
+        || (!stamp.exists() && output_dir.join("build").exists())
+    {
+        step("The toolchain or build layout changed: starting a clean build");
+        make(&["clean"], false)?;
+        let _ = fs::remove_dir_all(output_dir.join("borea-cargo"));
+    }
+    fs::write(&stamp, &layout).map_err(|e| e.to_string())?;
+    retire(&output_dir.join("target"))?;
+    let source = pack_source(&repo, &work)?;
+    let installed_source = output_dir.join(".borea-source");
+    if fs::read_to_string(&installed_source).ok().as_deref() != Some(&source)
+        || !output_dir.join("target/usr/bin/borea-live").is_file()
+    {
+        make(&["borea-dirclean"], false)?;
+    }
+    make(&[], true)?;
+    fs::write(installed_source, source).map_err(|e| e.to_string())?;
 
     let date = output("date", &["+%Y%m%d"])?;
     let signed = if options.secure_boot.is_some() { "-signed" } else { "" };
@@ -166,9 +215,104 @@ pub fn run(args: &[&str]) -> Result {
     step(&format!("Done: {}", iso.display()));
     println!("Try it:   qemu-system-x86_64 -enable-kvm -m 4G -cdrom {}", iso.display());
     println!(
-        "Write it: borea-flash   (finds the newest build itself; install it once with `cargo run --release -p borea-flash -- --install`)"
+        "Write it: borea-flash   (finds the newest build itself; install it once with `cargo run --profile app -p borea-flash -- --install`)"
     );
     Ok(())
+}
+
+/// Files earlier versions of the overlay put in the image that it no longer
+/// has. Copying the overlay never deletes, so a rebuild would keep them, and
+/// the post-build check would (rightly) refuse the image.
+const RETIRED: &[&str] = &[
+    // A copy of graphical.target that kept the boot from ever reaching it.
+    "etc/systemd/system/default.target",
+    // A copy over NetworkManager's own enablement link; systemd ignored it.
+    "etc/systemd/system/multi-user.target.wants/NetworkManager.service",
+];
+
+/// Remove [`RETIRED`] files from a previous build's target directory. Only
+/// regular files: a link there now comes from a package or the overlay.
+fn retire(target: &Path) -> Result<()> {
+    for path in RETIRED.iter().map(|p| target.join(p)) {
+        if fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_file()) {
+            fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        }
+    }
+    Ok(())
+}
+
+/// Every package Buildroot (and the Borea external tree) can build, by name:
+/// each `<name>/<name>.mk`, however deep in `package/`.
+fn package_names(roots: &[PathBuf]) -> std::collections::HashSet<String> {
+    fn walk(dir: &Path, found: &mut std::collections::HashSet<String>) {
+        let Ok(entries) = fs::read_dir(dir) else { return };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                    && path.join(format!("{name}.mk")).is_file()
+                {
+                    found.insert(name.to_owned());
+                }
+                walk(&path, found);
+            }
+        }
+    }
+    let mut found = std::collections::HashSet::new();
+    for root in roots {
+        walk(root, &mut found);
+    }
+    found
+}
+
+/// Buildroot packages whose `BR2_PACKAGE_*` options differ between two
+/// configurations, as make target names (`gnupg2`, `host-lld`). Each changed
+/// symbol belongs to the longest package name it starts with.
+fn changed_packages(old: &str, new: &str, exists: impl Fn(&str) -> bool) -> Vec<String> {
+    fn symbols(config: &str) -> std::collections::BTreeMap<&str, &str> {
+        config
+            .lines()
+            .filter_map(|line| {
+                if let Some(rest) =
+                    line.strip_prefix("# ").and_then(|l| l.strip_suffix(" is not set"))
+                {
+                    return Some((rest, "n"));
+                }
+                line.split_once('=')
+            })
+            .filter(|(symbol, _)| symbol.starts_with("BR2_PACKAGE_"))
+            .collect()
+    }
+    let (old, new) = (symbols(old), symbols(new));
+    let mut changed = std::collections::BTreeSet::new();
+    for symbol in old.keys().chain(new.keys()) {
+        if old.get(symbol).unwrap_or(&"n") == new.get(symbol).unwrap_or(&"n") {
+            continue;
+        }
+        let rest = &symbol["BR2_PACKAGE_".len()..];
+        let (host, rest) = match rest.strip_prefix("HOST_") {
+            Some(rest) => (true, rest),
+            None => (false, rest),
+        };
+        let words: Vec<&str> = rest.split('_').collect();
+        for n in (1..=words.len()).rev() {
+            let name = words[..n].join("-").to_lowercase();
+            if exists(&name) {
+                changed.insert(if host { format!("host-{name}") } else { name });
+                break;
+            }
+        }
+    }
+    changed.into_iter().collect()
+}
+
+/// The defconfig lines that need a clean build when they change.
+fn build_layout(defconfig: &str) -> String {
+    defconfig
+        .lines()
+        .filter(|l| l.starts_with("BR2_TOOLCHAIN") || l.starts_with("BR2_PER_PACKAGE"))
+        .map(|l| format!("{l}\n"))
+        .collect()
 }
 
 /// Memory each compile job may need: LLVM's larger C++ files take 1–2 GB each.
@@ -189,7 +333,7 @@ fn memory_bytes() -> Option<u64> {
 }
 
 /// Held for the whole build; released when the process ends, however it ends.
-fn lock(work: &Path) -> Result<fs::File> {
+pub(crate) fn lock(work: &Path) -> Result<fs::File> {
     let file = fs::File::create(work.join(".build.lock")).map_err(|e| e.to_string())?;
     rustix::fs::flock(&file, rustix::fs::FlockOperation::NonBlockingLockExclusive)
         .map_err(|_| "another Borea Live build is already running in this checkout".to_owned())?;
@@ -267,42 +411,130 @@ fn fetch_buildroot(work: &Path, buildroot: &Path) -> Result {
 }
 
 /// This workspace with every Rust dependency vendored, so Buildroot builds offline.
-fn pack_source(repo: &Path, work: &Path) -> Result {
+const SOURCE_ITEMS: &[&str] = &["Cargo.toml", "Cargo.lock", "rustfmt.toml", "crates", "backend"];
+
+/// Content identity rather than mtimes: a checkout or touch must not force a rebuild.
+fn source_fingerprint(repo: &Path, manifests_only: bool) -> Result<String> {
+    fn visit(root: &Path, path: &Path, digest: &mut Sha256, manifests_only: bool) -> Result {
+        let meta = fs::symlink_metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        if meta.is_symlink() {
+            return Err(format!(
+                "source input {} is a symlink; use files inside the checkout",
+                path.display()
+            ));
+        }
+        if meta.is_dir() {
+            let mut children = fs::read_dir(path)
+                .map_err(|e| e.to_string())?
+                .map(|entry| entry.map(|entry| entry.path()))
+                .collect::<std::io::Result<Vec<_>>>()
+                .map_err(|e| e.to_string())?;
+            children.sort();
+            for child in children {
+                if child.file_name().is_some_and(|name| name == "target") {
+                    continue;
+                }
+                visit(root, &child, digest, manifests_only)?;
+            }
+        } else if meta.is_file()
+            && (!manifests_only
+                || path
+                    .file_name()
+                    .is_some_and(|name| name == "Cargo.toml" || name == "Cargo.lock"))
+        {
+            let relative =
+                path.strip_prefix(root).map_err(|e| e.to_string())?.as_os_str().as_encoded_bytes();
+            digest.update((relative.len() as u64).to_le_bytes());
+            digest.update(relative);
+            digest.update(meta.len().to_le_bytes());
+            let mut file = fs::File::open(path).map_err(|e| e.to_string())?;
+            let mut buffer = [0_u8; 64 * 1024];
+            loop {
+                let length = file.read(&mut buffer).map_err(|e| e.to_string())?;
+                if length == 0 {
+                    break;
+                }
+                digest.update(&buffer[..length]);
+            }
+        }
+        Ok(())
+    }
+    let mut digest = Sha256::new();
+    for item in SOURCE_ITEMS {
+        visit(repo, &repo.join(item), &mut digest, manifests_only)?;
+    }
+    if !manifests_only {
+        visit(repo, &repo.join("live/buildroot/package/borea/borea.mk"), &mut digest, false)?;
+    }
+    Ok(digest.finalize().iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+fn source_archive_matches(archive: &Path, stamp: &Path, source: &str) -> bool {
+    let Ok(saved) = fs::read_to_string(stamp) else {
+        return false;
+    };
+    let mut lines = saved.lines();
+    lines.next() == Some(source)
+        && lines
+            .next()
+            .is_some_and(|expected| sha256(archive).is_ok_and(|actual| actual == expected))
+}
+
+fn pack_source(repo: &Path, work: &Path) -> Result<String> {
+    let source = source_fingerprint(repo, false)?;
+    let archive_stamp = work.join("src/source.sha256");
+    let archive = work.join("src/borea-local.tar.gz");
+    if source_archive_matches(&archive, &archive_stamp, &source) {
+        step("Reusing Borea's unchanged source archive and vendored dependencies");
+        return Ok(source);
+    }
     step("Packing Borea's source");
     let staging = work.join("src-staging");
     let tree = staging.join("borea-local");
-    if staging.exists() {
-        fs::remove_dir_all(&staging).map_err(|e| e.to_string())?;
-    }
-    for item in ["Cargo.toml", "Cargo.lock", "rustfmt.toml", "crates"] {
+    for item in SOURCE_ITEMS {
+        let old = tree.join(item);
+        if old.is_dir() {
+            fs::remove_dir_all(&old).map_err(|e| e.to_string())?;
+        } else if old.exists() {
+            fs::remove_file(&old).map_err(|e| e.to_string())?;
+        }
         copy_tree(&repo.join(item), &tree.join(item))?;
     }
     let vendor = tree.join("VENDOR");
-    tool(
-        "cargo",
-        &[
-            "vendor",
-            "--quiet",
-            "--locked",
-            "--manifest-path",
-            arg(&tree.join("Cargo.toml"))?,
-            arg(&vendor)?,
-        ],
-    )?;
+    let manifests = source_fingerprint(repo, true)?;
+    let vendor_stamp = work.join("src/vendor.sha256");
+    if !vendor.is_dir() || fs::read_to_string(&vendor_stamp).ok().as_deref() != Some(&manifests) {
+        if vendor.exists() {
+            fs::remove_dir_all(&vendor).map_err(|e| e.to_string())?;
+        }
+        tool(
+            "cargo",
+            &[
+                "vendor",
+                "--quiet",
+                "--locked",
+                "--manifest-path",
+                arg(&tree.join("Cargo.toml"))?,
+                arg(&vendor)?,
+            ],
+        )?;
+        fs::write(vendor_stamp, manifests).map_err(|e| e.to_string())?;
+    }
     // Written here rather than taken from `cargo vendor`'s output, which `--quiet`
     // leaves empty. Every dependency comes from crates.io, so one source suffices.
     fs::create_dir_all(tree.join(".cargo")).map_err(|e| e.to_string())?;
     fs::write(tree.join(".cargo/config.toml"), VENDOR_CONFIG).map_err(|e| e.to_string())?;
-    tool(
-        "tar",
-        &["-czf", arg(&work.join("src/borea-local.tar.gz"))?, "-C", arg(&staging)?, "borea-local"],
-    )?;
+    let pending_archive = work.join("src/borea-local.tar.gz.new");
+    tool("tar", &["-czf", arg(&pending_archive)?, "-C", arg(&staging)?, "borea-local"])?;
+    fs::rename(pending_archive, &archive).map_err(|e| e.to_string())?;
     // Make Buildroot take the fresh tarball rather than a cached copy.
     let cached = work.join("dl/borea");
     if cached.exists() {
         fs::remove_dir_all(cached).map_err(|e| e.to_string())?;
     }
-    Ok(())
+    fs::write(archive_stamp, format!("{source}\n{}\n", sha256(&archive)?))
+        .map_err(|e| e.to_string())?;
+    Ok(source)
 }
 
 /// Points cargo at the vendored crates, relative to the packed source tree.
@@ -354,7 +586,7 @@ fn workspace_version(repo: &Path) -> String {
 }
 
 /// A random ID for this build; the early boot uses it to find its own medium.
-fn build_id() -> Result<String> {
+pub(crate) fn build_id() -> Result<String> {
     let mut bytes = [0u8; 16];
     fs::File::open("/dev/urandom")
         .and_then(|mut f| f.read_exact(&mut bytes))
@@ -379,10 +611,74 @@ mod tests {
     use super::*;
 
     #[test]
+    fn source_and_vendor_identity_follow_content_and_manifest_changes() {
+        let dir = std::env::temp_dir().join(format!("borea-source-key-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        for path in [
+            "Cargo.toml",
+            "Cargo.lock",
+            "rustfmt.toml",
+            "crates/app/src/main.rs",
+            "crates/app/Cargo.toml",
+            "backend/test.rs",
+            "live/buildroot/package/borea/borea.mk",
+        ] {
+            let path = dir.join(path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, "original").unwrap();
+        }
+        let source = source_fingerprint(&dir, false).unwrap();
+        let vendor = source_fingerprint(&dir, true).unwrap();
+        fs::write(dir.join("crates/app/src/main.rs"), "new implementation").unwrap();
+        assert_ne!(source, source_fingerprint(&dir, false).unwrap());
+        assert_eq!(vendor, source_fingerprint(&dir, true).unwrap());
+        fs::write(dir.join("Cargo.lock"), "new dependency").unwrap();
+        assert_ne!(vendor, source_fingerprint(&dir, true).unwrap());
+        fs::remove_file(dir.join("backend/test.rs")).unwrap();
+        assert_ne!(source, source_fingerprint(&dir, false).unwrap());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn interrupted_or_corrupted_source_archives_are_never_reused() {
+        let dir = std::env::temp_dir().join(format!("borea-archive-key-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let archive = dir.join("source.tar.gz");
+        let stamp = dir.join("stamp");
+        fs::write(&archive, "archive").unwrap();
+        fs::write(&stamp, format!("source-key\n{}\n", sha256(&archive).unwrap())).unwrap();
+        assert!(source_archive_matches(&archive, &stamp, "source-key"));
+        assert!(!source_archive_matches(&archive, &stamp, "different-source"));
+        fs::write(&archive, "incomplete").unwrap();
+        assert!(!source_archive_matches(&archive, &stamp, "source-key"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn dropped_options_are_caught() {
         let defconfig = "# comment\nBR2_PACKAGE_CAGE=y\nBR2_PACKAGE_GONE=y\nBR2_TARGET_GENERIC_HOSTNAME=\"borea-live\"\n";
         let config = "BR2_PACKAGE_CAGE=y\n# BR2_PACKAGE_GONE is not set\nBR2_TARGET_GENERIC_HOSTNAME=\"x\"\n";
         assert_eq!(dropped_options(defconfig, config), ["BR2_PACKAGE_GONE=y"]);
+    }
+
+    #[test]
+    fn packages_whose_options_changed_are_found() {
+        let old = "BR2_PACKAGE_GNUPG2=y\n# BR2_PACKAGE_GNUPG2_GPGV is not set\nBR2_PACKAGE_IW=y\n# BR2_PACKAGE_HOST_LLD is not set\nBR2_PACKAGE_LINUX_FIRMWARE=y\n";
+        let new = "BR2_PACKAGE_GNUPG2=y\nBR2_PACKAGE_GNUPG2_GPGV=y\nBR2_PACKAGE_IW=y\nBR2_PACKAGE_HOST_LLD=y\nBR2_PACKAGE_LINUX_FIRMWARE=y\nBR2_PACKAGE_LINUX_FIRMWARE_IWLWIFI_7=y\nBR2_TOOLCHAIN_EXTERNAL=y\n";
+        let known = ["gnupg2", "iw", "lld", "linux-firmware", "linux"];
+        let changed = changed_packages(old, new, |name| known.contains(&name));
+        assert_eq!(changed, ["gnupg2", "host-lld", "linux-firmware"]);
+        assert!(changed_packages(new, new, |_| true).is_empty());
+    }
+
+    #[test]
+    fn layout_tracks_only_what_needs_a_clean_build() {
+        let a = "BR2_x86_64=y\nBR2_TOOLCHAIN_EXTERNAL=y\nBR2_PER_PACKAGE_DIRECTORIES=y\nBR2_PACKAGE_IW=y\n";
+        let b = "BR2_x86_64=y\nBR2_TOOLCHAIN_EXTERNAL=y\nBR2_PER_PACKAGE_DIRECTORIES=y\n";
+        assert_eq!(build_layout(a), build_layout(b), "adding a package needs no clean build");
+        let c = "BR2_TOOLCHAIN_BUILDROOT_GLIBC=y\n";
+        assert_ne!(build_layout(a), build_layout(c));
+        assert!(build_layout(a).contains("BR2_PER_PACKAGE_DIRECTORIES=y"));
     }
 
     #[test]
@@ -431,5 +727,24 @@ mod tests {
         let (a, b) = (build_id().unwrap(), build_id().unwrap());
         assert_eq!(a.len(), 32);
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn retires_old_overlay_copies_but_keeps_links() {
+        let target = std::env::temp_dir().join(format!("borea-retire-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&target);
+        let wants = target.join("etc/systemd/system/multi-user.target.wants");
+        fs::create_dir_all(&wants).unwrap();
+        fs::write(target.join("etc/systemd/system/default.target"), "[Unit]\n").unwrap();
+        std::os::unix::fs::symlink(
+            "/usr/lib/systemd/system/NetworkManager.service",
+            wants.join("NetworkManager.service"),
+        )
+        .unwrap();
+        retire(&target).unwrap();
+        assert!(!target.join("etc/systemd/system/default.target").exists());
+        assert!(fs::read_link(wants.join("NetworkManager.service")).is_ok());
+        retire(&target.join("not-built-yet")).unwrap();
+        fs::remove_dir_all(&target).unwrap();
     }
 }

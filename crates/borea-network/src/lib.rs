@@ -31,7 +31,9 @@ pub enum NetworkError {
     Unavailable(zbus::Error),
     #[error("NetworkManager request failed: {0}")]
     Bus(#[from] zbus::Error),
-    #[error("no Wi-Fi adapter is available")]
+    #[error(
+        "no Wi-Fi adapter yet: plug in a USB Wi-Fi adapter, an Ethernet cable, or a phone with USB tethering on, and it appears here by itself"
+    )]
     NoAdapter,
     #[error("no network named “{0}” is in range (use hidden to join a hidden network)")]
     NotInRange(String),
@@ -293,6 +295,11 @@ impl Wifi {
             }
         }
         Ok(wifi)
+    }
+
+    /// How many Wi-Fi adapters NetworkManager has now (0 when it can't say).
+    pub fn adapter_count(&self) -> usize {
+        self.adapters().map(|a| a.len()).unwrap_or(0)
     }
 
     /// Ask every adapter to rescan. Results arrive over the next few seconds.

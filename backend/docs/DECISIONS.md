@@ -1,5 +1,19 @@
 # Backend decisions
 
+- Arch + Hyprland + Noctalia is a composed desktop installed from signed Arch
+  binaries. greetd starts noctalia-greeter-session; password login starts
+  Hyprland, which starts Noctalia v5. No TTY login or autologin is involved.
+  Latest stable v5 is resolved at review, pinned in the approval digest and
+  compared with the native package version before storage writes. A lagging
+  Arch package blocks this pathway rather than building or substituting a source.
+- The composed profile has no optional apps by default. Selected Arch extras
+  live in borea-catalog. Native apps and Flatpaks queue in root-owned state and
+  run after the first graphical login; mandatory desktop/driver packages install
+  before reboot. Existing distro/profile behaviour stays compatible.
+- Existing storage is UEFI + LUKS2 + Btrfs, whole disk or alongside Windows.
+  This pathway uses those reviewed layouts and collects the disk/login passphrase
+  before installing. Secure Boot remains an explicit GUI choice, initially off.
+
 - The latest ZIP's backend contract governs this workspace: Arch rolling, Debian
   13 stable, Fedora stable (explicit release), Tumbleweed. It supersedes the older
   Rawhide/Sid base profiles for this backend. Derivatives remain a future adapter
@@ -44,3 +58,6 @@
 - Administrator groups are explicitly created idempotently before useradd. Tumbleweed uses its published systemd package and explicitly includes util-linux-systemd for fstrim.timer; the obsolete systemd-sysvinit name was rejected by the live audit. Minimal-pattern recommendations are not a dependency contract.
 - Disposable serial-console matching strips terminal control sequences, including systemd OSC 3008 shell/session markers. Logs retain the original console, and success markers must still occupy a complete normalized line.
 - Fedora files are labeled offline with the selected distribution’s setfiles and targeted policy, after final configuration. The -m flag allows labeling from a non-SELinux live kernel; device/proc/sys/run and the FAT ESP are excluded. Boot tests require SELinux enforcing rather than weakening policy for a successful boot.
+- One Cargo workspace and lockfile for the whole repository. Backend crates moved to `crates/` and keep MSRV 1.85 and GPL-3.0-or-later in their own manifests; the live GUI crates need Rust 1.95. The GUI's own core and catalog crates were renamed `borea-live-core` and `borea-live-catalog` to end the name clash. zbus stays pinned at 5.5.0 (and zvariant at 5.9.2) because newer releases need Rust 1.87.
+- `borea-installd` is the only installer. `borea-engine` and `borea-worker` (Arch Minimal, run by hand as root) were retired; Borea Live ships the service, `borea-cli` and the static first-boot helper. The socket contract (`borea-protocol`) is shared by the service, the GUI and `borea-cli`, so method names and payloads are checked at compile time.
+- The live polkit rule grants udisks2 only the removable-media actions borea-flash uses. Writing internal disks is reserved to `borea-installd` and its approval digest.

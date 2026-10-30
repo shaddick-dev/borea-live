@@ -83,6 +83,12 @@ fn run() -> Result<(), String> {
     let repair = mode == "repair";
     let preflight = mode == "preflight";
     let distro = std::env::var("BOREA_TEST_DISTRO").unwrap_or_else(|_| "debian".into());
+    let desktop = std::env::var("BOREA_TEST_DESKTOP").unwrap_or_else(|_| "none".into());
+    if !["none", "noctalia"].contains(&desktop.as_str())
+        || (desktop == "noctalia" && distro != "arch")
+    {
+        return Err("The Noctalia desktop scenario requires Arch.".into());
+    }
     if !["arch", "debian", "fedora", "opensuse"].contains(&distro.as_str()) {
         return Err("Unknown VM test distro.".into());
     }
@@ -104,7 +110,11 @@ fn run() -> Result<(), String> {
     if preflight && layout != "whole" {
         return Err("Preparation-only testing must use a whole-drive fixture without constructing an alongside layout.".into());
     }
-    let scenario = format!("{distro} {layout} secure_boot={}\n", u8::from(secure_boot));
+    let scenario = format!(
+        "{distro} {layout} secure_boot={}{}\n",
+        u8::from(secure_boot),
+        if desktop == "none" { String::new() } else { format!(" desktop={desktop}") }
+    );
     let scenario_path = Path::new("/work/scenario");
     if scenario_path.exists() {
         if fs::read_to_string(scenario_path).map_err(|e| e.to_string())? != scenario {
@@ -148,6 +158,9 @@ fn run() -> Result<(), String> {
     }
     let kvm = fs::OpenOptions::new().read(true).write(true).open("/dev/kvm").is_ok();
     let mut command = Command::new("/usr/bin/qemu-system-x86_64");
+    if desktop == "noctalia" {
+        command.args(["-vga", "none", "-device", "virtio-vga"]);
+    }
     command.args([
         "-machine",
         if secure_boot { "q35,smm=on" } else { "q35" },
@@ -213,6 +226,8 @@ fn run() -> Result<(), String> {
             "-fw_cfg",
             &format!("name=opt/borea/distro,string={distro}"),
             "-fw_cfg",
+            &format!("name=opt/borea/desktop,string={desktop}"),
+            "-fw_cfg",
             &format!("name=opt/borea/layout,string={layout}"),
             "-fw_cfg",
             &format!("name=opt/borea/secure-boot,string={}", u8::from(secure_boot)),
@@ -266,6 +281,7 @@ fn run() -> Result<(), String> {
     let mut firmware_ok = !secure_boot;
     let mut selinux_ok = distro != "fedora";
     let mut install_exit_ok = false;
+    let mut greeter_ok = desktop != "noctalia";
     let expected_distro =
         if distro == "opensuse" { "opensuse-tumbleweed" } else { distro.as_str() };
     let firmware_check = if secure_boot {
@@ -278,8 +294,13 @@ fn run() -> Result<(), String> {
     } else {
         ""
     };
+    let graphical_check = if desktop == "noctalia" {
+        "systemctl is-active --quiet greetd && systemctl is-active --quiet accounts-daemon && test -f ~/.config/hypr/hyprland.lua && test -f ~/.config/noctalia/config.toml && echo BOREA_GREETER_OK; "
+    } else {
+        ""
+    };
     let checks = format!(
-        "echo; . /etc/os-release; test \"$ID\" = {expected_distro} && echo BOREA_DISTRO_OK; test \"$(id -un)\" = boreatest && echo BOREA_USER_OK; test -b /dev/mapper/borea-root && echo BOREA_LUKS_OK; nm-online -q --timeout=60 && echo BOREA_NET_OK; {firmware_check}{selinux_check}sudo -k; sudo -S -p '[BOREA_SUDO]' id -u && echo BOREA_SUDO_OK\n"
+        "echo; . /etc/os-release; test \"$ID\" = {expected_distro} && echo BOREA_DISTRO_OK; test \"$(id -un)\" = boreatest && echo BOREA_USER_OK; test -b /dev/mapper/borea-root && echo BOREA_LUKS_OK; nm-online -q --timeout=60 && echo BOREA_NET_OK; {graphical_check}{firmware_check}{selinux_check}sudo -k; sudo -S -p '[BOREA_SUDO]' id -u && echo BOREA_SUDO_OK\n"
     );
     loop {
         if start.elapsed() > Duration::from_secs(if boot { 1800 } else { 14400 }) {
@@ -331,6 +352,7 @@ fn run() -> Result<(), String> {
                     continue;
                 }
                 distro_ok |= marker(&buffer, "BOREA_DISTRO_OK");
+                greeter_ok |= marker(&buffer, "BOREA_GREETER_OK");
                 user_ok |= marker(&buffer, "BOREA_USER_OK");
                 firmware_ok |= marker(&buffer, "BOREA_SECURE_BOOT_OK");
                 selinux_ok |= marker(&buffer, "BOREA_SELINUX_OK");
@@ -384,7 +406,7 @@ fn run() -> Result<(), String> {
     }
     let status = child.wait().map_err(|e| e.to_string())?;
     let assertions_pass = if boot {
-        luks && net && sudo && distro_ok && user_ok && firmware_ok && selinux_ok
+        luks && net && sudo && distro_ok && user_ok && firmware_ok && selinux_ok && greeter_ok
     } else {
         preservation_ok && install_exit_ok
     };

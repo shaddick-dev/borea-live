@@ -1,6 +1,6 @@
 //! Pure parsers from kernel-provided text to facts. No I/O, trivially testable.
 
-use borea_core::{Architecture, DeviceClass, X86Level};
+use borea_live_core::{Architecture, DeviceClass, X86Level};
 
 use crate::{Cpu, InputKind};
 

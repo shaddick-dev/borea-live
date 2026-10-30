@@ -1,0 +1,21 @@
+[package]
+name = "borea-protocol"
+description = "Wire contract and blocking client for borea-installd's JSON-RPC socket"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+rust-version = "1.85"
+license = "GPL-3.0-or-later"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+zeroize.workspace = true

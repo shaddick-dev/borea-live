@@ -1,7 +1,7 @@
 //! Fixtures shared by the window tests.
 
-use borea_core::{Architecture, DeviceClass, Fact, FirmwareMode, X86Level};
 use borea_hardware::{Cpu, Disk, DiskTransport, DiskUsage, Gpu, GpuVendor, HardwareSnapshot};
+use borea_live_core::{Architecture, DeviceClass, Fact, FirmwareMode, X86Level};
 
 /// A desktop with one free disk and one that runs the live session.
 pub fn machine() -> HardwareSnapshot {

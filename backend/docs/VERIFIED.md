@@ -42,3 +42,10 @@ Date: 2026-10-27. This is an evidence ledger, not a completion certificate.
 - Native package versions and transitive dependencies remain resolved by signed upstream metadata at execution; this is not a full reproducible package lockfile.
 
 Native metadata preflight, approval checks and disk guards are enforced in code. Missing release evidence is not bypassed by calling an adapter complete. The old preview GUI is not enabled for destructive installs by this change.
+
+## Arch / Noctalia pathway — 30 October 2026
+
+- [Official mirror database audit](verification/arch-noctalia-2026-10-30.json): 36/36 desktop, Arc graphics and optional-extra package names found. Metadata only; not installed-system verification.
+- Noctalia upstream is 5.4.1; Arch currently provides 5.4.0-1. Latest-v5 installation is blocked before storage writes until the signed package catches up.
+- New unit/integration tests cover both storage plans, the GUI approval/start contract and first-login queue behaviour. No claim of successful real graphical login, lock/unlock, suspend/resume or Arc A770 hardware testing.
+- The live Rust `--check-noctalia` request received HTTP 503 in this cloud environment. The version comparison is covered by automated tests; upstream release and mirror versions were independently read with the environment's HTTP client. Full online approval is not claimed as verified here.

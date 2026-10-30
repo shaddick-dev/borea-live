@@ -1,7 +1,8 @@
-//! Borea TUI Helper: prepare Borea Live, write a USB stick, then verify it.
+//! borea-rataTUI: prepare Borea Live, write a USB stick, then verify it.
+//! (`borea-helper` is its earlier name and still works the same way.)
 //!
 //! ```text
-//! borea-helper                 prepare the current ISO, then write a USB stick
+//! borea-rataTUI                prepare the current ISO, then write a USB stick
 //! borea-flash [IMAGE]           write IMAGE, or the newest borea-live*.iso found
 //! borea-flash --make            in a Borea checkout: rebuild Borea Live if its sources
 //!                               changed since the last image, then write it
@@ -9,7 +10,7 @@
 //! borea-flash --list [IMAGE]    print the sticks it sees and exit
 //! borea-flash --install         install both commands and the app launcher
 //! borea-flash --install-launcher
-//!                               add a "Borea TUI Helper" launcher
+//!                               add a "borea-rataTUI" launcher
 //! ```
 
 use std::io::{BufRead, BufReader, Write};
@@ -22,13 +23,14 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use borea_flash::app::{self, App, Checkout, Checksum, Request};
+use borea_flash::app::{App, Checkout, Checksum, Request};
+use borea_flash::download::{self, DownloadRequest, DownloadView};
 use borea_flash::image::{self, Image};
 use borea_flash::make::{self, BuildRequest, BuildView};
 use borea_flash::target::{self, Target, Verdict};
 use borea_flash::terminal::{self as screen, Colours};
 use borea_flash::write::{self, Outcome, Progress};
-use borea_flash::{FlashError, device};
+use borea_flash::{FlashError, datapart, device};
 use borea_host::HostKind;
 use ratatui::crossterm::event::{self, Event as Term, KeyEventKind};
 
@@ -51,31 +53,60 @@ enum Event {
     BuildLine(String),
     /// The build ended: the new image, or why it failed.
     Built(Result<PathBuf, String>),
+    Download(download::Step),
+    /// The download ended: the image, or why it stopped.
+    Downloaded(Result<PathBuf, String>),
 }
 
 const USAGE: &str = "\
-usage: borea-helper             prepare Borea Live, then write and verify a USB stick
-       borea-helper IMAGE.iso   write an existing ISO without rebuilding it
-       borea-flash [IMAGE.iso]   write IMAGE, or the newest Borea Live image found;
-                                 in a Borea checkout, b on that screen rebuilds it first
-       borea-flash --make        in a Borea checkout: rebuild Borea Live if it changed, then write it
+usage: borea-rataTUI            get the latest Borea Live release (a download, kept for
+                                next time), then write and verify a USB stick
+       borea-rataTUI IMAGE.iso  write an existing ISO
+       borea-rataTUI --cached   use an existing local ISO; no download or rebuild
+       borea-rataTUI --compose  create a local ISO from prebuilt Linux packages (Docker + Rust)
+                                 no Borea release needed; caches repeated builds
+       borea-flash [IMAGE.iso]   write IMAGE, or the newest Borea Live image found,
+                                 downloading the latest release when there is none
+       borea-flash --make        developers: in a Borea checkout, build Borea Live from source
+                                 if it changed (hours the first time), then write it
        borea-flash --build       as --make, but always rebuild
        borea-flash --list        show the USB sticks it could write, and exit
-       borea-flash --install     install both commands and the Borea TUI Helper launcher
+       borea-rataTUI --update    replace this program with the latest release's ready-made
+                                 build (seconds; nothing to compile)
+       borea-flash --install     install the commands and the borea-rataTUI launcher
        borea-flash --install-launcher
-                                 install the commands and Borea TUI Helper launcher";
+                                 install the commands and the borea-rataTUI launcher";
 
-/// What the screen shows: the build, then the stick.
+/// What the screen shows: getting the image (download or build), then the stick.
 enum Stage {
+    Downloading(DownloadView),
     Building(BuildView),
     Writing(Box<App>),
 }
 
+/// Set by the app launcher: keep the terminal open after a failure, so the reason
+/// can be read before the launcher's window closes.
+static WAIT_ON_ERROR: AtomicBool = AtomicBool::new(false);
+const WAIT_FLAG: &str = "--wait-on-error";
+
 pub(crate) fn main() -> ExitCode {
-    let helper = std::env::args_os()
-        .next()
-        .is_some_and(|p| Path::new(&p).file_stem().is_some_and(|s| s == "borea-helper"));
-    let args = arguments(std::env::args().skip(1).collect(), helper);
+    let code = start();
+    if code != ExitCode::SUCCESS && WAIT_ON_ERROR.load(Ordering::Relaxed) {
+        eprint!("\nPress Enter to close this window.");
+        let _ = std::io::stdin().read_line(&mut String::new());
+    }
+    code
+}
+
+fn start() -> ExitCode {
+    let helper = std::env::args_os().next().is_some_and(|p| {
+        Path::new(&p).file_stem().is_some_and(|s| s == "borea-rataTUI" || s == "borea-helper")
+    });
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    if take_wait_flag(&mut args) {
+        WAIT_ON_ERROR.store(true, Ordering::Relaxed);
+    }
+    let args = arguments(args, helper);
     let list_only = args.iter().any(|a| a == "--list");
     if args.iter().any(|a| a == "-h" || a == "--help") {
         say!("Write the Borea Live ISO to a USB stick, then verify it byte for byte.\n\n{USAGE}");
@@ -84,6 +115,26 @@ pub(crate) fn main() -> ExitCode {
     let flag = |name: &str| args.iter().any(|a| a == name);
     if flag("--install") || flag("--install-launcher") {
         return report(install_command().and_then(|helper| install_launcher(&helper)));
+    }
+    if flag("--update") {
+        return report(update());
+    }
+    if flag("--get") {
+        let host = borea_host::detect().kind;
+        let repo = make::repo();
+        let start = Stage::Downloading(DownloadView::new().offer_composition(repo.is_some()));
+        return report(run(start, repo, host).map_err(|e| e.to_string()));
+    }
+    if flag("--compose") {
+        let Some(repo) = make::repo() else {
+            eprintln!(
+                "borea-rataTUI: --compose needs a Borea checkout. Clone https://github.com/shaddick-dev/borea-live and run this there."
+            );
+            return ExitCode::FAILURE;
+        };
+        let host = borea_host::detect().kind;
+        let start = Stage::Building(BuildView::composition(repo.join("target/live/build.log")));
+        return report(run(start, Some(repo), host).map_err(|e| e.to_string()));
     }
     if flag("--make") || flag("--build") {
         let Some(repo) = make::repo() else {
@@ -107,18 +158,24 @@ pub(crate) fn main() -> ExitCode {
         return report(run(start, Some(repo), host).map_err(|e| e.to_string()));
     }
 
-    let repo = make::repo();
     let path = args.iter().find(|a| !a.starts_with("--")).map(PathBuf::from).or_else(find_image);
     let Some(path) = path else {
-        if let Some(repo) = repo.filter(|_| !list_only) {
-            // Nothing to write yet, but this checkout can make it.
+        if flag("--cached") {
+            eprintln!(
+                "borea-rataTUI: no cached ISO found. Download a published release or build an image once before using --cached."
+            );
+            return ExitCode::FAILURE;
+        }
+        if !list_only {
+            // Nothing to write yet: get the latest release, in minutes.
             let host = borea_host::detect().kind;
-            let start = Stage::Building(BuildView::new(repo.join("target/live/build.log")));
-            return report(run(start, Some(repo), host).map_err(|e| e.to_string()));
+            let repo = make::repo();
+            let start = Stage::Downloading(DownloadView::new().offer_composition(repo.is_some()));
+            return report(run(start, repo, host).map_err(|e| e.to_string()));
         }
         eprintln!(
-            "borea-flash: no Borea Live image found. Build one with `borea-flash --make` \
-             in a Borea checkout, or name the .iso to write.\n\n{USAGE}"
+            "borea-flash: no Borea Live image found. Run borea-rataTUI to download the latest \
+             release, or name the .iso to write.\n\n{USAGE}"
         );
         return ExitCode::FAILURE;
     };
@@ -143,15 +200,23 @@ pub(crate) fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    let app = writing_with(image, targets, repo.as_deref());
-    report(run(Stage::Writing(Box::new(app)), repo, host).map_err(|e| e.to_string()))
+    let app = writing_with(image, targets, None);
+    report(run(Stage::Writing(Box::new(app)), None, host).map_err(|e| e.to_string()))
 }
 
-/// The helper prepares the image by default; explicit files and read-only flags
-/// keep their own meaning and never unexpectedly start an ISO build.
+/// Remove the launcher's flag, saying whether it was there. It never changes
+/// what the command does, so the helper's own default still applies.
+fn take_wait_flag(args: &mut Vec<String>) -> bool {
+    let present = args.iter().any(|a| a == WAIT_FLAG);
+    args.retain(|a| a != WAIT_FLAG);
+    present
+}
+
+/// The app gets the latest release by default; explicit files and flags keep
+/// their own meaning. Building from source (hours) is only ever asked for.
 fn arguments(mut args: Vec<String>, helper: bool) -> Vec<String> {
     if helper && args.is_empty() {
-        args.push("--make".into());
+        args.push("--get".into());
     }
     args
 }
@@ -173,12 +238,13 @@ fn writing(path: &Path, host: &HostKind, repo: Option<&Path>) -> Result<App, Str
     Ok(writing_with(image, targets, repo))
 }
 
-/// `borea-live*.iso` in this checkout's build output, the current directory, or
-/// ~/Downloads, newest first.
+/// `borea-live*.iso` in this checkout's build output, the download cache, the
+/// current directory, or ~/Downloads, newest first.
 fn find_image() -> Option<PathBuf> {
     let home = std::env::var_os("HOME").map(PathBuf::from);
     let dirs = [
         make::repo().map(|repo| repo.join("target/live/out")),
+        download::cache_dir(),
         Some(PathBuf::from(".")),
         home.map(|h| h.join("Downloads")),
     ];
@@ -205,7 +271,11 @@ fn writing_with(image: Image, targets: Vec<Target>, repo: Option<&Path>) -> App 
         None => Checksum::Unpublished,
         Some(_) => Checksum::Checking { done: 0 },
     };
+    // A downloaded release isn't built from this checkout, so it is never
+    // "behind" or "up to date with" it.
+    let downloaded = download::cache_dir().is_some_and(|dir| image.path.starts_with(dir));
     let checkout = match repo {
+        _ if downloaded => Checkout::None,
         None => Checkout::None,
         Some(repo) if make::needs_build(repo, Some(&image.path)) => Checkout::Changed,
         Some(_) => Checkout::Current,
@@ -219,8 +289,10 @@ fn run(mut stage: Stage, repo: Option<PathBuf>, host: HostKind) -> std::io::Resu
     let (tx, rx) = mpsc::channel();
     let cancel = Arc::new(AtomicBool::new(false));
     let mut build: Option<Arc<Mutex<Child>>> = None;
-    match (&stage, &repo) {
-        (Stage::Building(_), Some(repo)) => build = Some(spawn_build(repo, &tx)?),
+    let mut fetching = Arc::new(AtomicBool::new(false));
+    match (&mut stage, &repo) {
+        (Stage::Downloading(_), _) => fetching = start_download(&tx),
+        (Stage::Building(view), Some(repo)) => build = start_build(repo, &tx, view),
         (Stage::Writing(app), _) => start_checksum(app, &tx),
         _ => {}
     }
@@ -240,6 +312,17 @@ fn run(mut stage: Stage, repo: Option<PathBuf>, host: HostKind) -> std::io::Resu
 
             for event in rx.try_iter() {
                 match (&mut stage, event) {
+                    (Stage::Downloading(view), Event::Download(step)) => view.step(step),
+                    (Stage::Downloading(view), Event::Downloaded(Err(why))) => view.failed(why),
+                    (Stage::Downloading(view), Event::Downloaded(Ok(path))) => {
+                        match writing(&path, &host, None) {
+                            Ok(app) => {
+                                start_checksum(&app, &tx);
+                                stage = Stage::Writing(Box::new(app));
+                            }
+                            Err(why) => view.failed(why),
+                        }
+                    }
                     (Stage::Building(view), Event::BuildLine(line)) => view.line(&line),
                     (Stage::Building(view), Event::Built(Err(why))) => {
                         build = None;
@@ -247,7 +330,8 @@ fn run(mut stage: Stage, repo: Option<PathBuf>, host: HostKind) -> std::io::Resu
                     }
                     (Stage::Building(view), Event::Built(Ok(path))) => {
                         build = None;
-                        match writing(&path, &host, repo.as_deref()) {
+                        let checkout = if view.is_composing() { None } else { repo.as_deref() };
+                        match writing(&path, &host, checkout) {
                             Ok(app) => {
                                 start_checksum(&app, &tx);
                                 stage = Stage::Writing(Box::new(app));
@@ -268,10 +352,25 @@ fn run(mut stage: Stage, repo: Option<PathBuf>, host: HostKind) -> std::io::Resu
                 continue;
             }
             match &mut stage {
+                Stage::Downloading(view) => match view.key(key) {
+                    Some(DownloadRequest::Compose) => {
+                        if let Some(repo) = &repo {
+                            let mut view =
+                                BuildView::composition(repo.join("target/live/build.log"));
+                            build = start_build(repo, &tx, &mut view);
+                            stage = Stage::Building(view);
+                        }
+                    }
+                    Some(DownloadRequest::Stop) => fetching.store(true, Ordering::Relaxed),
+                    Some(DownloadRequest::Retry) => fetching = start_download(&tx),
+                    Some(DownloadRequest::Quit) => return Ok(()),
+                    None => {}
+                },
                 Stage::Writing(app) => match (app.key(key), &repo) {
                     (Some(Request::Rebuild), Some(repo)) => {
-                        build = Some(spawn_build(repo, &tx)?);
-                        stage = Stage::Building(BuildView::new(repo.join("target/live/build.log")));
+                        let mut view = BuildView::new(repo.join("target/live/build.log"));
+                        build = start_build(repo, &tx, &mut view);
+                        stage = Stage::Building(view);
                     }
                     (Some(request), _) => carry_out(request, app, &host, &cancel, &tx),
                     (None, _) => {}
@@ -283,7 +382,7 @@ fn run(mut stage: Stage, repo: Option<PathBuf>, host: HostKind) -> std::io::Resu
                     }
                     Some(BuildRequest::Retry) => {
                         if let Some(repo) = &repo {
-                            build = Some(spawn_build(repo, &tx)?);
+                            build = start_build(repo, &tx, view);
                         }
                     }
                     Some(BuildRequest::Quit) => return Ok(()),
@@ -292,24 +391,35 @@ fn run(mut stage: Stage, repo: Option<PathBuf>, host: HostKind) -> std::io::Resu
             }
         }
     });
-    // Never leave a build running behind a closed window.
+    // Never leave a build or download running behind a closed window.
     stop_build(build);
+    fetching.store(true, Ordering::Relaxed);
     result
 }
 
 fn draw(frame: &mut ratatui::Frame, stage: &mut Stage) {
     match stage {
         Stage::Writing(app) => app.render(frame),
-        Stage::Building(view) => {
-            let [header, body] = ratatui::layout::Layout::vertical([
-                ratatui::layout::Constraint::Length(4),
-                ratatui::layout::Constraint::Fill(1),
-            ])
-            .areas(frame.area());
-            app::render_header(frame, header);
-            view.render(frame, body);
-        }
+        Stage::Downloading(view) => view.render(frame),
+        Stage::Building(view) => view.render(frame),
     }
+}
+
+/// Get the latest release's ISO into the cache in the background. Returns the
+/// flag that stops it.
+fn start_download(tx: &Sender<Event>) -> Arc<AtomicBool> {
+    let stop = Arc::new(AtomicBool::new(false));
+    let (flag, tx) = (Arc::clone(&stop), tx.clone());
+    thread::spawn(move || {
+        let result = match download::cache_dir() {
+            Some(dir) => download::fetch(&dir, &flag, |step| {
+                let _ = tx.send(Event::Download(step));
+            }),
+            None => Err("HOME is not set, so there is nowhere to keep the download".into()),
+        };
+        let _ = tx.send(Event::Downloaded(result));
+    });
+    stop
 }
 
 fn start_checksum(app: &App, tx: &Sender<Event>) {
@@ -320,8 +430,51 @@ fn start_checksum(app: &App, tx: &Sender<Event>) {
 
 /// Run `borea-build iso` from the checkout, streaming its output to the screen and
 /// to `target/live/build.log`.
-fn spawn_build(repo: &Path, tx: &Sender<Event>) -> std::io::Result<Arc<Mutex<Child>>> {
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+/// Start the ISO build; if it cannot start, say why on the build screen.
+fn start_build(repo: &Path, tx: &Sender<Event>, view: &mut BuildView) -> Option<Arc<Mutex<Child>>> {
+    let Some(cargo) = cargo() else {
+        view.failed(
+            "Cargo was not found. Install Rust with rustup (https://rustup.rs), then press Retry."
+                .into(),
+        );
+        return None;
+    };
+    match spawn_build(repo, &cargo, tx, view.is_composing()) {
+        Ok(child) => Some(child),
+        Err(error) => {
+            view.failed(format!("The build could not start: {error}"));
+            None
+        }
+    }
+}
+
+/// Cargo: as `cargo` was run (`CARGO`), on PATH, or where rustup puts it. An app
+/// launcher's PATH often lacks ~/.cargo/bin even when a terminal's has it.
+fn cargo() -> Option<PathBuf> {
+    let explicit = std::env::var_os("CARGO").map(PathBuf::from);
+    let on_path = std::env::var_os("PATH")
+        .into_iter()
+        .flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
+        .map(|dir| dir.join("cargo"));
+    let rustup = std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cargo")))
+        .map(|home| home.join("bin/cargo"));
+    explicit.into_iter().chain(on_path).chain(rustup).find(|p| p.is_file())
+}
+
+fn spawn_build(
+    repo: &Path,
+    cargo: &Path,
+    tx: &Sender<Event>,
+    compose: bool,
+) -> std::io::Result<Arc<Mutex<Child>>> {
+    // The ISO builder checks for cargo on PATH too, so give it the one found here.
+    let mut path = cargo.parent().map(Path::to_path_buf).into_iter().collect::<Vec<_>>();
+    if let Some(existing) = std::env::var_os("PATH") {
+        path.extend(std::env::split_paths(&existing));
+    }
+    let path = std::env::join_paths(path).map_err(std::io::Error::other)?;
     let log_path = repo.join("target/live/build.log");
     std::fs::create_dir_all(repo.join("target/live"))?;
     // Append: a refused second build must not wipe the log of the one running.
@@ -329,10 +482,11 @@ fn spawn_build(repo: &Path, tx: &Sender<Event>) -> std::io::Result<Arc<Mutex<Chi
     writeln!(file, "\n── borea-flash --make ──")?;
     let log = Arc::new(Mutex::new(file));
     let mut child = Command::new(cargo)
-        .args(["run", "--release", "--quiet", "--manifest-path"])
+        .args(["run", "--profile", "app", "--locked", "--quiet", "--manifest-path"])
         .arg(repo.join("Cargo.toml"))
-        .args(["-p", "borea-build", "--", "iso"])
+        .args(["-p", "borea-build", "--", if compose { "compose" } else { "iso" }])
         .current_dir(repo)
+        .env("PATH", path)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -369,7 +523,10 @@ fn spawn_build(repo: &Path, tx: &Sender<Event>) -> std::io::Result<Arc<Mutex<Chi
             make::newest_image(&repo)
                 .ok_or_else(|| "the build finished but left no image".to_owned())
         } else {
-            Err(format!("the build failed ({status}); see the log for details"))
+            let log = repo.join("target/live/build.log");
+            Err(make::log_tail(&log, 16 << 20)
+                .and_then(|text| make::failure(&text))
+                .unwrap_or_else(|| format!("the build failed ({status}); see the log for details")))
         };
         let _ = tx.send(Event::Built(result));
     });
@@ -385,17 +542,29 @@ fn stop_build(build: Option<Arc<Mutex<Child>>>) {
     }
 }
 
+/// Download the latest release's ready-made borea-rataTUI and let it install
+/// itself: the commands and the launcher, as `--install` does from a build.
+fn update() -> Result<(), String> {
+    let dir = download::cache_dir().ok_or("HOME is not set")?.join("app");
+    say!("Downloading the latest borea-rataTUI…");
+    let app = download::fetch_app(&dir)?;
+    let status = Command::new(&app).arg("--install").status().map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(&app);
+    status.success().then_some(()).ok_or_else(|| format!("installing it failed ({status})"))
+}
+
 /// Launch the installed program directly, so its TUI appears before any build.
 fn install_launcher(helper: &Path) -> Result<(), String> {
     let entry = install::desktop_entry(helper);
     let home = std::env::var_os("HOME").map(PathBuf::from).ok_or("HOME is not set")?;
-    let place = home.join(".local/share/applications/borea-live-maker.desktop");
-    if let Some(dir) = place.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
+    let apps = home.join(".local/share/applications");
+    let place = apps.join("borea-ratatui.desktop");
+    std::fs::create_dir_all(&apps).map_err(|e| e.to_string())?;
+    // The launcher used to be borea-live-maker.desktop; one entry is enough.
+    let _ = std::fs::remove_file(apps.join("borea-live-maker.desktop"));
     std::fs::write(&place, &entry).map_err(|e| format!("{}: {e}", place.display()))?;
     say!("Added {}", place.display());
-    say!("Open \"Borea TUI Helper\" from your app launcher.");
+    say!("Open \"borea-rataTUI\" from your app launcher.");
     Ok(())
 }
 
@@ -410,17 +579,14 @@ fn install_command() -> Result<PathBuf, String> {
     let this = std::env::current_exe().map_err(|e| e.to_string())?;
     install::commands(&this, &dir).map_err(|e| e.to_string())?;
     say!(
-        "Installed {} and {}",
-        dir.join("borea-helper").display(),
-        dir.join("borea-flash").display()
+        "Installed {} (also as {})",
+        dir.join(install::NAMES[0]).display(),
+        install::NAMES[1..].join(" and ")
     );
-    if let Some(repo) = make::repo() {
-        say!("It builds from the checkout at {}.", repo.display());
-    }
     let on_path =
         std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|p| p == dir));
     if on_path {
-        say!("Run `borea-helper` to prepare the ISO and write a USB stick.");
+        say!("Run `borea-rataTUI` to prepare the ISO and write a USB stick.");
     } else {
         say!(
             "{} is not on your PATH. Add this line to your shell's startup file:\n  \
@@ -429,7 +595,7 @@ fn install_command() -> Result<PathBuf, String> {
             dir.display()
         );
     }
-    Ok(dir.join("borea-helper"))
+    Ok(dir.join(install::NAMES[0]))
 }
 
 fn apply(app: &mut App, event: Event) {
@@ -439,7 +605,7 @@ fn apply(app: &mut App, event: Event) {
         Event::Progress(progress) => app.progress(progress),
         Event::Finished(result) => app.finished(result),
         Event::Message(message) => app.message = Some(message),
-        Event::BuildLine(_) | Event::Built(_) => {}
+        Event::BuildLine(_) | Event::Built(_) | Event::Download(_) | Event::Downloaded(_) => {}
     }
 }
 
@@ -467,7 +633,7 @@ fn carry_out(
         Request::Eject(name) => {
             thread::spawn(move || {
                 let message = match device::eject(&name) {
-                    Ok(()) => format!("{name} is safe to remove."),
+                    Ok(()) => format!("✓ {name} is safe to remove."),
                     Err(error) => error.to_string(),
                 };
                 let _ = tx.send(Event::Message(message));
@@ -505,9 +671,52 @@ fn flash(
     }
     let mut source = std::fs::File::open(&image.path).map_err(FlashError::Read)?;
     let mut stick = device::open(name)?;
-    write::flash(&mut source, image.size, &mut stick, cancel, |progress| {
+    let outcome = write::flash(&mut source, image.size, &mut stick, cancel, |progress| {
         let _ = tx.send(Event::Progress(progress));
-    })
+    })?;
+    if outcome == Outcome::Verified {
+        // The stick boots either way; without the data partition Borea Live just
+        // can't hand off to other installers, so say why and carry on.
+        if let Err(why) = add_data_partition(stick, image.size, name) {
+            let _ = tx.send(Event::Message(format!(
+                "Borea Live is ready, but no space for other installers was added: {why}."
+            )));
+        }
+    }
+    Ok(outcome)
+}
+
+/// Add the writable data partition after the verified image and format it.
+/// Only the MBR's empty fourth entry changes; the image itself is untouched.
+fn add_data_partition(mut stick: std::fs::File, image: u64, name: &str) -> Result<(), String> {
+    use std::io::{Read, Seek, SeekFrom, Write as _};
+    use std::os::unix::fs::FileExt;
+    let sector = std::fs::read_to_string(format!("/sys/block/{name}/queue/logical_block_size"))
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(512);
+    let disk = stick.seek(SeekFrom::End(0)).map_err(|e| e.to_string())?;
+    let mut mbr = [0u8; 512];
+    stick
+        .seek(SeekFrom::Start(0))
+        .and_then(|_| stick.read_exact(&mut mbr))
+        .map_err(|e| e.to_string())?;
+    let entry = datapart::plan(&mbr, image, disk, sector).map_err(|e| e.to_string())?;
+    // A filesystem a previous stick left at that spot must not reappear.
+    stick
+        .write_all_at(&[0u8; 1 << 20], entry.start * sector)
+        .map_err(|e| format!("clearing the space: {e}"))?;
+    datapart::add(&mut mbr, entry);
+    stick.write_all_at(&mbr, 0).and_then(|_| stick.sync_all()).map_err(|e| e.to_string())?;
+    let _ = stick.flush();
+    // Closing the stick (the last descriptor) makes udev re-read its partition table.
+    drop(stick);
+    device::format_ext4(
+        &datapart::partition_name(name, entry.number),
+        datapart::LABEL,
+        Duration::from_secs(20),
+    )
+    .map_err(|e| e.to_string())
 }
 
 fn check_image(path: PathBuf, expected: String, from: PathBuf, tx: Sender<Event>) {
@@ -531,11 +740,21 @@ fn check_image(path: PathBuf, expected: String, from: PathBuf, tx: Sender<Event>
 
 #[cfg(test)]
 mod cli_tests {
-    use super::arguments;
+    use super::{arguments, take_wait_flag};
+
+    #[test]
+    fn the_launcher_flag_keeps_the_helpers_default() {
+        let mut args = vec!["--wait-on-error".to_owned()];
+        assert!(take_wait_flag(&mut args));
+        assert_eq!(arguments(args, true), ["--get"]);
+        let mut plain = vec!["image.iso".to_owned()];
+        assert!(!take_wait_flag(&mut plain));
+        assert_eq!(plain, ["image.iso"]);
+    }
 
     #[test]
     fn helper_prepares_by_default_but_respects_explicit_actions() {
-        assert_eq!(arguments(vec![], true), ["--make"]);
+        assert_eq!(arguments(vec![], true), ["--get"]);
         for action in ["--list", "--help", "--install", "image.iso", "--build"] {
             assert_eq!(arguments(vec![action.into()], true), [action]);
         }

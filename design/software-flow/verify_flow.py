@@ -1,5 +1,4 @@
 """Browser checks for the latest uploaded catalog/profile flow. Run local server on 8766."""
-import json
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 root=Path(__file__).parent

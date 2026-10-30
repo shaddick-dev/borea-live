@@ -122,6 +122,9 @@ fn plain(symbol: &str) -> Option<&'static str> {
         "∼" | "∽" => "~",
         "▏" => "_",
         "↻" => "!",
+        "━" => "=",
+        "↑" => "^",
+        "↓" => "v",
         _ => return None,
     })
 }

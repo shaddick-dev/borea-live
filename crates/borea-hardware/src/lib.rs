@@ -16,7 +16,7 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use borea_core::{Architecture, DeviceClass, Fact, FirmwareMode, X86Level};
+use borea_live_core::{Architecture, DeviceClass, Fact, FirmwareMode, X86Level};
 
 use parse::Mount;
 

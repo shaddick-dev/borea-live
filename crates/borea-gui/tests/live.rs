@@ -2,13 +2,13 @@
 
 mod common;
 
-use borea_core::Family;
 use borea_gui::LiveInstaller;
 use borea_gui::live::{Action, Step};
+use borea_live_core::Family;
 use common::machine;
 use eframe::egui::{self, accesskit::Role};
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 
 type Installer = Harness<'static, Option<LiveInstaller>>;
 
@@ -55,7 +55,7 @@ fn firmware_footer_requires_confirmation_and_preview_never_reboots_host() {
 #[test]
 fn legacy_bios_cannot_request_a_firmware_restart() {
     let mut hardware = machine();
-    hardware.firmware = borea_core::Fact::Known(borea_core::FirmwareMode::Bios);
+    hardware.firmware = borea_live_core::Fact::Known(borea_live_core::FirmwareMode::Bios);
     let mut h = with_hardware(false, hardware);
     press(&mut h, "UEFI setup");
     assert!(h.query_by_label("Restart into UEFI setup?").is_none());
@@ -63,6 +63,14 @@ fn legacy_bios_cannot_request_a_firmware_restart() {
 }
 
 fn press(h: &mut Installer, label: &str) {
+    // Some buttons appear only once a background answer (disks, a review) lands.
+    for _ in 0..300 {
+        if h.query_by_role_and_label(Role::Button, label).is_some() {
+            break;
+        }
+        h.run();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
     h.get_by_role_and_label(Role::Button, label).scroll_to_me();
     h.run();
     h.get_by_role_and_label(Role::Button, label).click();
@@ -90,6 +98,19 @@ fn guided_path_through_every_step() {
     press(&mut h, "Next");
 
     assert_eq!(app(&h).step(), Step::System);
+    // Painted portrait cards still expose release and distribution information.
+    for (family, release, distro) in [
+        ("Arch family", "Rolling release", "CachyOS"),
+        ("Fedora family", "Regular releases", "Bazzite"),
+    ] {
+        let description = h
+            .get_by_role_and_label(Role::Button, family)
+            .accesskit_node()
+            .description()
+            .unwrap_or_default();
+        assert!(description.contains(release));
+        assert!(description.contains(distro));
+    }
     press(&mut h, "Fedora family");
     assert_eq!(app(&h).step(), Step::Distribution);
     press(&mut h, "Fedora Linux");
@@ -512,4 +533,133 @@ fn short_window_keeps_navigation_reachable() {
     if let Ok(dir) = std::env::var("WINDPAD_SHOTS") {
         h.render().unwrap().save(format!("{dir}/live-small-family.png")).unwrap();
     }
+}
+
+/// Choosing Omarchy installs it: pick where it goes (nothing preselected), check
+/// the plan with the service, confirm shrinking Windows, begin, and the hand-off
+/// runs with exactly the reviewed plan and its approval.
+#[test]
+fn omarchy_hands_off_to_its_own_installer_as_chosen() {
+    use serde_json::{Value, json};
+    use std::sync::{Arc, Mutex};
+    const GIB: u64 = 1 << 30;
+    let calls = Arc::new(Mutex::new(Vec::<(String, Value)>::new()));
+    let seen = Arc::clone(&calls);
+    let service: borea_gui::handoff::Service = Arc::new(move |method, params| {
+        seen.lock().unwrap().push((method.into(), params.clone()));
+        Ok(match method {
+            "disks.list" => json!({"uefi":true,"disks":[
+                {"id":{"logical_sector":512,"path":"/dev/sda","serial":"STICK","size":32_000_000_000_u64,"model":"Borea stick"},
+                 "readonly":false,"in_use":true,"live":true,"parts":[]},
+                {"id":{"logical_sector":512,"path":"/dev/nvme0n1","serial":"S6P7","size":512_000_000_000_u64,"model":"Samsung 980"},
+                 "readonly":false,"in_use":false,"live":false,"parts":[
+                    {"path":"/dev/nvme0n1p3","number":3,"uuid":"WIN","fs":"ntfs","max_linux_size":200*GIB}]}]}),
+            "handoff.review" => json!({"approval":"feed","review":{
+                "steps":["Download Omarchy 4.0.6 to the Borea stick","Shrink Windows on Samsung 980 by 60 GiB"],
+                "choose":"In Omarchy's installer, choose Samsung 980 and \"Free space install\"."}}),
+            "handoff.start" => json!({"job_id":"feed"}),
+            _ => json!({"events":[
+                {"event":"stage-started","stage":0,"title":"Downloading Omarchy 4.0.6."},
+                {"event":"finished"}],"cursor":2,"more":false}),
+        })
+    });
+    let mut h = harness(false);
+    h.state_mut().as_mut().unwrap().set_handoff_service(service);
+    press(&mut h, "Next");
+    press(&mut h, "Next");
+    press(&mut h, "Arch family");
+    assert!(
+        h.query_by_label_contains("Official installer, via Borea").is_some(),
+        "Omarchy is not shown as planned"
+    );
+    if let Ok(dir) = std::env::var("WINDPAD_SHOTS") {
+        h.render().unwrap().save(format!("{dir}/live-arch-distributions.png")).unwrap();
+    }
+    press(&mut h, "Omarchy");
+    press(&mut h, "Hyprland · Omarchy");
+    press(&mut h, "Next");
+    // An extra ticked here is added on Omarchy's first start.
+    h.get_by_role_and_label(Role::CheckBox, "Printing for Omarchy").scroll_to_me();
+    h.run();
+    h.get_by_role_and_label(Role::CheckBox, "Printing for Omarchy").click();
+    h.run();
+    press(&mut h, "Review");
+    let settle = |h: &mut Installer| {
+        for _ in 0..60 {
+            h.run();
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    };
+    settle(&mut h);
+    assert!(h.query_by_label_contains("Preview build").is_none(), "Omarchy can install");
+    assert!(h.query_by_label_contains("Borea stick").is_none(), "never the live stick");
+    assert!(!app(&h).can_continue(), "nothing is preselected");
+    press(&mut h, "Beside Windows on Samsung 980 · 512 GB");
+    press(&mut h, "Check this plan");
+    settle(&mut h);
+    assert!(h.query_by_label_contains("Shrink Windows on Samsung 980 by 60 GiB").is_some());
+    assert!(!app(&h).can_continue(), "shrinking Windows needs a confirmation");
+    let confirm = "Shrink Windows now. I have a backup of anything important on it.";
+    h.get_by_role_and_label(Role::CheckBox, confirm).scroll_to_me();
+    h.run();
+    h.get_by_role_and_label(Role::CheckBox, confirm).click();
+    h.run();
+    assert!(app(&h).can_continue());
+    assert!(h.query_by_label_contains("Once you begin, leave this computer alone.").is_some());
+    if let Ok(dir) = std::env::var("WINDPAD_SHOTS") {
+        h.render().unwrap().save(format!("{dir}/live-omarchy-review.png")).unwrap();
+    }
+    press(&mut h, "Begin installation");
+    settle(&mut h);
+    assert!(h.query_all_by_label_contains("Keep the Borea stick in").next().is_some());
+    if let Ok(dir) = std::env::var("WINDPAD_SHOTS") {
+        h.render().unwrap().save(format!("{dir}/live-omarchy-restarting.png")).unwrap();
+    }
+    assert!(
+        matches!(app(&h).handoff().phase, borea_gui::handoff::Phase::Finished { .. }),
+        "{:?}",
+        app(&h).handoff().phase
+    );
+    assert!(h.query_by_label_contains("choose Samsung 980 and \"Free space install\"").is_some());
+    let calls = calls.lock().unwrap();
+    let start = &calls.iter().find(|(m, _)| m == "handoff.start").unwrap().1;
+    assert_eq!(start["approval"], "feed");
+    assert_eq!(start["handoff"]["target"], "omarchy");
+    assert_eq!(start["handoff"]["extras"], json!(["printing"]));
+    assert_eq!(start["handoff"]["disk"]["kind"], "alongside");
+    assert_eq!(start["handoff"]["disk"]["linux_size"], 60 * GIB);
+    assert_eq!(start["handoff"]["disk"]["disk"]["serial"], "S6P7");
+}
+
+#[test]
+fn arch_hyprland_noctalia_opens_the_native_storage_path() {
+    let mut h = harness(false);
+    h.state_mut().as_mut().unwrap().set_install_service(std::sync::Arc::new(|method,_| {
+        assert_eq!(method,"disks.list");
+        Ok(serde_json::json!({"disks":[{"id":{"path":"/dev/vda","model":"Disposable disk","size":107374182400_u64,"logical_sector":512},"parts":[]}]}))
+    }));
+    press(&mut h, "Next");
+    press(&mut h, "Next");
+    press(&mut h, "Arch family");
+    press(&mut h, "Arch Linux");
+    press(&mut h, "Minimal");
+    press(&mut h, "Next");
+    press(&mut h, "Compose a desktop");
+    press(&mut h, "Hyprland");
+    press(&mut h, "Noctalia");
+    press(&mut h, "Review");
+    for _ in 0..100 {
+        h.run();
+        if !app(&h).native().disks.is_empty() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    assert!(h.query_by_label("Where should Arch go?").is_some());
+    assert!(h.query_by_label_contains("This is a preview build").is_none());
+    assert!(app(&h).native().pick.is_none());
+    h.get_by_role_and_label(Role::RadioButton, "Erase this disk").click();
+    h.run();
+    press(&mut h, "Account and region");
+    assert!(h.query_by_label("Your account").is_some());
 }
