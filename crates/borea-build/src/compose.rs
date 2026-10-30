@@ -114,6 +114,18 @@ fn check_usb_network(root: &Path, kernel: &str) -> Result {
             missing.push(format!("firmware {name}"));
         }
     }
+    // Many Realtek adapters (RTL8822BU "88x2bu", RTL8811CU, RTL8821CU) first show
+    // up as a driver CD, 0bda:1a2b, and need usb_modeswitch to become Wi-Fi.
+    let rules = [
+        "usr/lib/udev/rules.d/40-usb_modeswitch.rules",
+        "lib/udev/rules.d/40-usb_modeswitch.rules",
+    ];
+    let switches = rules.iter().any(|r| {
+        fs::read_to_string(root.join(r)).is_ok_and(|t| t.to_ascii_lowercase().contains("1a2b"))
+    });
+    if !switches || !root.join("usr/sbin/usb_modeswitch").exists() {
+        missing.push("usb_modeswitch with the Realtek 0bda:1a2b rule".into());
+    }
     if missing.is_empty() {
         return Ok(());
     }

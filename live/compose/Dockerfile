@@ -28,6 +28,7 @@ RUN --mount=type=secret,id=proxy_ca \
     apt-get install -y --no-install-recommends \
         systemd systemd-sysv systemd-resolved libpam-systemd libnss-systemd dbus \
         network-manager wpasupplicant wireless-regdb iw ca-certificates \
+        usb-modeswitch usb-modeswitch-data \
         cage libegl-mesa0 libgl1-mesa-dri libwayland-egl1 libxkbcommon0 xkb-data \
         fonts-dejavu-core polkitd libpam-modules udisks2 \
         cryptsetup btrfs-progs ntfs-3g gnupg gpgv efibootmgr parted fdisk \
