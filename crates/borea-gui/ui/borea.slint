@@ -2,15 +2,19 @@ import { Palette, Button, CheckBox, ComboBox, LineEdit, ScrollView, Slider, Prog
 
 export global Design {
     in property <bool> dark: true;
-    out property <color> background: dark ? #14151b : #f7f5fc;
-    out property <color> surface: dark ? #202129 : #eeedf5;
-    out property <color> raised: dark ? #292a35 : #ffffff;
-    out property <color> text: dark ? #eceaf4 : #242331;
-    out property <color> muted: dark ? #b3b0c3 : #676477;
-    out property <color> primary: dark ? #c9beff : #645192;
-    out property <color> selected: dark ? #3d3455 : #e9ddff;
-    out property <color> outline: dark ? #494653 : #d6d0e1;
+    in property <bool> motion: false;
+    out property <color> background: dark ? #2e3440 : #eceff4;
+    out property <color> surface: dark ? #353d4c : #e5e9f0;
+    out property <color> raised: dark ? #3b4252 : #ffffff;
+    out property <color> text: dark ? #eceff4 : #2e3440;
+    out property <color> muted: dark ? #b4c1d1 : #4c566a;
+    out property <color> primary: dark ? #88c0d0 : #356a80;
+    out property <color> selected: dark ? #374f60 : #d7eaf0;
+    out property <color> outline: dark ? #4c566a : #c1cdd8;
+    out property <color> ice: dark ? #d8f4ff : #25647e;
 }
+export struct WindData { x: float, y: float, length: float, height: float, alpha: float }
+
 export struct ChoiceData {
     key: string,
     label: string,
@@ -53,10 +57,35 @@ component Portrait inherits Rectangle {
     border-radius: 24px;
     background: choice.selected ? Design.selected : touch.has-hover ? Design.raised : Design.surface;
     border-width: choice.selected || focus.has-focus ? 2px : 1px;
-    border-color: choice.selected || focus.has-focus ? Design.primary : Design.outline.with-alpha(0.35);
+    border-color: choice.selected ? Design.ice : focus.has-focus ? Design.primary : Design.outline.with-alpha(0.35);
+    property <float> pick: choice.selected ? 1 : 0;
+    property <float> shine: Design.motion ? pick : choice.selected ? 1 : 0;
+    animate pick { duration: Design.motion ? 620ms : 0ms; easing: ease-out; }
+    animate background { duration: Design.motion ? 220ms : 0ms; easing: ease-out; }
+    drop-shadow-color: Design.primary.with-alpha(0.20 * shine);
+    drop-shadow-blur: 18px * shine;
+    drop-shadow-offset-y: 0px;
+    Rectangle {
+        x: 3px; y: 3px; width: parent.width - 6px; height: parent.height - 6px;
+        border-radius: 21px; background: transparent;
+        border-width: 1px; border-color: Design.ice.with-alpha(0.40 * parent.shine);
+        clip: true;
+        Rectangle {
+            x: (1.15 - 1.65 * pick) * parent.width;
+            y: 0px; width: parent.width * 0.38; height: parent.height;
+            background: @linear-gradient(90deg, transparent, Design.ice.with-alpha(0.20), transparent);
+            opacity: choice.selected && Design.motion ? 4 * pick * (1 - pick) : 0;
+        }
+    }
+    Rectangle {
+        x: 0px; y: 24px; width: 3px; height: parent.height - 48px;
+        border-radius: 2px;
+        background: @linear-gradient(180deg, transparent, Design.ice, transparent);
+        opacity: shine;
+    }
     accessible-role: button;
     accessible-label: choice.label;
-    accessible-description: choice.meta + ". " + choice.description;
+    accessible-description: (choice.selected ? "Selected. " : "") + choice.meta + ". " + choice.description;
     accessible-enabled: choice.enabled;
     accessible-action-default => { if choice.enabled { chosen(choice.key); } }
     VerticalLayout {
@@ -86,11 +115,36 @@ component OptionTile inherits Rectangle {
     border-radius: 18px;
     background: choice.selected ? Design.selected : touch.has-hover ? Design.raised : Design.surface;
     border-width: focus.has-focus || choice.selected ? 2px : 1px;
-    border-color: focus.has-focus || choice.selected ? Design.primary : Design.outline.with-alpha(0.35);
+    border-color: choice.selected ? Design.ice : focus.has-focus ? Design.primary : Design.outline.with-alpha(0.35);
     opacity: choice.enabled ? 1 : 0.5;
+    property <float> pick: choice.selected ? 1 : 0;
+    property <float> shine: Design.motion ? pick : choice.selected ? 1 : 0;
+    animate pick { duration: Design.motion ? 620ms : 0ms; easing: ease-out; }
+    animate background { duration: Design.motion ? 220ms : 0ms; easing: ease-out; }
+    drop-shadow-color: Design.primary.with-alpha(0.20 * shine);
+    drop-shadow-blur: 18px * shine;
+    drop-shadow-offset-y: 0px;
+    Rectangle {
+        x: 3px; y: 3px; width: parent.width - 6px; height: parent.height - 6px;
+        border-radius: 15px; background: transparent;
+        border-width: 1px; border-color: Design.ice.with-alpha(0.40 * parent.shine);
+        clip: true;
+        Rectangle {
+            x: (1.15 - 1.65 * pick) * parent.width;
+            y: 0px; width: parent.width * 0.38; height: parent.height;
+            background: @linear-gradient(90deg, transparent, Design.ice.with-alpha(0.20), transparent);
+            opacity: choice.selected && Design.motion ? 4 * pick * (1 - pick) : 0;
+        }
+    }
+    Rectangle {
+        x: 0px; y: 24px; width: 3px; height: parent.height - 48px;
+        border-radius: 2px;
+        background: @linear-gradient(180deg, transparent, Design.ice, transparent);
+        opacity: shine;
+    }
     accessible-role: button;
     accessible-label: choice.label;
-    accessible-description: choice.description;
+    accessible-description: (choice.selected ? "Selected. " : "") + choice.description;
     accessible-enabled: choice.enabled;
     accessible-action-default => { if choice.enabled { chosen(choice.key); } }
     VerticalLayout { padding: 16px; spacing: 6px;
@@ -179,9 +233,16 @@ export component BoreaWindow inherits Window {
     in property <bool> motion-paused;
     in property <bool> scroll-bottom;
     changed scroll-bottom => { scroll.viewport-y = scroll-bottom ? min(0px, scroll.height - scroll.viewport-height) : 0px; }
-    property <float> air-phase: 0;
-    Timer { interval: 120ms; running: !root.motion-paused; triggered => { root.air-phase += 0.02; } }
-    Image { source: @image-url("wind.svg"); x: 216px - mod(root.air-phase, 1) * 120px; y: 0px; width: 1400px; height: 160px; colorize: Design.primary; opacity: 0.055; }
+    in property <[WindData]> wind;
+    in-out property <bool> motion-active: false;
+    Rectangle { x: 216px; width: parent.width - 216px; height: parent.height - 75px; clip: true; background: transparent;
+        for gust in root.wind : Image {
+            source: @image-url("wind.svg");
+            x: gust.x * parent.width; y: gust.y * parent.height;
+            width: gust.length * parent.width; height: gust.height * 1px;
+            colorize: Design.primary; opacity: gust.alpha;
+        }
+    }
     HorizontalLayout { spacing: 0px;
         Rectangle { width: 216px; background: Design.surface;
             VerticalLayout { padding: root.height < 760px ? 16px : 20px; spacing: root.height < 760px ? 6px : 12px;

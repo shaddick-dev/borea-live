@@ -9,14 +9,14 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Padding, Paragraph};
 
 /// Borea's dark palette, for terminals.
-pub const ACCENT: Color = Color::Rgb(0xc9, 0xbe, 0xff);
-pub const SUB: Color = Color::Rgb(0xb3, 0xb0, 0xc3);
-pub const WARN: Color = Color::Rgb(0xff, 0xb4, 0xab);
-pub const LINE: Color = Color::Rgb(0x49, 0x46, 0x53);
-pub const SELECTED: Color = Color::Rgb(0x3d, 0x34, 0x55);
-const BACKGROUND: Color = Color::Rgb(0x14, 0x15, 0x1b);
-const SURFACE: Color = Color::Rgb(0x20, 0x21, 0x29);
-const TEXT: Color = Color::Rgb(0xec, 0xea, 0xf4);
+pub const ACCENT: Color = Color::Rgb(0x88, 0xc0, 0xd0);
+pub const SUB: Color = Color::Rgb(0xb4, 0xc1, 0xd1);
+pub const WARN: Color = Color::Rgb(0xd0, 0x87, 0x70);
+pub const LINE: Color = Color::Rgb(0x4c, 0x56, 0x6a);
+pub const SELECTED: Color = Color::Rgb(0x37, 0x4f, 0x60);
+const BACKGROUND: Color = Color::Rgb(0x2e, 0x34, 0x40);
+const SURFACE: Color = Color::Rgb(0x3b, 0x42, 0x52);
+const TEXT: Color = Color::Rgb(0xec, 0xef, 0xf4);
 
 /// The widest the content column gets, so long lines stay readable.
 const COLUMN: u16 = 88;

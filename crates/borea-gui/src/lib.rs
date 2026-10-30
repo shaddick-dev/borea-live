@@ -13,6 +13,7 @@
 pub mod app;
 mod family_cards;
 pub mod firmware;
+mod frost_motion;
 pub mod handoff;
 pub mod icon;
 pub mod install;
