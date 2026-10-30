@@ -31,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cage libegl-mesa0 libgl1-mesa-dri libwayland-egl1
+          sudo apt-get install -y --no-install-recommends cage libegl-mesa0 libgl1-mesa-dri libwayland-egl1 libfontconfig1 fonts-noto-core
           cargo build --locked -p borea-gui --bin borea-live
           borea_runtime=$(mktemp -d)
           trap 'rm -rf "$borea_runtime"' EXIT
@@ -42,6 +42,8 @@ jobs:
             cage -d -s -- target/debug/borea-live --window --boot-smoke \
             2>&1 | tee borea-boot-smoke.log
           grep -qx BOREA_GUI_READY borea-boot-smoke.log
+      - name: Render Slint walkthrough without graphics hardware
+        run: cargo run --locked -p borea-gui --bin borea-live -- --showcase "$RUNNER_TEMP/borea-showcase"
       - name: VM harness unit tests
         run: python3 -m unittest discover -s tests/vm -v
       - name: Setup script (shellcheck)

@@ -40,6 +40,9 @@ const FAMILY_POP: f64 = 0.4;
 /// Nord's orange: warnings only.
 const WARN: egui::Color32 = egui::Color32::from_rgb(0xd0, 0x87, 0x70);
 
+#[path = "desktop.rs"]
+pub mod desktop;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Step {
     Connect,
@@ -176,7 +179,11 @@ pub struct LiveInstaller {
 
 impl LiveInstaller {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let ctx = cc.egui_ctx.clone();
+        Self::for_desktop(cc.egui_ctx.clone())
+    }
+
+    /// Create the existing workflow independently of a rendering window.
+    fn for_desktop(ctx: egui::Context) -> Self {
         let (tx, rx) = mpsc::channel();
         let repaint = ctx.clone();
         thread::Builder::new()

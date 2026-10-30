@@ -1,0 +1,320 @@
+import { Palette, Button, CheckBox, ComboBox, LineEdit, ScrollView, Slider, ProgressIndicator } from "std-widgets.slint";
+
+export global Design {
+    in property <bool> dark: true;
+    out property <color> background: dark ? #14151b : #f7f5fc;
+    out property <color> surface: dark ? #202129 : #eeedf5;
+    out property <color> raised: dark ? #292a35 : #ffffff;
+    out property <color> text: dark ? #eceaf4 : #242331;
+    out property <color> muted: dark ? #b3b0c3 : #676477;
+    out property <color> primary: dark ? #c9beff : #645192;
+    out property <color> selected: dark ? #3d3455 : #e9ddff;
+    out property <color> outline: dark ? #494653 : #d6d0e1;
+}
+export struct ChoiceData {
+    key: string,
+    label: string,
+    description: string,
+    meta: string,
+    logo: image,
+    selected: bool,
+    enabled: bool,
+}
+export struct ChoiceGroup { title: string, choices: [ChoiceData] }
+
+component Pill inherits Rectangle {
+    in property <string> label;
+    in property <bool> primary;
+    in property <bool> firmware-icon;
+    in property <bool> enabled: true;
+    callback activated;
+    min-width: max(110px, label-text.preferred-width + (firmware-icon ? 50px : 32px));
+    height: 42px;
+    border-radius: 21px;
+    background: !enabled ? Design.surface : primary ? Design.primary : touch.has-hover ? Design.selected : Design.raised;
+    opacity: enabled ? 1 : 0.45;
+    accessible-role: button;
+    accessible-label: label;
+    accessible-enabled: enabled;
+    accessible-action-default => { if enabled { activated(); } }
+    if firmware-icon : Image { source: @image-url("cpu.svg"); x: 12px; y: 13px; width: 16px; height: 16px; colorize: Design.text; }
+    label-text := Text { text: parent.label; color: !parent.enabled ? Design.muted : parent.primary ? Design.background : Design.text; font-size: 14px; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+    touch := TouchArea { enabled: parent.enabled; clicked => { focus.focus(); parent.activated(); } }
+    focus := FocusScope { enabled: parent.enabled; key-pressed(event) => { if event.text == "\n" || event.text == " " { parent.activated(); return accept; } return reject; } }
+    border-width: focus.has-focus ? 2px : 0px;
+    border-color: Design.primary;
+}
+
+component Portrait inherits Rectangle {
+    in property <ChoiceData> choice;
+    in property <bool> family;
+    callback chosen(string);
+    height: 418px;
+    border-radius: 24px;
+    background: choice.selected ? Design.selected : touch.has-hover ? Design.raised : Design.surface;
+    border-width: choice.selected || focus.has-focus ? 2px : 1px;
+    border-color: choice.selected || focus.has-focus ? Design.primary : Design.outline.with-alpha(0.35);
+    accessible-role: button;
+    accessible-label: choice.label;
+    accessible-description: choice.meta + ". " + choice.description;
+    accessible-enabled: choice.enabled;
+    accessible-action-default => { if choice.enabled { chosen(choice.key); } }
+    VerticalLayout {
+        padding: 20px; spacing: 10px;
+        HorizontalLayout {
+            Text { text: family ? "LINUX FAMILY" : "DISTRIBUTION"; color: Design.muted; font-size: 10px; letter-spacing: 1px; }
+            Text { text: choice.selected ? "Selected" : ""; color: Design.primary; font-size: 11px; horizontal-alignment: right; }
+        }
+        Image { source: choice.logo; colorize: choice.label == "Omarchy" ? Design.text : transparent; height: 118px; image-fit: contain; }
+        Text { text: choice.label; color: Design.text; font-size: 24px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; wrap: word-wrap; height: 62px; }
+        Text { text: choice.meta; color: Design.primary; font-size: 11px; horizontal-alignment: center; wrap: word-wrap; height: 30px; }
+        Text { text: choice.description; color: Design.muted; font-size: 13px; wrap: word-wrap; vertical-alignment: top; vertical-stretch: 1; }
+        Rectangle { height: 1px; background: Design.outline.with-alpha(0.6); }
+        HorizontalLayout {
+            Text { text: choice.selected ? "Selected" : family ? "Explore family" : "Choose distribution"; color: Design.primary; font-size: 12px; font-weight: 600; }
+            Text { text: "→"; color: Design.primary; horizontal-alignment: right; }
+        }
+    }
+    touch := TouchArea { enabled: choice.enabled; clicked => { focus.focus(); chosen(choice.key); } }
+    focus := FocusScope { enabled: choice.enabled; key-pressed(event) => { if event.text == "\n" || event.text == " " { parent.chosen(parent.choice.key); return accept; } return reject; } }
+}
+
+component OptionTile inherits Rectangle {
+    in property <ChoiceData> choice;
+    callback chosen(string);
+    min-height: 88px;
+    border-radius: 18px;
+    background: choice.selected ? Design.selected : touch.has-hover ? Design.raised : Design.surface;
+    border-width: focus.has-focus || choice.selected ? 2px : 1px;
+    border-color: focus.has-focus || choice.selected ? Design.primary : Design.outline.with-alpha(0.35);
+    opacity: choice.enabled ? 1 : 0.5;
+    accessible-role: button;
+    accessible-label: choice.label;
+    accessible-description: choice.description;
+    accessible-enabled: choice.enabled;
+    accessible-action-default => { if choice.enabled { chosen(choice.key); } }
+    VerticalLayout { padding: 16px; spacing: 6px;
+        Text { text: (choice.selected ? "✓  " : "") + choice.label; color: Design.text; font-size: 15px; font-weight: 600; wrap: word-wrap; }
+        Text { text: choice.description; color: Design.muted; font-size: 12px; wrap: word-wrap; }
+    }
+    touch := TouchArea { enabled: choice.enabled; clicked => { focus.focus(); chosen(choice.key); } }
+    focus := FocusScope { enabled: choice.enabled; key-pressed(event) => { if event.text == "\n" || event.text == " " { parent.chosen(parent.choice.key); return accept; } return reject; } }
+}
+
+export component BoreaWindow inherits Window {
+    title: "Borea · Windpad";
+    preferred-width: 1280px; preferred-height: 860px;
+    min-width: 900px; min-height: 600px;
+    background: Design.background;
+    default-font-family: "Noto Sans";
+    in-out property <bool> dark: true;
+    changed dark => { Palette.color-scheme = dark ? ColorScheme.dark : ColorScheme.light; }
+    init => { Palette.color-scheme = dark ? ColorScheme.dark : ColorScheme.light; }
+
+    in property <string> product: "Borea Live";
+    in property <string> heading;
+    in property <string> subtitle;
+    in property <string> summary;
+    in property <string> connection;
+    in property <string> notice;
+    in property <string> details;
+    in property <int> page;
+    in property <int> reached;
+    in property <bool> locked;
+    in property <[ChoiceData]> heroes;
+    in property <[ChoiceGroup]> groups;
+    in property <string> next-label: "Continue";
+    in property <bool> next-enabled;
+    in property <bool> account;
+    in-out property <bool> browse-apps;
+    in property <bool> confirmation-visible;
+    in-out property <bool> confirmed;
+    in property <string> confirmation-label;
+    in property <bool> progress-visible;
+    in property <float> progress;
+    in property <bool> secure-boot-visible;
+    in property <bool> secure-boot-available;
+    in property <string> secure-boot-note;
+    in-out property <bool> secure-boot;
+    in property <bool> firmware-available;
+    in property <bool> firmware-dialog;
+    in property <bool> space-visible;
+    in property <float> space-max;
+    in property <float> space-min: 40;
+    in-out property <float> space;
+    in-out property <string> full-name;
+    in-out property <string> username;
+    in-out property <string> hostname;
+    in-out property <string> password;
+    in-out property <string> password-confirmation;
+    in property <[string]> languages;
+    in property <[string]> keyboards;
+    in property <[string]> consoles;
+    in property <[string]> timezones;
+    in-out property <int> language-index: -1;
+    in-out property <int> keyboard-index: -1;
+    in-out property <int> console-index: -1;
+    in-out property <int> timezone-index: -1;
+    in-out property <string> wifi-password;
+    in-out property <bool> show-wifi-password;
+    in property <bool> wifi-selected;
+    in property <bool> wifi-secured;
+    in-out property <string> hidden-ssid;
+    in property <[string]> hidden-securities: ["WPA2 personal", "WPA3 personal", "Open"];
+    in-out property <int> hidden-security: 0;
+    in-out property <bool> hidden-network;
+    callback choose(string);
+    callback navigate(int);
+    callback advance;
+    callback back;
+    callback change-field(string, string);
+    callback region(string, int);
+    callback confirm(bool);
+    callback set-space(float);
+    callback set-secure-boot(bool);
+    callback firmware(string);
+    callback wifi(string);
+    callback theme;
+    callback motion;
+    in property <bool> motion-paused;
+    in property <bool> scroll-bottom;
+    changed scroll-bottom => { scroll.viewport-y = scroll-bottom ? min(0px, scroll.height - scroll.viewport-height) : 0px; }
+    property <float> air-phase: 0;
+    Timer { interval: 120ms; running: !root.motion-paused; triggered => { root.air-phase += 0.02; } }
+    Image { source: @image-url("wind.svg"); x: 216px - mod(root.air-phase, 1) * 120px; y: 0px; width: 1400px; height: 160px; colorize: Design.primary; opacity: 0.055; }
+    HorizontalLayout { spacing: 0px;
+        Rectangle { width: 216px; background: Design.surface;
+            VerticalLayout { padding: root.height < 760px ? 16px : 20px; spacing: root.height < 760px ? 6px : 12px;
+                Text { text: "Borea"; color: Design.text; font-size: 30px; font-weight: 800; height: 44px; }
+                if root.height >= 760px : Text { text: "Go wherever the wind takes you."; color: Design.muted; font-size: 12px; wrap: word-wrap; height: 50px; }
+                for label[index] in ["Connect", "Machine", "Family", "Distribution", "Desktop", "Install"] : Rectangle {
+                    height: root.height < 760px ? 34px : 46px; border-radius: 23px;
+                    background: root.page == index ? Design.selected : nav.has-hover && index <= root.reached ? Design.raised : transparent;
+                    Text { x: 18px; text: label; color: root.page == index ? Design.primary : index <= root.reached ? Design.text : Design.muted; font-size: 14px; vertical-alignment: center; }
+                    nav := TouchArea { enabled: !root.locked && index <= root.reached; clicked => { root.navigate(index); } }
+                    accessible-role: button; accessible-label: "Step " + (index + 1) + ": " + label;
+                    accessible-enabled: !root.locked && index <= root.reached;
+                    accessible-action-default => { root.navigate(index); }
+                }
+                Rectangle { vertical-stretch: 1; background: transparent; }
+                Text { text: root.connection; color: Design.muted; font-size: 12px; wrap: word-wrap; height: 48px; }
+                Pill { label: root.dark ? "Light appearance" : "Dark appearance"; activated => { root.theme(); } }
+                Pill { label: root.motion-paused ? "Resume wind" : "Pause wind"; activated => { root.motion(); } }
+                Pill { label: "UEFI setup"; firmware-icon: true; enabled: root.firmware-available && !root.locked; activated => { root.firmware("open"); } }
+            }
+        }
+        VerticalLayout { padding-left: 36px; padding-right: 36px; padding-top: 32px; padding-bottom: 24px; spacing: 14px;
+            Text { text: root.product + "  /  " + (root.page + 1) + " of 6"; color: Design.primary; font-size: 12px; height: 20px; }
+            Text { text: root.heading; color: Design.text; font-size: 34px; font-weight: 700; wrap: word-wrap; min-height: 48px; }
+            Text { text: root.subtitle; color: Design.muted; font-size: 14px; wrap: word-wrap; min-height: 32px; }
+            scroll := ScrollView { enabled: !root.locked; vertical-stretch: 1;
+                VerticalLayout { padding-top: 12px; spacing: 20px; alignment: start;
+                    if root.notice != "" : Rectangle { background: Design.selected; border-radius: 16px; min-height: 58px;
+                        Text { x: 16px; y: 12px; width: parent.width - 32px; height: parent.height - 24px; text: root.notice; color: Design.primary; font-size: 13px; wrap: word-wrap; }
+                    }
+                    hero-grid := Rectangle {
+                        background: transparent;
+                        property <int> columns: max(1, min(root.page == 2 ? 4 : 3, floor((self.width + 16px) / 222px)));
+                        height: root.heroes.length == 0 ? 0px : ceil(root.heroes.length / self.columns) * 434px;
+                        for choice[index] in root.heroes : Portrait {
+                            choice: choice; family: root.page == 2;
+                            x: mod(index, hero-grid.columns) * (self.width + 16px);
+                            y: floor(index / hero-grid.columns) * 434px;
+                            width: (hero-grid.width - (hero-grid.columns - 1) * 16px) / hero-grid.columns;
+                            chosen(key) => { root.choose(key); }
+                        }
+                    }
+                    if root.page == 0 : VerticalLayout { spacing: 12px;
+                        HorizontalLayout { spacing: 12px;
+                            Pill { label: "Rescan networks"; activated => { root.wifi("rescan"); } }
+                            CheckBox { text: "Hidden network"; checked <=> root.hidden-network; toggled => { root.wifi("hidden"); } }
+                        }
+                        if root.hidden-network : HorizontalLayout { spacing: 12px;
+                            LineEdit { placeholder-text: "Network name"; text <=> root.hidden-ssid; }
+                            ComboBox { model: root.hidden-securities; current-index <=> root.hidden-security; }
+                        }
+                        if root.wifi-selected || root.hidden-network : HorizontalLayout { spacing: 12px;
+                            LineEdit { visible: root.wifi-secured || root.hidden-network; placeholder-text: "Passphrase"; text <=> root.wifi-password; input-type: root.show-wifi-password ? InputType.text : InputType.password; }
+                            if root.wifi-password != "" || !root.wifi-secured : Pill { label: "Join network"; primary: true; activated => { root.wifi("join"); root.wifi-password = ""; } }
+                        }
+                        if root.wifi-selected || root.hidden-network : CheckBox { text: "Show passphrase"; checked <=> root.show-wifi-password; }
+                    }
+                    if root.account : VerticalLayout { spacing: 14px;
+                        Text { text: "Your account"; color: Design.text; font-size: 22px; font-weight: 600; }
+                        LineEdit { placeholder-text: "Full name"; text <=> root.full-name; edited(value) => { root.change-field("full-name", value); } }
+                        LineEdit { placeholder-text: "Username"; text <=> root.username; edited(value) => { root.change-field("username", value); } }
+                        LineEdit { placeholder-text: "Computer name"; text <=> root.hostname; edited(value) => { root.change-field("hostname", value); } }
+                        LineEdit { placeholder-text: "Password"; input-type: InputType.password; text <=> root.password; edited(value) => { root.change-field("password", value); } }
+                        LineEdit { placeholder-text: "Confirm password"; input-type: InputType.password; text <=> root.password-confirmation; edited(value) => { root.change-field("confirmation", value); } }
+                        Text { text: "This password unlocks your encrypted Linux disk and signs you in."; color: Design.muted; font-size: 12px; wrap: word-wrap; }
+                        Text { text: "Region"; color: Design.text; font-size: 22px; font-weight: 600; }
+                        Text { text: "Language"; color: Design.muted; font-size: 13px; }
+                        ComboBox { accessible-label: "Language"; model: root.languages; current-index <=> root.language-index; selected(value) => { root.region("language", self.current-index); } }
+                        Text { text: "Keyboard layout and variant"; color: Design.muted; font-size: 13px; }
+                        ComboBox { accessible-label: "Keyboard layout and variant"; model: root.keyboards; current-index <=> root.keyboard-index; selected(value) => { root.region("keyboard", self.current-index); } }
+                        Text { text: "Keyboard for disk unlock"; color: Design.muted; font-size: 13px; }
+                        ComboBox { accessible-label: "Keyboard for disk unlock"; model: root.consoles; current-index <=> root.console-index; selected(value) => { root.region("console", self.current-index); } }
+                        Text { text: "Time zone"; color: Design.muted; font-size: 13px; }
+                        ComboBox { accessible-label: "Time zone"; model: root.timezones; current-index <=> root.timezone-index; selected(value) => { root.region("timezone", self.current-index); } }
+                        CheckBox { text: "Choose extra applications (optional)"; checked <=> root.browse-apps; }
+                    }
+                    for group in (root.account && !root.browse-apps ? [] : root.groups) : VerticalLayout { spacing: 12px; alignment: start;
+                        Text { height: 28px; text: group.title; color: Design.text; font-size: 19px; font-weight: 600; }
+                        tiles := Rectangle { background: transparent;
+                            property <int> columns: self.width < 560px ? 1 : 2;
+                            height: ceil(group.choices.length / self.columns) * 110px;
+                            for choice[index] in group.choices : OptionTile {
+                                choice: choice;
+                                width: (tiles.width - (tiles.columns - 1) * 12px) / tiles.columns;
+                                x: mod(index, tiles.columns) * (self.width + 12px);
+                                y: floor(index / tiles.columns) * 110px;
+                                height: 100px;
+                                chosen(key) => { root.choose(key); }
+                            }
+                        }
+                    }
+                    if root.space-visible : VerticalLayout { spacing: 8px;
+                        Text { text: "Linux space: " + round(root.space) + " GiB"; color: Design.text; font-size: 14px; }
+                        Slider { minimum: root.space-min; maximum: root.space-max; value <=> root.space; changed(value) => { root.set-space(value); } }
+                    }
+                    if root.secure-boot-visible : VerticalLayout { spacing: 10px;
+                        Text { text: "Secure Boot"; color: Design.text; font-size: 19px; font-weight: 600; }
+                        CheckBox { text: "Enable Secure Boot"; enabled: root.secure-boot-available; checked <=> root.secure-boot; toggled => { root.set-secure-boot(self.checked); } }
+                        Text { text: root.secure-boot-note; color: Design.muted; font-size: 12px; wrap: word-wrap; }
+                    }
+                    if root.details != "" : Text { text: root.details; color: Design.muted; font-size: 14px; wrap: word-wrap; }
+                    if root.progress-visible : ProgressIndicator { progress: root.progress; }
+                    if root.confirmation-visible : CheckBox { text: root.confirmation-label; checked <=> root.confirmed; toggled => { root.confirm(self.checked); } }
+                    Rectangle { height: 8px; background: transparent; }
+                }
+            }
+            HorizontalLayout { spacing: 16px;
+                Text { text: root.summary; color: Design.muted; font-size: 12px; wrap: word-wrap; vertical-alignment: center; horizontal-stretch: 1; }
+                Pill { label: "Back"; enabled: !root.locked && root.page > 0; activated => { root.back(); } }
+                Pill { label: root.next-label; primary: true; enabled: root.next-enabled; activated => { root.advance(); } }
+            }
+        }
+    }
+    if root.firmware-dialog : Rectangle { background: #00000099;
+        TouchArea {}
+        Rectangle { width: min(560px, parent.width - 48px); height: 260px; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; background: Design.raised; border-radius: 28px;
+            VerticalLayout { padding: 28px; spacing: 18px;
+                Text { text: "Restart into UEFI setup?"; color: Design.text; font-size: 24px; font-weight: 600; wrap: word-wrap; }
+                Text { text: "Save your work first. Your firmware settings will open after restarting."; color: Design.muted; font-size: 14px; wrap: word-wrap; }
+                HorizontalLayout { Pill { label: "Cancel"; activated => { root.firmware("cancel"); } } Pill { label: "Restart"; primary: true; activated => { root.firmware("restart"); } } }
+            }
+        }
+    }
+}
+
+export global Logos {
+    out property <image> nobara: @image-url("logos/nobara.svg");
+    out property <image> pikaos: @image-url("logos/pikaos.svg");
+    out property <image> arch: @image-url("logos/arch.svg");
+    out property <image> fedora: @image-url("logos/fedora.png");
+    out property <image> debian: @image-url("logos/debian.svg");
+    out property <image> opensuse: @image-url("logos/opensuse.svg");
+    out property <image> cachyos: @image-url("logos/cachyos.svg");
+    out property <image> omarchy: @image-url("logos/omarchy.svg");
+    out property <image> bazzite: @image-url("logos/bazzite.svg");
+}
