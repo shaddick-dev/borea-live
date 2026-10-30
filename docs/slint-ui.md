@@ -27,3 +27,5 @@ Artwork sources: [bundled logos](../crates/borea-gui/ui/logos/README.md). Design
 The Slint software renderer captured all wizard pages in both themes, the 900×600 layout, and native storage/account screens. Native startup passed under cage in a Debian 13 runtime with no GPU access (`BOREA_GUI_READY`). GUI, terminal and composer tests, Clippy, formatting and the backend Rust 1.85 check passed. A newly composed ISO boot and physical hardware install were not run for this redesign.
 
 The GUI package uses Slint under its GPLv3 licence option. Artwork retains the upstream projects’ rights.
+
+Slint’s compatibility pin retains four transitive packages with unmaintained advisories (`paste`, `proc-macro-error`, `rustybuzz`, `ttf-parser`). The repository’s cargo-deny policy records specific exceptions, dependency paths and upgrade conditions. They report maintenance status; the exceptions do not disable other advisory or source checks.
