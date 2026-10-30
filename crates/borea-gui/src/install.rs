@@ -571,8 +571,19 @@ impl NativeInstall {
                     });
                     ui.label(format!("Account: {} · {}", plan.user.username, plan.user.hostname));
                     ui.label(format!(
-                        "{} · {} · {}",
-                        plan.locale.lang, plan.locale.keyboard.layout, plan.locale.timezone
+                        "Language: {} · Time zone: {}",
+                        plan.locale.lang, plan.locale.timezone
+                    ));
+                    let keyboard = &plan.locale.keyboard;
+                    ui.label(format!(
+                        "Keyboard: {}{} · Disk unlock: {}",
+                        keyboard.layout,
+                        if keyboard.variant.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" ({})", keyboard.variant)
+                        },
+                        keyboard.console
                     ));
                     ui.label("Encrypted Linux storage · Hyprland + Noctalia · Noctalia Greeter");
                     ui.label(format!(
@@ -714,8 +725,26 @@ mod tests {
     fn whole_and_alongside_require_review_and_confirmation_before_start() {
         for alongside in [false, true] {
             let calls = Arc::new(Mutex::new(vec![]));
-            let mut link =
-                NativeInstall::with_service(egui::Context::default(), service(calls.clone()));
+            let locale = LocaleChoice {
+                lang: "fr_FR.UTF-8".into(),
+                timezone: "Asia/Tokyo".into(),
+                keyboard: Keyboard {
+                    layout: "de".into(),
+                    variant: "nodeadkeys".into(),
+                    console: "de-latin1".into(),
+                },
+            };
+            let expected_locale = serde_json::to_value(&locale).unwrap();
+            let mock = service(calls.clone());
+            let mut link = NativeInstall::with_service(
+                egui::Context::default(),
+                Arc::new(move |method, params| {
+                    if matches!(method, "plan.review" | "install.start") {
+                        assert_eq!(params["plan"]["locale"], expected_locale);
+                    }
+                    mock(method, params)
+                }),
+            );
             link.load();
             wait(&mut link, |l| l.loaded);
             assert!(link.pick.is_none());
@@ -724,6 +753,7 @@ mod tests {
             link.start();
             assert!(!calls.lock().unwrap().iter().any(|s| s == "install.start"));
             account(&mut link);
+            link.locale = locale;
             link.pick = Some(if alongside {
                 Where::Alongside { disk: 0, part: 0, size: 45 * crate::handoff::GIB }
             } else {
