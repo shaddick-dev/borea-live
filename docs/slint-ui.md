@@ -18,7 +18,7 @@ cargo run --locked -p borea-gui --bin borea-live -- --showcase /tmp/borea-showca
 
 `--showcase` uses Slint's software renderer, fixed example hardware and a simulated network. It does not contact the installation service or modify disks. Its PNG captures generate the README GIF.
 
-Slint 1.11 is pinned for compatibility with the backend's existing D-Bus dependency and Rust 1.85 support. The GUI binaries render with Slint; the older egui view and its regression tests are retained alongside the existing state/service implementations. This avoids changing installation logic during the rendering migration.
+Slint 1.11 is pinned to leave the backend’s existing zbus 5.5 dependency unchanged. Slint 1.14 would need zbus 5.7 and still uses the older font stack; current Slint 1.18 needs zbus 5.14, which requires Rust 1.87 rather than the backend’s Rust 1.85. The GUI binaries render with Slint; the older egui view and its regression tests are retained alongside the existing state/service implementations. This avoids changing installation logic during the rendering migration.
 
 Artwork sources: [bundled logos](../crates/borea-gui/ui/logos/README.md). Design references: [Material 3](https://m3.material.io/) and [Slint](https://docs.slint.dev/latest/docs/slint/).
 

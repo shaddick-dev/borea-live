@@ -5,8 +5,9 @@
 [advisories]
 ignore = [
     # Slint 1.11 is the last release compatible with the backend's zbus 5.5
-    # pin. Later Slint releases require zbus >=5.7, above the backend's Rust
-    # 1.85 constraint. These four advisories report maintenance status, not a
+    # pin. Slint 1.14 would change that pin and still uses rustybuzz/ttf-parser;
+    # current Slint 1.18 requires zbus >=5.14 (Rust 1.87). The four advisories
+    # below report maintenance status, not a
     # patched vulnerability. Retire these exceptions when Slint can move to
     # its newer text/menu/accessibility stack without changing backend MSRV.
     # paste: Slint -> accesskit_windows; also image -> exr/pulp and rav1e.
