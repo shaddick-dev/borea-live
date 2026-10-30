@@ -23,8 +23,7 @@ use crate::firmware::{Choice, FirmwareLink};
 use crate::handoff::{self, HandoffLink, Phase, Where};
 use crate::icon;
 use crate::model::{
-    DesktopMode, Selection, ShellPick, capitalize, compose_teaser, device_name, family_line,
-    hardware_facts,
+    DesktopMode, Selection, ShellPick, capitalize, compose_teaser, device_name, hardware_facts,
 };
 use crate::powerup::{self, PowerUp};
 use crate::theme::{self, DARK, LIGHT, Palette, RADIUS, size};
@@ -950,30 +949,18 @@ impl LiveInstaller {
         let catalog = &self.catalog;
         section(ui, &p, "Family");
         let pending = ui.make_persistent_id("family-pick");
-        let families: Vec<(usize, Family)> = Family::ALL.into_iter().enumerate().collect();
-        grid(ui, 4, &families, |ui, (i, f)| {
-            let label = format!("{f} family");
-            let look = PowerUp {
-                label: &label,
-                emblem: icon::family(*f),
-                orb: 96.0,
-                selected: self.picked_family == Some(*f),
-                index: *i,
-            };
-            let card = powerup::card(ui, &p, ("family", *f), &look, time, |ui| {
-                ui.set_min_height(150.0);
-                ui.label(RichText::new(f.to_string()).family(theme::display()).size(size::TITLE));
-                ui.add_space(2.0);
-                ui.label(caption(family_line(*f), &p));
-                ui.add_space(10.0);
-                // The distributions inside: what you pick up with this family.
-                let members: Vec<&Distro> = catalog.family(*f).collect();
-                let emblems: Vec<&str> =
-                    members.iter().map(|d| icon::distro(d.id.as_str())).collect();
-                ui.label(RichText::new(emblems.join("   ")).size(size::BODY + 2.0).color(p.sub));
-                let names: Vec<&str> = members.iter().map(|d| d.name.as_str()).collect();
-                ui.label(RichText::new(names.join(" · ")).size(size::TINY).color(p.sub));
-            });
+        let pending_family = ui.ctx().data(|d| d.get_temp::<(Family, f64)>(pending));
+        grid(ui, 4, &Family::ALL, |ui, f| {
+            let names: Vec<&str> = catalog.family(*f).map(|d| d.name.as_str()).collect();
+            let card = crate::family_cards::card(
+                ui,
+                &p,
+                *f,
+                &names,
+                self.picked_family == Some(*f)
+                    || pending_family.is_some_and(|(picked, _)| picked == *f),
+                time.is_some(),
+            );
             if card.clicked() {
                 match time {
                     // Let the pick-up pop play before the page moves on.

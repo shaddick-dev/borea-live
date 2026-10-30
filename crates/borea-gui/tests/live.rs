@@ -8,7 +8,7 @@ use borea_live_core::Family;
 use common::machine;
 use eframe::egui::{self, accesskit::Role};
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 
 type Installer = Harness<'static, Option<LiveInstaller>>;
 
@@ -98,9 +98,19 @@ fn guided_path_through_every_step() {
     press(&mut h, "Next");
 
     assert_eq!(app(&h).step(), Step::System);
-    // The family cards carry Windpad's lines.
-    assert!(h.query_by_label("A system shaped by you.").is_some());
-    assert!(h.query_by_label("A fresh perspective.").is_some());
+    // Painted portrait cards still expose release and distribution information.
+    for (family, release, distro) in [
+        ("Arch family", "Rolling release", "CachyOS"),
+        ("Fedora family", "Regular releases", "Bazzite"),
+    ] {
+        let description = h
+            .get_by_role_and_label(Role::Button, family)
+            .accesskit_node()
+            .description()
+            .unwrap_or_default();
+        assert!(description.contains(release));
+        assert!(description.contains(distro));
+    }
     press(&mut h, "Fedora family");
     assert_eq!(app(&h).step(), Step::Distribution);
     press(&mut h, "Fedora Linux");

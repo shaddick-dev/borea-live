@@ -11,6 +11,7 @@
 //! session and never changes disks in this build.
 
 pub mod app;
+mod family_cards;
 pub mod firmware;
 pub mod handoff;
 pub mod icon;
