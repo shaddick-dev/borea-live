@@ -18,9 +18,35 @@ Restart → graphical disk unlock → Noctalia Greeter → Hyprland → Noctalia
 - Linux storage uses LUKS2 and Btrfs. Windows and its EFI files are preserved for alongside installs.
 - Secure Boot is optional. The normal graphical login requires a password; no TTY login or autologin.
 - The greeter launches `start-hyprland`; Hyprland's Lua startup hook starts Noctalia.
-- Super+L opens Noctalia's own lockscreen. Super+Shift+S locks and suspends.
+- Shortcuts follow [Noctalia's v5 Hyprland guide](https://github.com/noctalia-dev/noctalia/blob/v5.4.1/docs/user/compositor-settings/hyprland.mdx). Lock and suspend are available from Noctalia's session menu; Borea adds no custom lock/suspend shortcut.
 - Noctalia handles lock-before-suspend through logind's sleep-delay inhibitor.
 - Packages come from Arch's signed repositories; this pathway does not build AUR packages.
+
+## Keys and region
+
+| Key | Action |
+| --- | --- |
+| Super+Space | Noctalia launcher |
+| Super+S | Control Center |
+| Super+comma | Noctalia settings |
+| Alt+Tab | Window switcher |
+| Volume / brightness keys | Noctalia audio / brightness controls |
+| Super+Q / Super+C | Terminal / close window (Hyprland defaults) |
+| Super+arrows / Super+1–0 | Focus window / switch workspace |
+| Super+Shift+1–0 | Move window to workspace |
+
+Noctalia's internal navigation keys keep their upstream defaults. The old Borea
+shortcuts (including Super+Return and Super+Shift+S) are removed from new installs.
+
+Your Borea region choices apply independently:
+
+- **Language:** generated system locale and Noctalia UI language. Noctalia falls back to English when a translation is unavailable.
+- **Keyboard and variant:** Noctalia Greeter and Hyprland, including Noctalia's lockscreen.
+- **Disk-unlock keyboard:** the selected console keymap, included in the initramfs.
+- **Time zone:** the installed system's `/etc/localtime`; the greeter and desktop use it.
+
+These settings are written before account creation. Existing installations and
+personal keybindings are not overwritten by this installer change.
 
 ## Release check
 

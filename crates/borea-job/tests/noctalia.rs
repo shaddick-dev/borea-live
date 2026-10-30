@@ -6,7 +6,12 @@ use borea_disk::*;
 use borea_job::*;
 
 fn scenario(alongside: bool) -> Job {
+    scenario_with_locale(alongside, common::plan(Distribution::Arch, true).locale)
+}
+
+fn scenario_with_locale(alongside: bool, locale: LocaleChoice) -> Job {
     let mut plan = common::plan(Distribution::Arch, true);
+    plan.locale = locale;
     plan.desktop = Some(Desktop::HyprlandNoctalia);
     plan.env = "composed".into();
     plan.secure_boot = Some(false);
@@ -92,7 +97,6 @@ fn both_layouts_have_graphical_login_and_defer_only_optional_packages() {
         assert!(script.contains("Exec=/usr/bin/start-hyprland"));
         assert!(script.contains("hyprland.lua"));
         assert!(script.contains("hl.on(\"hyprland.start\""));
-        assert!(script.contains("noctalia msg session lock"));
         assert!(script.contains("lock_before_suspend = true"));
         assert!(script.contains("--after-login tester"));
         assert!(script.contains("plymouth autodetect"));
@@ -138,6 +142,109 @@ fn both_layouts_have_graphical_login_and_defer_only_optional_packages() {
         let mut changed = job.clone();
         changed.external.noctalia = Some("5.4.1".into());
         assert_ne!(job.digest().unwrap(), changed.digest().unwrap());
+    }
+}
+
+fn written<'a>(job: &'a Job, name: &str) -> &'a str {
+    job.stages
+        .iter()
+        .flat_map(|s| &s.actions)
+        .find_map(|action| match action {
+            Action::WriteFile { path, contents, .. } if path == name => Some(contents.as_str()),
+            _ => None,
+        })
+        .unwrap()
+}
+
+#[test]
+fn region_choices_reach_shell_greeter_disk_unlock_and_system_for_both_layouts() {
+    // Deliberately mix language, keyboard and zone: none should be inferred
+    // from another choice, or from the build/live environment.
+    for (lang, layout, variant, console, timezone) in [
+        ("fr_FR.UTF-8", "de", "nodeadkeys", "de-latin1", "Asia/Tokyo"),
+        ("pt_BR.UTF-8", "us", "intl", "us", "America/Sao_Paulo"),
+        ("en_GB.UTF-8", "gb", "", "uk", "Europe/London"),
+    ] {
+        for alongside in [false, true] {
+            let job = scenario_with_locale(
+                alongside,
+                LocaleChoice {
+                    lang: lang.into(),
+                    timezone: timezone.into(),
+                    keyboard: Keyboard {
+                        layout: layout.into(),
+                        variant: variant.into(),
+                        console: console.into(),
+                    },
+                },
+            );
+            assert_eq!(written(&job, "/etc/locale.conf"), format!("LANG={lang}\n"));
+            assert_eq!(written(&job, "/etc/locale.gen"), format!("{lang} UTF-8\n"));
+            assert_eq!(written(&job, "/etc/vconsole.conf"), format!("KEYMAP={console}\n"));
+            let shell: toml::Value =
+                toml::from_str(written(&job, "/etc/skel/.config/noctalia/config.toml")).unwrap();
+            assert_eq!(shell["shell"]["lang"].as_str(), Some(lang));
+            assert!(shell.get("keybinds").is_none(), "retain Noctalia's built-in keys");
+            let greeter: toml::Value =
+                toml::from_str(written(&job, "/var/lib/noctalia-greeter/greeter.toml")).unwrap();
+            assert_eq!(greeter["keyboard"]["layout"].as_str(), Some(layout));
+            assert_eq!(greeter["keyboard"]["variant"].as_str(), Some(variant));
+            let hyprland = written(&job, "/etc/skel/.config/hypr/hyprland.lua");
+            assert!(
+                hyprland.contains(&format!("kb_layout = \"{layout}\", kb_variant = \"{variant}\""))
+            );
+            let actions: Vec<_> = job.stages.iter().flat_map(|s| &s.actions).collect();
+            assert!(actions.iter().any(|a| matches!(a, Action::Run(c)
+                if c.root == Root::Target && c.program == "/usr/bin/ln"
+                && c.args == ["-sf", &format!("/usr/share/zoneinfo/{timezone}"), "/etc/localtime"])));
+            let useradd = actions
+                .iter()
+                .position(|a| matches!(a, Action::Run(c) if c.program == "/usr/sbin/useradd"))
+                .unwrap();
+            for path in
+                ["/etc/skel/.config/noctalia/config.toml", "/etc/skel/.config/hypr/hyprland.lua"]
+            {
+                assert!(
+                    actions
+                        .iter()
+                        .position(|a| matches!(a, Action::WriteFile { path: p, .. } if p == path))
+                        .unwrap()
+                        < useradd
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn noctalia_uses_upstream_shortcuts_without_borea_remaps() {
+    let job = scenario(false);
+    let config = written(&job, "/etc/skel/.config/hypr/hyprland.lua");
+    for (key, command) in [
+        ("SUPER + SPACE", "panel-toggle launcher"),
+        ("SUPER + S", "panel-toggle control-center"),
+        ("SUPER + comma", "settings-toggle"),
+        ("ALT + Tab", "window-switcher hold"),
+        ("XF86AudioRaiseVolume", "volume-up"),
+        ("XF86AudioLowerVolume", "volume-down"),
+        ("XF86AudioMute", "volume-mute"),
+        ("XF86MonBrightnessUp", "brightness-up"),
+        ("XF86MonBrightnessDown", "brightness-down"),
+    ] {
+        assert!(
+            config.contains(&format!(
+                "hl.bind(\"{key}\", hl.dsp.exec_cmd(\"noctalia msg {command}\"))"
+            ))
+        );
+    }
+    for old in [
+        "SUPER + RETURN",
+        "SUPER + SHIFT + Q",
+        "SUPER + SHIFT + E",
+        "SUPER + SHIFT + S",
+        "SUPER + L",
+    ] {
+        assert!(!config.contains(old), "unexpected Borea shortcut: {old}");
     }
 }
 
