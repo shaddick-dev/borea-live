@@ -2,6 +2,8 @@
 
 [Overview](#overview) · [Status](#status) · [Try it](#try-it) · [Development](#development) · [Help out](#help-out) · [Docs](#docs)
 
+![Borea Live installer walkthrough: connection, hardware, distribution families, distribution, desktop, extras and review.](docs/assets/installer-showcase.gif)
+
 ## Overview
 
 Borea is an online Linux installer, aggregator and composer written in Rust.
