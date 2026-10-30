@@ -2,9 +2,10 @@
 
 Windpad and the live ISO installer now start the same Slint interface. The USB creator remains a Ratatui app with matching colours and quieter panels.
 
-- Material 3 inspired surfaces, rounded controls and a restrained character-selection layout.
+- Nord Polar Night surfaces, frost-blue controls and restrained portrait selection cards. No purple UI accents.
 - Official distro logo images embedded in the application; no font-glyph logo substitutes or geometric frames.
-- Light and dark themes, keyboard controls, accessible names and visible selection.
+- Dark frost and light Snow Storm themes, keyboard controls, accessible names and an illuminated selection rim.
+- Irregular right-to-left gusts, smooth page-transition acceleration, and a pause control that stops decorative motion.
 - Existing Rust selection model, NetworkManager worker, firmware restart and installer service clients.
 - Native Arch + Hyprland + Noctalia and Omarchy handoff keep their existing approval and explicit disk-confirmation requirements. Other targets retain their existing preview limitations.
 - Language, keyboard layout/variant, console keymap and timezone are separate explicit choices.
@@ -16,7 +17,7 @@ cargo run --locked -p borea-gui --bin borea-live -- --preview --window
 cargo run --locked -p borea-gui --bin borea-live -- --showcase /tmp/borea-showcase
 ```
 
-`--showcase` uses Slint's software renderer, fixed example hardware and a simulated network. It does not contact the installation service or modify disks. Its PNG captures generate the README GIF.
+`--showcase` uses Slint's software renderer, fixed example hardware and a simulated network. It does not contact the installation service or modify disks. Add `--animate` to capture real wind and selection animation frames for the README GIF.
 
 Slint 1.11 is pinned to leave the backend’s existing zbus 5.5 dependency unchanged. Slint 1.14 would need zbus 5.7 and still uses the older font stack; current Slint 1.18 needs zbus 5.14, which requires Rust 1.87 rather than the backend’s Rust 1.85. The GUI binaries render with Slint; the older egui view and its regression tests are retained alongside the existing state/service implementations. This avoids changing installation logic during the rendering migration.
 
@@ -29,3 +30,5 @@ The Slint software renderer captured all wizard pages in both themes, the 900×6
 The GUI package uses Slint under its GPLv3 licence option. Artwork retains the upstream projects’ rights.
 
 Slint’s compatibility pin retains four transitive packages with unmaintained advisories (`paste`, `proc-macro-error`, `rustybuzz`, `ttf-parser`). The repository’s cargo-deny policy records specific exceptions, dependency paths and upgrade conditions. They report maintenance status; the exceptions do not disable other advisory or source checks.
+
+User styling preferences are recorded in [design.md](design.md).

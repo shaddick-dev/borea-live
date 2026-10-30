@@ -15,7 +15,7 @@ use std::sync::OnceLock;
 
 /// One seed per launch: every launch has different weather. No per-frame
 /// randomness: each gust is a pure function of the seed and its number.
-fn launch_seed() -> u64 {
+pub(crate) fn launch_seed() -> u64 {
     static SEED: OnceLock<u64> = OnceLock::new();
     *SEED.get_or_init(|| {
         std::time::SystemTime::now()

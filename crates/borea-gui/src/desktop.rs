@@ -1,8 +1,12 @@
 //! Slint presentation over the existing installer state machine and service clients.
 use super::*;
 use crate::install::Page;
-use slint::{ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel};
-use std::{cell::RefCell, rc::Rc, time::Duration};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
+use std::{
+    cell::RefCell,
+    rc::Rc,
+    time::{Duration, Instant},
+};
 slint::include_modules!();
 
 #[derive(Clone, PartialEq)]
@@ -50,6 +54,7 @@ struct Bridge {
     network: Option<usize>,
     heroes: Vec<Tile>,
     groups: Vec<Section>,
+    pending_family: Option<(Family, Instant)>,
 }
 impl Bridge {
     fn busy(&self) -> bool {
@@ -66,7 +71,14 @@ impl Bridge {
         let bits: Vec<_> = key.split('/').collect();
         let index = |at: usize| bits.get(at).and_then(|v| v.parse::<usize>().ok());
         let action = match bits[0] {
-            "family" => index(1).and_then(|i| Family::ALL.get(i).copied()).map(Action::Family),
+            "family" => index(1).and_then(|i| Family::ALL.get(i).copied()).and_then(|f| {
+                if self.app.still {
+                    Some(Action::Family(f))
+                } else {
+                    self.pending_family = Some((f, Instant::now()));
+                    None
+                }
+            }),
             "distro" => index(1)
                 .filter(|i| *i < self.app.catalog.family(f).count())
                 .map(|i| Action::Distro(f, i)),
@@ -163,6 +175,9 @@ impl Bridge {
         }
     }
     fn next(&mut self) {
+        if self.pending_family.is_some() {
+            return;
+        }
         if self.app.firmware_dialog {
             return;
         }
@@ -188,6 +203,7 @@ impl Bridge {
         }
     }
     fn back(&mut self) {
+        self.pending_family = None;
         if self.busy() || self.app.firmware_dialog {
             return;
         }
@@ -314,7 +330,8 @@ impl Bridge {
                             .map(|d| d.name.as_str())
                             .collect::<Vec<_>>()
                             .join(" · "),
-                        a.picked_family == Some(f),
+                        self.pending_family.map(|(picked, _)| picked).or(a.picked_family)
+                            == Some(f),
                     );
                     t.logo = family_id(f).into();
                     t.meta = match f {
@@ -537,25 +554,55 @@ impl Bridge {
         (heroes, groups)
     }
     fn refresh(&mut self, ui: &BoreaWindow) {
+        if self.app.step != Step::System {
+            self.pending_family = None;
+        }
+        if let Some((family, at)) = self.pending_family
+            && (self.app.still || at.elapsed() >= Duration::from_millis(280))
+        {
+            self.pending_family = None;
+            self.app.apply(&self.ctx, Action::Family(family));
+        }
         self.app.poll();
         let (heroes, groups) = self.tiles();
         if heroes != self.heroes {
-            ui.set_heroes(tiles_model(ui, &heroes));
+            ui.set_heroes(update_tiles(ui, &ui.get_heroes(), &self.heroes, &heroes));
             self.heroes = heroes;
         }
         if groups != self.groups {
-            ui.set_groups(
-                Rc::new(VecModel::from(
-                    groups
-                        .iter()
-                        .map(|g| ChoiceGroup {
-                            title: g.title.clone().into(),
-                            choices: tiles_model(ui, &g.choices),
-                        })
-                        .collect::<Vec<_>>(),
-                ))
-                .into(),
-            );
+            let current = ui.get_groups();
+            if groups.len() == self.groups.len()
+                && groups.iter().zip(&self.groups).all(|(a, b)| a.title == b.title)
+            {
+                for (i, (group, old)) in groups.iter().zip(&self.groups).enumerate() {
+                    if let Some(mut row) = current.row_data(i) {
+                        let updated = update_tiles(ui, &row.choices, &old.choices, &group.choices);
+                        if old.choices.len() != group.choices.len()
+                            || old.choices.iter().zip(&group.choices).any(|(a, b)| a.key != b.key)
+                        {
+                            row.choices = updated;
+                            if let Some(model) =
+                                current.as_any().downcast_ref::<VecModel<ChoiceGroup>>()
+                            {
+                                model.set_row_data(i, row);
+                            }
+                        }
+                    }
+                }
+            } else {
+                ui.set_groups(
+                    Rc::new(VecModel::from(
+                        groups
+                            .iter()
+                            .map(|g| ChoiceGroup {
+                                title: g.title.clone().into(),
+                                choices: tiles_model(ui, &g.choices),
+                            })
+                            .collect::<Vec<_>>(),
+                    ))
+                    .into(),
+                );
+            }
             self.groups = groups;
         }
         let a = &self.app;
@@ -568,6 +615,7 @@ impl Bridge {
         ui.set_dark(a.palette.dark);
         ui.global::<Design>().set_dark(a.palette.dark);
         ui.set_motion_paused(a.still);
+        ui.global::<Design>().set_motion(!a.still && ui.get_motion_active());
         ui.set_locked(self.busy() || a.firmware_dialog);
         ui.set_firmware_dialog(a.firmware_dialog);
         ui.set_firmware_available(a.firmware.control(a.uefi()).0);
@@ -734,6 +782,9 @@ impl Bridge {
                 ui.set_notice(error.clone().into());
             }
         }
+        if self.pending_family.is_some() {
+            ui.set_next_enabled(false);
+        }
     }
 }
 fn family_id(f: Family) -> &'static str {
@@ -760,6 +811,80 @@ fn tiles_model(ui: &BoreaWindow, tiles: &[Tile]) -> ModelRc<ChoiceData> {
             .collect::<Vec<_>>(),
     ))
     .into()
+}
+
+/// Keep item identities (and their focus and animation state) across a pick.
+fn update_tiles(
+    ui: &BoreaWindow,
+    current: &ModelRc<ChoiceData>,
+    old: &[Tile],
+    next: &[Tile],
+) -> ModelRc<ChoiceData> {
+    if old.len() == next.len()
+        && old.iter().zip(next).all(|(a, b)| a.key == b.key)
+        && let Some(model) = current.as_any().downcast_ref::<VecModel<ChoiceData>>()
+    {
+        for (i, (a, b)) in old.iter().zip(next).enumerate() {
+            if a != b {
+                model.set_row_data(i, tile_data(ui, b));
+            }
+        }
+        return current.clone();
+    }
+    tiles_model(ui, next)
+}
+
+fn tile_data(ui: &BoreaWindow, t: &Tile) -> ChoiceData {
+    ChoiceData {
+        key: t.key.clone().into(),
+        label: t.label.clone().into(),
+        description: t.description.clone().into(),
+        meta: t.meta.clone().into(),
+        logo: logo(ui, &t.logo),
+        selected: t.selected,
+        enabled: t.enabled,
+    }
+}
+
+fn wind_frame(
+    ui: &BoreaWindow,
+    motion: &mut crate::frost_motion::FrostMotion,
+    dt: f64,
+    changed: bool,
+    paused: bool,
+    progress: Option<f32>,
+) {
+    motion.advance(dt, changed, paused, progress);
+    ui.set_motion_active(!paused);
+    ui.global::<Design>().set_motion(!paused);
+    if !paused || ui.get_wind().row_count() == 0 {
+        ui.set_wind(
+            Rc::new(VecModel::from(
+                motion
+                    .trails()
+                    .into_iter()
+                    .map(|g| WindData {
+                        x: g.x,
+                        y: g.y,
+                        length: g.length,
+                        height: g.height,
+                        alpha: g.alpha,
+                    })
+                    .collect::<Vec<_>>(),
+            ))
+            .into(),
+        );
+    }
+}
+
+fn view_key(b: &Bridge) -> String {
+    format!(
+        "{:?}:{:?}:{:?}:{:?}",
+        b.app.step,
+        b.app.native.page,
+        std::mem::discriminant(&b.app.handoff.phase),
+        b.pending_family.map(|(f, _)| f)
+    )
 }
 fn logo(ui: &BoreaWindow, id: &str) -> slint::Image {
     let logos = ui.global::<Logos>();
@@ -827,6 +952,7 @@ fn connect(ui: &BoreaWindow, state: Rc<RefCell<Bridge>>) {
         b.back();
     });
     callback!(on_navigate, |b, index| {
+        b.pending_family = None;
         if let Ok(i) = usize::try_from(index)
             && let Some(step) = Step::ALL.get(i)
         {
@@ -924,6 +1050,29 @@ fn connect(ui: &BoreaWindow, state: Rc<RefCell<Bridge>>) {
     ui.set_timezones(strings(borea_locale::TIMEZONES.iter().map(|v| format!("Time zone · {v}"))));
 }
 
+fn start_motion(ui: &BoreaWindow, state: Rc<RefCell<Bridge>>) -> Timer {
+    let motion_timer = Timer::default();
+    let motion_ui = ui.as_weak();
+    let motion_state = state.clone();
+    let mut wind = crate::frost_motion::FrostMotion::default();
+    let mut last_frame = Instant::now();
+    let mut last_view = view_key(&state.borrow());
+    motion_timer.start(TimerMode::Repeated, crate::wind::FRAME, move || {
+        if let Some(ui) = motion_ui.upgrade() {
+            let now = Instant::now();
+            let dt = now.duration_since(last_frame).as_secs_f64();
+            last_frame = now;
+            let b = motion_state.borrow();
+            let view = view_key(&b);
+            let paused = b.app.still || !ui.window().is_visible() || ui.window().is_minimized();
+            let progress = (b.app.native.page == Page::Running).then_some(b.app.native.progress);
+            wind_frame(&ui, &mut wind, dt, view != last_view, paused, progress);
+            last_view = view;
+        }
+    });
+    motion_timer
+}
+
 pub fn run(live: bool) -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().collect();
     if let Some(i) = args.iter().position(|a| a == "--showcase") {
@@ -939,10 +1088,17 @@ pub fn run(live: bool) -> Result<(), Box<dyn std::error::Error>> {
     };
     let ui = BoreaWindow::new()?;
     ui.set_product(if live { "Borea Live" } else { "Windpad" }.into());
-    let state =
-        Rc::new(RefCell::new(Bridge { app, ctx, network: None, heroes: vec![], groups: vec![] }));
+    let state = Rc::new(RefCell::new(Bridge {
+        app,
+        ctx,
+        network: None,
+        heroes: vec![],
+        groups: vec![],
+        pending_family: None,
+    }));
     connect(&ui, state.clone());
     state.borrow_mut().refresh(&ui);
+    let _motion_timer = start_motion(&ui, state.clone());
     let weak = ui.as_weak();
     let smoke = args.iter().any(|a| a == "--boot-smoke");
     let ticks = Rc::new(RefCell::new(0u32));
@@ -974,14 +1130,18 @@ fn showcase(dir: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
         Platform, WindowAdapter,
         software_renderer::{MinimalSoftwareWindow, RepaintBufferType},
     };
-    struct Headless(Rc<MinimalSoftwareWindow>);
+    struct Headless(Rc<MinimalSoftwareWindow>, Rc<std::cell::Cell<Duration>>);
     impl Platform for Headless {
         fn create_window_adapter(&self) -> Result<Rc<dyn WindowAdapter>, slint::PlatformError> {
             Ok(self.0.clone())
         }
+        fn duration_since_start(&self) -> Duration {
+            self.1.get()
+        }
     }
-    let window = MinimalSoftwareWindow::new(RepaintBufferType::ReusedBuffer);
-    slint::platform::set_platform(Box::new(Headless(window.clone())))?;
+    let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
+    let clock = Rc::new(std::cell::Cell::new(Duration::ZERO));
+    slint::platform::set_platform(Box::new(Headless(window.clone(), clock.clone())))?;
     let ui = BoreaWindow::new()?;
     let ctx = egui::Context::default();
     let wifi = WifiLink::simulated(
@@ -1005,13 +1165,17 @@ fn showcase(dir: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
         network: Some(0),
         heroes: vec![],
         groups: vec![],
+        pending_family: None,
     }));
     connect(&ui, state.clone());
     window.set_size(slint::PhysicalSize::new(1280, 860));
     ui.show()?;
     std::fs::create_dir_all(dir)?;
+    let mut still_wind = crate::frost_motion::FrostMotion::default();
+    wind_frame(&ui, &mut still_wind, 0., false, true, None);
     let capture = |name: &str| -> Result<(), Box<dyn std::error::Error>> {
         state.borrow_mut().refresh(&ui);
+        clock.set(clock.get() + Duration::from_millis(83));
         slint::platform::update_timers_and_animations();
         let size = window.size();
         let mut pixels = vec![slint::Rgb8Pixel::default(); (size.width * size.height) as usize];
@@ -1065,7 +1229,12 @@ fn showcase(dir: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
         }
         capture(&format!("{mode}-3-family"))?;
         ui.invoke_choose("family/0".into());
+        let before = ui.get_heroes();
         ui.invoke_choose("distro/1".into());
+        assert!(
+            std::ptr::addr_eq(before.as_any(), ui.get_heroes().as_any()),
+            "selection must retain card instances"
+        );
         capture(&format!("{mode}-4-distribution"))?;
         ui.invoke_choose("edition/2".into());
         ui.invoke_advance();
@@ -1110,6 +1279,58 @@ fn showcase(dir: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
     ui.invoke_choose("whole/0".into());
     ui.invoke_advance();
     capture("native-account")?;
+    if std::env::args().any(|a| a == "--animate") {
+        std::fs::create_dir_all(dir.join("motion"))?;
+        {
+            let mut b = state.borrow_mut();
+            b.app = LiveInstaller::with_hardware(&b.ctx, showcase_fixture::machine(), true);
+            b.app.still = false;
+            b.pending_family = None;
+        }
+        ui.set_scroll_bottom(false);
+        ui.set_motion_active(true);
+        state.borrow_mut().refresh(&ui);
+        let mut wind = crate::frost_motion::FrostMotion::default();
+        let mut view = view_key(&state.borrow());
+        // Actual Slint frames at 12 fps, driven by the same motion engine with
+        // a virtual monotonic clock. No sleeps, synthetic fades or disk service.
+        for frame in 0..180 {
+            match frame {
+                12 => state.borrow_mut().app.go(Step::Machine),
+                24 => state.borrow_mut().app.go(Step::System),
+                45 => {
+                    state.borrow_mut().pending_family = Some((Family::Arch, Instant::now()));
+                }
+                49 => {
+                    let mut b = state.borrow_mut();
+                    b.pending_family = None;
+                    let ctx = b.ctx.clone();
+                    b.app.apply(&ctx, Action::Family(Family::Arch));
+                }
+                56 => ui.invoke_choose("distro/1".into()),
+                84 => {
+                    ui.invoke_choose("edition/2".into());
+                    ui.invoke_advance();
+                }
+                92 => ui.invoke_choose("mode/compose".into()),
+                100 => ui.invoke_choose("compositor/hyprland".into()),
+                112 => ui.invoke_choose("shell/noctalia".into()),
+                124 => {
+                    ui.invoke_choose("extra/gaming".into());
+                    ui.set_scroll_bottom(true);
+                }
+                152 => {
+                    ui.invoke_advance();
+                    ui.set_scroll_bottom(false);
+                }
+                _ => {}
+            }
+            let next = view_key(&state.borrow());
+            wind_frame(&ui, &mut wind, 1. / 12., next != view, false, None);
+            view = next;
+            capture(&format!("motion/frame-{frame:04}"))?;
+        }
+    }
     ui.hide()?;
     println!("Slint showcase captured in {}", dir.display());
     Ok(())
@@ -1126,6 +1347,7 @@ mod tests {
             network: None,
             heroes: vec![],
             groups: vec![],
+            pending_family: None,
         }
     }
     fn native_path(b: &mut Bridge) {
