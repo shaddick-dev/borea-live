@@ -6,7 +6,7 @@
 //! here, so a rename on one side fails to compile on the other instead of failing
 //! on a user's machine.
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::{
     fmt,
     io::{self, BufRead, BufReader, Read, Write},
@@ -112,8 +112,16 @@ pub fn call<P: Serialize, R: DeserializeOwned>(
     let mut stream = UnixStream::connect(SOCKET).map_err(Error::Unavailable)?;
     stream.set_read_timeout(Some(timeout)).map_err(Error::Io)?;
     stream.set_write_timeout(Some(timeout)).map_err(Error::Io)?;
-    let request = json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params});
-    let mut line = serde_json::to_vec(&request).map_err(|_| Error::Invalid)?;
+    #[derive(Serialize)]
+    struct Request<'a, P> {
+        jsonrpc: &'static str,
+        id: u8,
+        method: &'a str,
+        params: &'a P,
+    }
+    let request = Request { jsonrpc: "2.0", id: 1, method, params };
+    let mut line =
+        zeroize::Zeroizing::new(serde_json::to_vec(&request).map_err(|_| Error::Invalid)?);
     line.push(b'\n');
     stream.write_all(&line).map_err(Error::Io)?;
     read_response(stream)
@@ -147,6 +155,7 @@ fn parse_response<R: DeserializeOwned>(line: &str) -> Result<R, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn registry_uses_every_method_once() {

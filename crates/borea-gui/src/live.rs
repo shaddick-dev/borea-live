@@ -172,6 +172,7 @@ pub struct LiveInstaller {
     firmware_dialog: bool,
     /// Omarchy installs through its own installer, started from this stick.
     handoff: HandoffLink,
+    native: crate::install::NativeInstall,
 }
 
 impl LiveInstaller {
@@ -190,6 +191,7 @@ impl LiveInstaller {
         let mut installer =
             Self::assemble(&ctx, Scan::Pending(rx), WifiLink::spawn(ctx.clone()), dark, false);
         installer.handoff = HandoffLink::system(HANDOFF_TARGET, ctx.clone());
+        installer.native = crate::install::NativeInstall::system(ctx.clone());
         installer.firmware = FirmwareLink::system(ctx);
         installer
     }
@@ -220,6 +222,12 @@ impl LiveInstaller {
             selection.ensure_defaults(&catalog, family);
         }
         LiveInstaller {
+            native: crate::install::NativeInstall::with_service(
+                ctx.clone(),
+                std::sync::Arc::new(|_, _| {
+                    Err("borea-installd is not running in this preview".into())
+                }),
+            ),
             catalog,
             selection,
             palette,
@@ -258,6 +266,29 @@ impl LiveInstaller {
         &self.handoff
     }
 
+    pub fn set_install_service(&mut self, service: handoff::Service) {
+        self.native = crate::install::NativeInstall::with_service(self.native_context(), service);
+    }
+
+    fn native_context(&self) -> egui::Context {
+        self.native.context()
+    }
+
+    pub fn native(&self) -> &crate::install::NativeInstall {
+        &self.native
+    }
+
+    fn native_target(&self) -> bool {
+        let c = self.selection.choice(self.family());
+        self.picked_edition
+            && self.picked_compositor
+            && self.picked_shell
+            && self.distro().id.as_str() == "arch"
+            && c.mode == DesktopMode::Compose
+            && c.compositor.as_deref() == Some("hyprland")
+            && c.shell == Some(ShellPick::Shell("noctalia".into()))
+    }
+
     /// The installer the chosen distribution hands off to, once it is chosen.
     fn handoff_target(&self) -> Option<&'static str> {
         (self.picked_edition && self.distro().id.as_str() == self.handoff.target)
@@ -268,8 +299,8 @@ impl LiveInstaller {
         self.step
     }
 
-    /// Whether this GUI can install. borea-installd can, through borea-cli; the
-    /// Review step is not wired to it yet (docs/STATUS.md).
+    /// Fallback for targets without a connected install path. Omarchy and the
+    /// Arch/Hyprland/Noctalia pathway have their own review/start controls.
     pub const CAN_INSTALL: bool = false;
 
     pub fn selection(&self) -> &Selection {
@@ -314,6 +345,25 @@ impl LiveInstaller {
         self.wifi.poll();
         self.firmware.poll();
         self.handoff.poll();
+        self.native.poll();
+        if self.step == Step::Review && self.native_target() {
+            let extras = self
+                .selection
+                .ticked(&self.catalog, self.family())
+                .iter()
+                .map(|o| o.extra.id.clone())
+                .collect();
+            let net = self
+                .wifi
+                .networks
+                .iter()
+                .find(|n| n.active)
+                .map(|n| n.ssid.clone())
+                .map(|ssid| borea_core::NetChoice::Wifi { ssid })
+                .unwrap_or(borea_core::NetChoice::Ethernet);
+            self.native.choices(extras, self.selection.secure_boot, net);
+            self.native.load();
+        }
         if self.step == Step::Review && self.handoff_target().is_some() {
             self.handoff.load();
         }
@@ -361,6 +411,7 @@ impl LiveInstaller {
             }
             Step::Desktop => self.desktop_picked(),
             Step::Review if self.handoff_target().is_some() => self.handoff.ready(),
+            Step::Review if self.native_target() => false,
             Step::Review => Self::CAN_INSTALL,
             _ => true,
         }
@@ -400,7 +451,9 @@ impl LiveInstaller {
             return;
         }
         // Once the hand-off runs, the machine is about to restart into it.
-        if self.handoff.busy() && !matches!(action, Action::ToggleTheme | Action::ToggleMotion) {
+        if (self.handoff.busy() || self.native.busy())
+            && !matches!(action, Action::ToggleTheme | Action::ToggleMotion)
+        {
             return;
         }
         if action == Action::Next && self.step == Step::Review && self.handoff_target().is_some() {
@@ -526,6 +579,7 @@ impl LiveInstaller {
         }
         // Another target, or another edition, needs its disk chosen again.
         if resets {
+            self.native.invalidate();
             self.handoff.pick = None;
             self.handoff.confirmed = false;
             if matches!(self.handoff.phase, Phase::Reviewing | Phase::Reviewed(_)) {
@@ -655,7 +709,7 @@ impl LiveInstaller {
             ui.label(eyebrow("Live", p.sub));
         });
         ui.label(caption("Go wherever the wind takes you.", &p));
-        if !Self::CAN_INSTALL && self.handoff_target().is_none() {
+        if !Self::CAN_INSTALL && self.handoff_target().is_none() && !self.native_target() {
             ui.add_space(10.0);
             let text = RichText::new("Preview build · cannot install yet").size(size::SMALL);
             tag(ui, p.wash, Stroke::new(1.0, p.line), text);
@@ -796,6 +850,18 @@ impl LiveInstaller {
 
     fn navigation(&self, ui: &mut Ui, actions: &mut Vec<Action>) {
         let p = self.palette;
+        if self.step == Step::Review && self.native_target() {
+            ui.horizontal(|ui| {
+                ui.label(caption("Storage → Account → Review → Install", &p));
+                if !self.native.busy()
+                    && self.native.page != crate::install::Page::Finished
+                    && quiet(ui, &p, "Back to desktop choices").clicked()
+                {
+                    actions.push(Action::Back);
+                }
+            });
+            return;
+        }
         ui.horizontal(|ui| {
             ui.label(caption(self.selection_title(), &p));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -810,17 +876,24 @@ impl LiveInstaller {
                     actions.push(Action::Next);
                 }
                 if !ready && self.step == Step::Review {
-                    let why = match (self.handoff_target(), &self.handoff.phase) {
-                        (None, _) => "Not in this preview build",
-                        (Some(_), Phase::Running { .. } | Phase::Finished { .. }) => "Under way",
-                        (Some(_), Phase::Reviewed(_)) => "Confirm shrinking Windows first",
-                        (Some(_), _) => "Choose where it goes, then check the plan",
-                    };
-                    ui.label(caption(why, &p));
+                    if self.native_target() {
+                        ui.label(caption("Continue with the storage and account steps above", &p));
+                    } else {
+                        let why = match (self.handoff_target(), &self.handoff.phase) {
+                            (None, _) => "Not in this preview build",
+                            (Some(_), Phase::Running { .. } | Phase::Finished { .. }) => {
+                                "Under way"
+                            }
+                            (Some(_), Phase::Reviewed(_)) => "Confirm shrinking Windows first",
+                            (Some(_), _) => "Choose where it goes, then check the plan",
+                        };
+                        ui.label(caption(why, &p));
+                    }
                 }
                 let back = format!("{}  Back", icon::BACK);
                 if self.step.back().is_some()
                     && !self.handoff.busy()
+                    && !self.native.busy()
                     && quiet(ui, &p, &back).clicked()
                 {
                     actions.push(Action::Back);
@@ -1213,7 +1286,14 @@ impl LiveInstaller {
         }
     }
 
-    fn review(&self, ui: &mut Ui, actions: &mut Vec<Action>) {
+    fn review(&mut self, ui: &mut Ui, actions: &mut Vec<Action>) {
+        if self.native_target() {
+            if self.native.page == crate::install::Page::Storage {
+                self.secure_boot_choice(ui, actions);
+            }
+            self.native.ui(ui);
+            return;
+        }
         let p = self.palette;
         let s = &self.selection;
         let family = self.family();

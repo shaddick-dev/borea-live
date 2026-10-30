@@ -5,6 +5,8 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExternalSources {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub noctalia: Option<String>,
     #[serde(default)]
     pub repository_keys: Vec<RepositoryKey>,
     pub aur: Vec<AurRecipe>,
@@ -81,6 +83,9 @@ fn digest(b: &[u8]) -> String {
 }
 pub fn resolve(review: &Review) -> Result<ExternalSources, Hint> {
     let mut result = ExternalSources::default();
+    if review.desktop == Some(borea_core::Desktop::HyprlandNoctalia) {
+        result.noctalia = Some(crate::noctalia::resolve()?);
+    }
     let mut recipes = BTreeMap::new();
     let mut visiting = BTreeSet::new();
     for p in &review.packages {

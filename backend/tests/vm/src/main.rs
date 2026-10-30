@@ -61,7 +61,15 @@ fn run() -> Result<(), Hint> {
         "opensuse" => Distribution::OpenSuse,
         _ => return Err(hint("vm", "Unknown test distribution.")),
     };
+    let noctalia = fs::read_to_string("/sys/firmware/qemu_fw_cfg/by_name/opt/borea/desktop/raw")
+        .ok()
+        .as_deref()
+        == Some("noctalia");
+    if noctalia && distro != Distribution::Arch {
+        return Err(hint("vm", "The Noctalia scenario requires Arch."));
+    }
     let plan = Plan {
+        extras: BTreeSet::new(),
         version: 1,
         net: NetChoice::Ethernet,
         locale: LocaleChoice {
@@ -83,8 +91,8 @@ fn run() -> Result<(), Hint> {
         }
         .into(),
         boot_arguments: vec!["console=ttyS0,115200".into()],
-        desktop: None,
-        env: "minimal".into(),
+        desktop: noctalia.then_some(borea_core::Desktop::HyprlandNoctalia),
+        env: if noctalia { "composed" } else { "minimal" }.into(),
         addons: BTreeSet::new(),
         picks: Vec::new(),
         apps: BTreeSet::new(),

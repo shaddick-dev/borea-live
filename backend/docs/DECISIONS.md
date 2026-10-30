@@ -1,5 +1,19 @@
 # Backend decisions
 
+- Arch + Hyprland + Noctalia is a composed desktop installed from signed Arch
+  binaries. greetd starts noctalia-greeter-session; password login starts
+  Hyprland, which starts Noctalia v5. No TTY login or autologin is involved.
+  Latest stable v5 is resolved at review, pinned in the approval digest and
+  compared with the native package version before storage writes. A lagging
+  Arch package blocks this pathway rather than building or substituting a source.
+- The composed profile has no optional apps by default. Selected Arch extras
+  live in borea-catalog. Native apps and Flatpaks queue in root-owned state and
+  run after the first graphical login; mandatory desktop/driver packages install
+  before reboot. Existing distro/profile behaviour stays compatible.
+- Existing storage is UEFI + LUKS2 + Btrfs, whole disk or alongside Windows.
+  This pathway uses those reviewed layouts and collects the disk/login passphrase
+  before installing. Secure Boot remains an explicit GUI choice, initially off.
+
 - The latest ZIP's backend contract governs this workspace: Arch rolling, Debian
   13 stable, Fedora stable (explicit release), Tumbleweed. It supersedes the older
   Rawhide/Sid base profiles for this backend. Derivatives remain a future adapter

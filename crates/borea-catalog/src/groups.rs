@@ -100,6 +100,14 @@ const fn addon(
 
 pub const GROUPS: &[Group] = &[
     env(
+        "composed",
+        "Composed desktop",
+        "only the chosen desktop and apps",
+        true,
+        &["base", "kernel", "firmware", "networkmanager", "sudo", "pipewire"],
+        &[],
+    ),
+    env(
         "minimal",
         "Minimal install",
         "just enough to boot, log in and get online",
@@ -412,6 +420,7 @@ pub fn addon_for_app(app_id: &str) -> Option<&'static Group> {
 
 /// Desktop (from step 04) → (packages, display manager) per distro.
 pub const DESKTOPS: &[(&str, [(&str, &str); 4])] = &[
+    ("hyprland-noctalia", [("hyprland", "greetd"); 4]),
     (
         "plasma",
         [
@@ -450,6 +459,51 @@ pub const DESKTOPS: &[(&str, [(&str, &str); 4])] = &[
     ),
 ];
 
+/// Signed Arch packages needed before the first graphical login. Optional apps
+/// are resolved separately and may finish after login.
+pub const ARCH_NOCTALIA_PACKAGES: &[&str] = &[
+    "noctalia",
+    "noctalia-greeter",
+    "greetd",
+    "accountsservice",
+    "xdg-desktop-portal-hyprland",
+    "xdg-desktop-portal-gtk",
+    "xdg-user-dirs",
+    "pipewire",
+    "pipewire-pulse",
+    "wireplumber",
+    "polkit",
+    "dbus",
+    "ttf-dejavu",
+    "foot",
+    "plymouth",
+];
+
+pub fn arch_extra(id: &str) -> Option<&'static [&'static str]> {
+    match id {
+        "gaming" => Some(&[
+            "steam",
+            "lutris",
+            "wine",
+            "gamemode",
+            "lib32-gamemode",
+            "mangohud",
+            "lib32-mangohud",
+            "gamescope",
+        ]),
+        "codecs" => Some(&[
+            "ffmpeg",
+            "gst-libav",
+            "gst-plugins-good",
+            "gst-plugins-bad",
+            "gst-plugins-ugly",
+        ]),
+        "flatpak" => Some(&["flatpak"]),
+        "printing" => Some(&["cups", "system-config-printer"]),
+        _ => None,
+    }
+}
+
 /// Verified upstream omissions: no vendor repository is substituted silently.
 pub const UNAVAILABLE_DESKTOPS: &[(Distro, &str, &str)] = &[(
     Debian,
@@ -457,6 +511,9 @@ pub const UNAVAILABLE_DESKTOPS: &[(Distro, &str, &str)] = &[(
     "COSMIC is not packaged in Debian 13's official repositories; choose another desktop.",
 )];
 pub fn desktop_unavailable(distro: Distro, desktop: &str) -> Option<&'static str> {
+    if desktop == "hyprland-noctalia" && distro != Distro::Arch {
+        return Some("Hyprland with Noctalia is currently supported on Arch only.");
+    }
     UNAVAILABLE_DESKTOPS
         .iter()
         .find(|(d, id, _)| *d == distro && *id == desktop)

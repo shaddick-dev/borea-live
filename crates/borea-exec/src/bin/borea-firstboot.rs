@@ -12,12 +12,15 @@ fn main() -> std::process::ExitCode {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     if args.first().map(String::as_str) == Some("--help") {
         println!(
-            "borea-firstboot [--appimages]\nborea-firstboot --extract-appimage DIRECTORY FILENAME (unprivileged only)"
+            "borea-firstboot [--appimages | --after-login USER | --status]\nborea-firstboot --extract-appimage DIRECTORY FILENAME (unprivileged only)"
         );
         return std::process::ExitCode::SUCCESS;
     }
     if args.first().map(String::as_str) == Some("--extract-appimage") && args.len() == 3 {
         return report(borea_exec::postinstall::extract_image(&args[1], &args[2]));
+    }
+    if args.as_slice() == ["--status"] {
+        return report(borea_exec::postinstall::show_status());
     }
     if !nix::unistd::Uid::effective().is_root() {
         eprintln!("borea-firstboot requires root.");
@@ -34,6 +37,9 @@ fn main() -> std::process::ExitCode {
     }
     match args.as_slice() {
         [] => report(borea_exec::postinstall::firstboot()),
+        [mode, user] if mode == "--after-login" => {
+            report(borea_exec::postinstall::after_login(user))
+        }
         [mode] if mode == "--appimages" => report(borea_exec::postinstall::update_images()),
         _ => {
             eprintln!("Unknown first-boot helper option.");

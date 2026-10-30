@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 //! A reviewable, deterministic sequence. This crate never invokes a process or writes a file.
+mod noctalia;
 mod render;
 use borea_backend::{Artifact, Bootstrap};
 use borea_core::{DiskPlan, Distribution as Distro, Hint, Plan, Review, hint};
@@ -248,6 +249,39 @@ pub fn compile(
         }
     }
     review.packages.sort_by(|a, b| (&a.source, &a.name).cmp(&(&b.source, &b.name)));
+    let composed = plan.desktop == Some(borea_core::Desktop::HyprlandNoctalia);
+    let mut deferred_native = BTreeSet::new();
+    if composed {
+        if review.packages.iter().any(|p| p.source == "aur" || p.source == "appimage") {
+            return Err(hint(
+                "apps",
+                "This quiet install supports signed Arch packages and Flathub apps. Choose a packaged source for each app.",
+            ));
+        }
+        let mut required = plan.clone();
+        required.apps.clear();
+        required.extras.clear();
+        let mut mandatory = borea_core::review(&required, hw)?
+            .packages
+            .into_iter()
+            .map(|p| p.name)
+            .collect::<BTreeSet<_>>();
+        mandatory.extend(borea_backend::boot_packages(plan.distro).iter().map(|p| (*p).to_owned()));
+        mandatory.extend(
+            borea_catalog::plan_drivers(hw, plan.distro).packages.iter().map(|p| p.name.to_owned()),
+        );
+        if secure_boot {
+            mandatory.extend(["sbctl", "sbsigntools", "systemd-ukify"].map(str::to_owned));
+        }
+        mandatory.insert("flatpak".into());
+        deferred_native.extend(
+            review
+                .packages
+                .iter()
+                .filter(|p| p.source.starts_with("arch.") && !mandatory.contains(&p.name))
+                .map(|p| p.name.clone()),
+        );
+    }
     let mut stages = Vec::new();
     let mut prepare = Vec::new();
     if let Some(artifact) = &bootstrap.artifact {
@@ -500,7 +534,7 @@ pub fn compile(
     let native = review
         .packages
         .iter()
-        .filter(|p| p.source == base)
+        .filter(|p| p.source == base && !deferred_native.contains(&p.name))
         .map(|p| p.name.clone())
         .collect::<BTreeSet<_>>()
         .into_iter()
@@ -699,7 +733,11 @@ pub fn compile(
     }
     for (src, pkgs) in &sources {
         if src.contains('.') {
-            repos.push(install(plan.distro, pkgs.clone()));
+            let immediate =
+                pkgs.iter().filter(|p| !deferred_native.contains(*p)).cloned().collect::<Vec<_>>();
+            if !immediate.is_empty() {
+                repos.push(install(plan.distro, immediate));
+            }
         }
     }
     if !review.modprobe.is_empty() {
@@ -809,6 +847,9 @@ pub fn compile(
         ));
     }
     let admin = borea_backend::admin_group(plan.distro);
+    if composed {
+        config.extend(noctalia::configure(plan));
+    }
     config.push(target("/usr/sbin/groupadd", ["--system", "--force", admin]));
     config.push(target(
         "/usr/sbin/useradd",
@@ -846,6 +887,9 @@ pub fn compile(
     ));
     config.push(target("/usr/sbin/visudo", ["-cf", "/etc/sudoers.d/10-borea"]));
     for service in review.services.iter().chain(std::iter::once(&"fstrim.timer".into())) {
+        if composed && service == "cups.service" && deferred_native.contains("cups") {
+            continue;
+        }
         config.push(target("/usr/bin/systemctl", ["enable", service]));
     }
     config.push(target(
@@ -871,10 +915,38 @@ pub fn compile(
         actions: config,
     });
     let mut apps = Vec::new();
+    if composed {
+        let mut queue = Vec::new();
+        if !deferred_native.is_empty() {
+            queue.push(serde_json::json!({"program":"/usr/bin/pacman", "args":
+                (["-Syu", "--needed", "--noconfirm", "--"].into_iter().map(str::to_owned)
+                    .chain(deferred_native.iter().cloned()).collect::<Vec<_>>()) }));
+        }
+        if deferred_native.contains("cups") {
+            queue.push(serde_json::json!({"program":"/usr/bin/systemctl", "args":["enable", "--now", "cups.service"]}));
+        }
+        if plan.extras.contains("flatpak") || sources.contains_key("flathub") {
+            queue.push(serde_json::json!({"program":"/usr/bin/flatpak", "args":["remote-add", "--system", "--noninteractive", "--if-not-exists", "flathub", "https://dl.flathub.org/repo/flathub.flatpakrepo"]}));
+        }
+        if let Some(ids) = sources.get("flathub") {
+            for id in ids {
+                queue.push(serde_json::json!({"program":"/usr/bin/flatpak", "args":["install", "--system", "--noninteractive", "-y", "flathub", id]}));
+            }
+        }
+        apps.push(write(
+            "/var/lib/borea/firstboot.json",
+            serde_json::to_string(&queue).map_err(|e| hint("apps", e.to_string()))?,
+            0o600,
+        ));
+        apps.push(Action::Note {
+            message: "Selected extra apps will install quietly after your first graphical login."
+                .into(),
+        });
+    }
     if let Some(pkgs) = sources.get("aur") {
         apps.push(Action::BuildAur { packages: pkgs.clone() });
     }
-    if let Some(pkgs) = sources.get("flathub") {
+    if let Some(pkgs) = sources.get("flathub").filter(|_| !composed) {
         // The Flatpak runtime is installed with the OS. Application downloads run
         // on the installed system, where its network and system bus are available.
         let args = ["install", "--system", "--noninteractive", "-y", "flathub"]
@@ -904,7 +976,7 @@ pub fn compile(
     let mut boot = vec![write("/etc/kernel/cmdline", cmdline.clone() + "\n", 0o644)];
     match plan.distro {
         Distro::Arch => {
-            boot.push(write("/etc/mkinitcpio.conf","MODULES=()\nBINARIES=()\nFILES=()\nHOOKS=(base systemd autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck)\n".into(),0o644));
+            boot.push(write("/etc/mkinitcpio.conf", format!("MODULES=()\nBINARIES=()\nFILES=()\nHOOKS=(base systemd {}autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck)\n", if composed { "plymouth " } else { "" }),0o644));
             boot.push(target("/usr/bin/mkinitcpio", ["-P"]));
             let mut arguments = vec![format!("--esp-path={}", layout.esp_mount)];
             if layout.boot.is_some() {
