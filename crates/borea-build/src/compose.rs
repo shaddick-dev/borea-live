@@ -41,6 +41,88 @@ const MODULES: &[&str] = &[
     "ata_piix",
 ];
 
+/// USB network adapters Borea Live must drive out of the box: a desktop with no
+/// internal Wi-Fi gets online with whatever adapter (or phone) is to hand.
+/// Checked at build time, so a release can never ship without them.
+const USB_NETWORK_MODULES: &[&str] = &[
+    // Realtek, the most common cheap adapters.
+    "rtl8xxxu",
+    "rtl8192cu",
+    "rtl8187",
+    "rtw88_8821cu",
+    "rtw88_8822bu",
+    "rtw88_8822cu",
+    "rtw88_8723du",
+    "rtw88_8812au",
+    "rtw88_8821au",
+    "rtw89_8851bu",
+    "rtw89_8852bu",
+    // MediaTek and Ralink.
+    "mt7601u",
+    "mt76x0u",
+    "mt76x2u",
+    "mt7921u",
+    "mt7925u",
+    "rt2800usb",
+    "rt73usb",
+    // Atheros, Broadcom, ZyDAS, Marvell.
+    "ath9k_htc",
+    "carl9170",
+    "ar5523",
+    "brcmfmac",
+    "zd1211rw",
+    "usb8xxx",
+    // A phone's USB tethering (Android, iPhone) and USB Ethernet.
+    "rndis_host",
+    "cdc_ether",
+    "cdc_ncm",
+    "ipheth",
+    "r8152",
+    "ax88179_178a",
+];
+/// Their firmware, as directories or files under /lib/firmware (any compression).
+const USB_NETWORK_FIRMWARE: &[&str] = &[
+    "rtw88",
+    "rtw89",
+    "rtlwifi",
+    "mediatek",
+    "ath9k_htc",
+    "brcm",
+    "mt7601u.bin",
+    "rt2870.bin",
+    "carl9170-1.fw",
+];
+
+fn check_usb_network(root: &Path, kernel: &str) -> Result {
+    let mut missing = Vec::new();
+    for name in USB_NETWORK_MODULES {
+        let found = command("modprobe")
+            .args(["--dirname", arg(root)?, "--show-depends", "--set-version", kernel, name])
+            .output()
+            .map_err(|e| e.to_string())?
+            .status
+            .success();
+        if !found {
+            missing.push(format!("module {name}"));
+        }
+    }
+    let firmware = root.join("usr/lib/firmware");
+    for name in USB_NETWORK_FIRMWARE {
+        let found =
+            ["", ".xz", ".zst"].iter().any(|ext| firmware.join(format!("{name}{ext}")).exists());
+        if !found {
+            missing.push(format!("firmware {name}"));
+        }
+    }
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "Borea Live must get online with USB Wi-Fi adapters and phone tethering; missing: {}",
+        missing.join(", ")
+    ))
+}
+
 struct Container(String, signal_hook::iterator::Handle);
 impl Container {
     fn new(name: String) -> Result<Self> {
@@ -522,6 +604,7 @@ pub fn root() -> Result {
         }
     }
     write(root.join("etc/borea-early-modules"), format!("{kernel}\n{}\n", modules.join("\n")))?;
+    check_usb_network(root, kernel)?;
     fs::create_dir_all("/out").map_err(|e| e.to_string())?;
     copy(&root.join(format!("boot/vmlinuz-{kernel}")), Path::new("/out/bzImage"))?;
     write(root.join("etc/borea-compose-packages"), output("dpkg-query", &["-W"])?)?;

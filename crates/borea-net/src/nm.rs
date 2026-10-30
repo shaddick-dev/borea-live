@@ -32,7 +32,9 @@ pub enum NetworkError {
     Unavailable(zbus::Error),
     #[error("NetworkManager request failed: {0}")]
     Bus(#[from] zbus::Error),
-    #[error("no Wi-Fi adapter is available")]
+    #[error(
+        "no Wi-Fi adapter yet: plug in a USB Wi-Fi adapter, an Ethernet cable, or a phone with USB tethering on"
+    )]
     NoAdapter,
     #[error("no network named “{0}” is in range (use hidden to join a hidden network)")]
     NotInRange(String),
