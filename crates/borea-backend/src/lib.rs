@@ -142,3 +142,4 @@ pub fn apt_sources(components: &[&str]) -> String {
 }
 pub mod bootstrap;
 pub mod external;
+pub mod noctalia;

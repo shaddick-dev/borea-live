@@ -25,6 +25,8 @@ pub struct Plan {
     pub addons: BTreeSet<String>,
     pub picks: Vec<PackagePick>,
     pub apps: BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub extras: BTreeSet<String>,
     pub prefer: Prefer,
     pub sources: BTreeMap<String, bool>,
     pub disk: DiskPlan,
@@ -54,6 +56,7 @@ pub struct Keyboard {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Desktop {
+    HyprlandNoctalia,
     Plasma,
     Gnome,
     Cosmic,
@@ -62,6 +65,7 @@ pub enum Desktop {
 impl Desktop {
     pub fn key(self) -> &'static str {
         match self {
+            Self::HyprlandNoctalia => "hyprland-noctalia",
             Self::Plasma => "plasma",
             Self::Gnome => "gnome",
             Self::Cosmic => "cosmic",
@@ -267,6 +271,8 @@ pub fn valid_username(name: &str) -> bool {
             "systemd-network",
             "systemd-resolve",
             "borea-build",
+            "greeter",
+            "greetd",
         ]
         .contains(&name)
 }
@@ -314,6 +320,19 @@ impl Plan {
         Ok(())
     }
     pub fn validate_intent(&self) -> Result<(), Hint> {
+        if !self.extras.is_empty()
+            && (self.distro != Distro::Arch || self.desktop != Some(Desktop::HyprlandNoctalia))
+        {
+            return Err(hint(
+                "extras",
+                "These extras require the Arch Hyprland and Noctalia pathway.",
+            ));
+        }
+        for id in &self.extras {
+            if catalog::groups::arch_extra(id).is_none() {
+                return Err(hint("extras", format!("Unknown extra: {id}.")));
+            }
+        }
         if self.version != 1 {
             return Err(hint("version", "This installation plan version is not supported."));
         }
@@ -405,6 +424,12 @@ impl From<&Plan> for SystemChoice {
 }
 impl SystemChoice {
     pub fn validate(&self) -> Result<(), Hint> {
+        if self.desktop == Some(Desktop::HyprlandNoctalia) && self.distro != Distro::Arch {
+            return Err(hint(
+                "desktop",
+                "Hyprland with Noctalia is currently supported on Arch only.",
+            ));
+        }
         let env = catalog::group(&self.env)
             .filter(|g| g.kind == catalog::Kind::Environment)
             .ok_or_else(|| hint("env", "Choose a base system profile."))?;
@@ -503,6 +528,11 @@ pub fn review(plan: &Plan, hw: &catalog::Hardware) -> Result<Review, Hint> {
     sources
         .require(&driver.sources)
         .map_err(|e| hint("drivers", format!("Cannot enable driver sources: {e:?}")))?;
+    if plan.extras.contains("gaming") {
+        sources
+            .require(&[Source::Repo("arch.multilib")])
+            .map_err(|_| hint("sources", "Gaming needs Arch multilib."))?;
+    }
     let mut picks = catalog::Picks::default();
     for p in &plan.picks {
         picks
@@ -544,6 +574,21 @@ pub fn review(plan: &Plan, hw: &catalog::Hardware) -> Result<Review, Hint> {
         packages.insert((base.id.into(), desktop.into()));
         packages.insert((base.id.into(), manager.into()));
     }
+    if plan.desktop == Some(Desktop::HyprlandNoctalia) {
+        for name in catalog::groups::ARCH_NOCTALIA_PACKAGES {
+            packages.insert((base.id.into(), (*name).into()));
+        }
+        for id in &plan.extras {
+            for name in catalog::groups::arch_extra(id).unwrap_or_default() {
+                let source = if name.starts_with("lib32-") || *name == "steam" {
+                    "arch.multilib"
+                } else {
+                    base.id
+                };
+                packages.insert((source.into(), (*name).into()));
+            }
+        }
+    }
     for p in &driver.packages {
         packages.insert((p.source.key().into(), p.name.into()));
     }
@@ -563,6 +608,9 @@ pub fn review(plan: &Plan, hw: &catalog::Hardware) -> Result<Review, Hint> {
     }
     let mut services = driver.services.iter().map(|s| (*s).to_owned()).collect::<BTreeSet<_>>();
     services.insert("NetworkManager.service".into());
+    if plan.desktop == Some(Desktop::HyprlandNoctalia) {
+        services.insert("accounts-daemon.service".into());
+    }
     if let Some((_, manager)) = groups.desktop {
         services.insert(format!("{manager}.service"));
     }
@@ -584,6 +632,13 @@ pub fn review(plan: &Plan, hw: &catalog::Hardware) -> Result<Review, Hint> {
             .kernel_args
             .iter()
             .map(|s| (*s).into())
+            .chain(
+                (plan.desktop == Some(Desktop::HyprlandNoctalia))
+                    .then_some(["quiet", "splash"])
+                    .into_iter()
+                    .flatten()
+                    .map(str::to_owned),
+            )
             .chain(plan.boot_arguments.iter().cloned())
             .collect(),
         modprobe: driver.modprobe.iter().map(|s| (*s).into()).collect(),

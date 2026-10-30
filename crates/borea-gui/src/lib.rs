@@ -14,6 +14,7 @@ pub mod app;
 pub mod firmware;
 pub mod handoff;
 pub mod icon;
+pub mod install;
 pub mod live;
 pub mod model;
 pub mod powerup;

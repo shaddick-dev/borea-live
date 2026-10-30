@@ -620,3 +620,36 @@ fn omarchy_hands_off_to_its_own_installer_as_chosen() {
     assert_eq!(start["handoff"]["disk"]["linux_size"], 60 * GIB);
     assert_eq!(start["handoff"]["disk"]["disk"]["serial"], "S6P7");
 }
+
+#[test]
+fn arch_hyprland_noctalia_opens_the_native_storage_path() {
+    let mut h = harness(false);
+    h.state_mut().as_mut().unwrap().set_install_service(std::sync::Arc::new(|method,_| {
+        assert_eq!(method,"disks.list");
+        Ok(serde_json::json!({"disks":[{"id":{"path":"/dev/vda","model":"Disposable disk","size":107374182400_u64,"logical_sector":512},"parts":[]}]}))
+    }));
+    press(&mut h, "Next");
+    press(&mut h, "Next");
+    press(&mut h, "Arch family");
+    press(&mut h, "Arch Linux");
+    press(&mut h, "Minimal");
+    press(&mut h, "Next");
+    press(&mut h, "Compose a desktop");
+    press(&mut h, "Hyprland");
+    press(&mut h, "Noctalia");
+    press(&mut h, "Review");
+    for _ in 0..100 {
+        h.run();
+        if !app(&h).native().disks.is_empty() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    assert!(h.query_by_label("Where should Arch go?").is_some());
+    assert!(h.query_by_label_contains("This is a preview build").is_none());
+    assert!(app(&h).native().pick.is_none());
+    h.get_by_role_and_label(Role::RadioButton, "Erase this disk").click();
+    h.run();
+    press(&mut h, "Account and region");
+    assert!(h.query_by_label("Your account").is_some());
+}

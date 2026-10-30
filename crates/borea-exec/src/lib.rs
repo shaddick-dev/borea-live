@@ -1253,6 +1253,30 @@ impl Session {
                     vec!["-Sy".into(), "--noconfirm".into()],
                     emit,
                 )?;
+                if self.job.plan.desktop == Some(borea_core::Desktop::HyprlandNoctalia) {
+                    let approved = self.job.external.noctalia.clone().ok_or_else(|| {
+                        err("Review the latest stable Noctalia v5 release before installing.")
+                    })?;
+                    let versions = self.command(
+                        Root::Tools,
+                        "/usr/bin/pacman",
+                        vec![
+                            "-Sp".into(),
+                            "--print-format".into(),
+                            "%n %v".into(),
+                            "noctalia".into(),
+                        ],
+                        emit,
+                    )?;
+                    let version = versions
+                        .lines()
+                        .find_map(|line| {
+                            let mut fields = line.split_whitespace();
+                            (fields.next() == Some("noctalia")).then(|| fields.next()).flatten()
+                        })
+                        .ok_or_else(|| err("Cannot read the native Noctalia package version."))?;
+                    borea_backend::noctalia::check_version(version, &approved)?;
+                }
             }
             D::Fedora => {
                 for kind in ["free", "nonfree"] {

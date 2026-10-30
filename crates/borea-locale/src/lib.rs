@@ -31,6 +31,14 @@ pub fn valid_console(key: &str) -> bool {
         .filter(|l| !l.starts_with('#'))
         .any(|l| l.split_whitespace().next() == Some(key))
 }
+pub fn console_keymaps() -> impl Iterator<Item = &'static str> {
+    CONSOLE_MAP
+        .lines()
+        .filter(|line| !line.starts_with('#'))
+        .filter_map(|line| line.split_whitespace().next())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+}
 const CONSOLE_MAP: &str = include_str!("../data/kbd-model-map");
 pub fn validate(choice: &LocaleChoice) -> Result<(), Hint> {
     if !LOCALES.iter().any(|l| l.id == choice.lang) {

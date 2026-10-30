@@ -58,6 +58,23 @@ fn inventory(distro: Distro) -> BTreeSet<Entry> {
     for name in borea_backend::boot_packages(distro) {
         add(base, name);
     }
+    if distro == Distro::Arch {
+        for name in catalog::groups::ARCH_NOCTALIA_PACKAGES {
+            add(base, name);
+        }
+        for id in ["gaming", "codecs", "flatpak", "printing"] {
+            for name in catalog::groups::arch_extra(id).unwrap_or_default() {
+                add(
+                    if name.starts_with("lib32-") || *name == "steam" {
+                        "arch.multilib"
+                    } else {
+                        base
+                    },
+                    name,
+                );
+            }
+        }
+    }
     let families = [
         catalog::Family::Nvidia(catalog::NvGen::Older),
         catalog::Family::Nvidia(catalog::NvGen::Kepler),
@@ -249,12 +266,16 @@ fn run() -> Result<(), Hint> {
         _ => {
             return Err(hint(
                 "verify",
-                "Use borea-verify arch|debian|fedora|opensuse [--check-native|--check-external|--check-flathub].",
+                "Use borea-verify arch|debian|fedora|opensuse [--check-native|--check-external|--check-flathub|--check-noctalia (Arch only)].",
             ));
         }
     };
     let entries = inventory(distro);
     let mode = args.get(1).map(String::as_str);
+    if mode == Some("--check-noctalia") && distro == Distro::Arch {
+        println!("Arch has the latest stable Noctalia v{}.", borea_backend::noctalia::resolve()?);
+        return Ok(());
+    }
     if mode.is_none() {
         println!(
             "{}",

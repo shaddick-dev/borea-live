@@ -68,22 +68,39 @@ fn command(program: &str, args: &[String]) -> Result<(), Hint> {
 }
 
 fn allowed(action: &Deferred) -> bool {
+    let packages = |args: &[String]| {
+        !args.is_empty()
+            && args.len() <= 512
+            && args.iter().all(|s| borea_backend::external::identifier(s))
+    };
+    if action.program == "/usr/bin/pacman" {
+        return action.args.starts_with(&[
+            "-Syu".into(),
+            "--needed".into(),
+            "--noconfirm".into(),
+            "--".into(),
+        ]) && packages(&action.args[4..]);
+    }
+    if action.program == "/usr/bin/systemctl" {
+        return action.args == ["enable", "--now", "cups.service"];
+    }
     action.program == "/usr/bin/flatpak"
-        && (action.args.starts_with(&[
+        && ((action.args.starts_with(&[
             "install".into(),
             "--system".into(),
             "--noninteractive".into(),
             "-y".into(),
             "flathub".into(),
-        ]) || action.args
-            == [
-                "remote-add",
-                "--system",
-                "--noninteractive",
-                "--if-not-exists",
-                "flathub",
-                "https://dl.flathub.org/repo/flathub.flatpakrepo",
-            ])
+        ]) && packages(&action.args[5..]))
+            || action.args
+                == [
+                    "remote-add",
+                    "--system",
+                    "--noninteractive",
+                    "--if-not-exists",
+                    "flathub",
+                    "https://dl.flathub.org/repo/flathub.flatpakrepo",
+                ])
 }
 
 /// Save each successful step before continuing; a later failure retains only the
@@ -97,13 +114,51 @@ fn run_queue(path: &Path, mut run: impl FnMut(&Deferred) -> Result<(), Hint>) ->
         return Err(err("The first-boot queue contains an unexpected command."));
     }
     while let Some(action) = queue.first() {
+        app_status(path, "installing", queue.len(), None)?;
         println!("Borea: finishing selected apps ({} setup steps remaining).", queue.len());
-        run(action)?;
+        if let Err(error) = run(action) {
+            app_status(path, "retrying", queue.len(), Some(&error.message))?;
+            return Err(error);
+        }
         queue.remove(0);
         let bytes = serde_json::to_vec(&queue).map_err(|e| err(e.to_string()))?;
         persist(path, &bytes, 0o600)?;
     }
     println!("Borea: selected application setup is complete.");
+    app_status(path, "complete", 0, None)?;
+    Ok(())
+}
+
+fn app_status(
+    queue: &Path,
+    state: &str,
+    remaining: usize,
+    error: Option<&str>,
+) -> Result<(), Hint> {
+    let path =
+        queue.parent().ok_or_else(|| err("No app state directory."))?.join("apps-status.json");
+    let status = serde_json::json!({"state":state,"remaining":remaining,"error":error});
+    persist(&path, status.to_string().as_bytes(), 0o644)
+}
+
+pub fn show_status() -> Result<(), Hint> {
+    let path = Path::new("/var/lib/borea/apps-status.json");
+    if !path.exists() {
+        println!("No Borea app setup has started.");
+        return Ok(());
+    }
+    trusted(path)?;
+    let value: serde_json::Value =
+        serde_json::from_slice(&fs::read(path).map_err(|e| err(e.to_string()))?)
+            .map_err(|_| err("Cannot read application setup status."))?;
+    println!(
+        "Borea apps: {} ({} setup steps remaining).",
+        value["state"].as_str().unwrap_or("unknown"),
+        value["remaining"].as_u64().unwrap_or(0)
+    );
+    if let Some(error) = value["error"].as_str() {
+        println!("{error}\nDetails: journalctl -u borea-firstboot.service");
+    }
     Ok(())
 }
 /// This entry runs in its own helper process as the target user, never as root.
@@ -125,7 +180,12 @@ pub fn extract_image(directory: &str, filename: &str) -> Result<(), Hint> {
 pub fn firstboot() -> Result<(), Hint> {
     let path = Path::new("/var/lib/borea/firstboot.json");
     trusted(path)?;
-    run_queue(path, |action| command(&action.program, &action.args))?;
+    run_queue(path, |action| {
+        if action.program == "/usr/bin/pacman" && Path::new("/var/lib/pacman/db.lck").exists() {
+            return Err(err("Another package transaction is running; Borea will retry later."));
+        }
+        command(&action.program, &action.args)
+    })?;
     if Path::new("/usr/bin/fwupdmgr").is_file() {
         let _ = command("/usr/bin/fwupdmgr", &["refresh".into()]);
     }
@@ -133,8 +193,88 @@ pub fn firstboot() -> Result<(), Hint> {
     fs::remove_file(path).map_err(|e| err(e.to_string()))?;
     fs::remove_file("/etc/systemd/system/borea-firstboot.service")
         .map_err(|e| err(e.to_string()))?;
+    let dropin = Path::new("/etc/systemd/system/borea-firstboot.service.d/login.conf");
+    if dropin.exists() {
+        fs::remove_file(dropin).map_err(|e| err(e.to_string()))?;
+    }
     command("/usr/bin/systemctl", &["daemon-reload".into()])?;
     Ok(())
+}
+
+fn graphical_session(text: &str, user: &str) -> bool {
+    let values = text
+        .lines()
+        .filter_map(|line| line.split_once('='))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    values.get("Name") == Some(&user)
+        && values.get("Type") == Some(&"wayland")
+        && values.get("Class") == Some(&"user")
+        && values.get("State") == Some(&"active")
+}
+
+/// A root service waits for logind to confirm this account has logged in.
+/// No user-writable marker, passwordless sudo, or desktop prompt is required.
+pub fn after_login(user: &str) -> Result<(), Hint> {
+    if !borea_core::valid_username(user) {
+        return Err(err("Invalid first-login account."));
+    }
+    let queue = Path::new("/var/lib/borea/firstboot.json");
+    trusted(queue)?;
+    let marker = Path::new("/var/lib/borea/first-login-seen");
+    let seen = marker.exists()
+        && trusted(marker).is_ok()
+        && fs::read_to_string(marker).ok().as_deref() == Some(user);
+    if !seen {
+        let waiting: Vec<Deferred> =
+            serde_json::from_slice(&fs::read(queue).map_err(|e| err(e.to_string()))?)
+                .map_err(|_| err("The first-boot queue is invalid."))?;
+        app_status(queue, "waiting-for-login", waiting.len(), None)?;
+        loop {
+            let sessions = Command::new("/usr/bin/loginctl")
+                .args(["list-sessions", "--no-legend", "--no-pager"])
+                .env("LC_ALL", "C")
+                .output()
+                .map_err(|_| err("Cannot read login sessions."))?;
+            if !sessions.status.success() {
+                return Err(err("The login service is not ready; retrying later."));
+            }
+            let mut logged_in = false;
+            for line in String::from_utf8_lossy(&sessions.stdout).lines() {
+                let fields = line.split_whitespace().collect::<Vec<_>>();
+                if fields.get(2) != Some(&user) {
+                    continue;
+                }
+                let Some(id) = fields.first().filter(|s| borea_backend::external::identifier(s))
+                else {
+                    continue;
+                };
+                let session = Command::new("/usr/bin/loginctl")
+                    .args([
+                        "show-session",
+                        id,
+                        "--property=Name",
+                        "--property=Type",
+                        "--property=Class",
+                        "--property=State",
+                    ])
+                    .env("LC_ALL", "C")
+                    .output()
+                    .map_err(|_| err("Cannot inspect the login session."))?;
+                if session.status.success()
+                    && graphical_session(&String::from_utf8_lossy(&session.stdout), user)
+                {
+                    logged_in = true;
+                    break;
+                }
+            }
+            if logged_in {
+                persist(marker, user.as_bytes(), 0o600)?;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_secs(2));
+        }
+    }
+    firstboot()
 }
 pub fn update_images() -> Result<(), Hint> {
     let mut failures = Vec::new();
@@ -279,6 +419,45 @@ mod tests {
     }
 
     #[test]
+    fn native_packages_are_checkpointed_before_a_failed_service_setup() {
+        let queue = Queue::new();
+        fs::write(
+            &queue.0,
+            serde_json::json!([
+                {"program":"/usr/bin/pacman","args":["-Syu","--needed","--noconfirm","--","cups"]},
+                {"program":"/usr/bin/systemctl","args":["enable","--now","cups.service"]}
+            ])
+            .to_string(),
+        )
+        .unwrap();
+        let mut calls = Vec::new();
+        assert!(
+            run_queue(&queue.0, |action| {
+                calls.push(action.program.clone());
+                if action.program.ends_with("systemctl") {
+                    Err(err("service failed"))
+                } else {
+                    Ok(())
+                }
+            })
+            .is_err()
+        );
+        assert_eq!(calls, ["/usr/bin/pacman", "/usr/bin/systemctl"]);
+        calls.clear();
+        run_queue(&queue.0, |action| {
+            calls.push(action.program.clone());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(calls, ["/usr/bin/systemctl"]);
+        let status: serde_json::Value = serde_json::from_slice(
+            &fs::read(queue.0.parent().unwrap().join("apps-status.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(status["state"], "complete");
+    }
+
+    #[test]
     fn invalid_queue_is_rejected_before_any_command_executes() {
         let queue = Queue::new();
         let mut value: serde_json::Value =
@@ -299,5 +478,38 @@ mod tests {
             args: vec!["remote-add".into(), "unreviewed".into(), "https://example.org".into()],
         };
         assert!(!allowed(&other_remote));
+    }
+}
+
+#[cfg(test)]
+mod login_tests {
+    use super::*;
+    #[test]
+    fn only_the_chosen_users_active_graphical_login_starts_apps() {
+        let good = "Name=alice\nType=wayland\nClass=user\nState=active\n";
+        assert!(graphical_session(good, "alice"));
+        assert!(!graphical_session(good, "bob"));
+        assert!(!graphical_session(&good.replace("wayland", "tty"), "alice"));
+        assert!(!graphical_session(&good.replace("Class=user", "Class=greeter"), "alice"));
+        assert!(!graphical_session(&good.replace("active", "closing"), "alice"));
+    }
+    #[test]
+    fn native_queue_cannot_turn_package_names_into_options_or_run_arbitrary_commands() {
+        let make = |args: &[&str]| Deferred {
+            program: "/usr/bin/pacman".into(),
+            args: args.iter().map(|s| (*s).into()).collect(),
+        };
+        assert!(allowed(&make(&["-Syu", "--needed", "--noconfirm", "--", "firefox", "steam"])));
+        for args in [
+            vec!["-Syu", "--needed", "--noconfirm", "--", "--root=/tmp"],
+            vec!["-Syu", "--needed", "--noconfirm", "--"],
+            vec!["-S", "--noconfirm", "firefox"],
+        ] {
+            assert!(!allowed(&make(&args)));
+        }
+        assert!(!allowed(&Deferred {
+            program: "/bin/sh".into(),
+            args: vec!["-c".into(), "id".into()]
+        }));
     }
 }
