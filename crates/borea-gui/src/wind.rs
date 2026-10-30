@@ -1,4 +1,4 @@
-//! Airflow behind the hero: gusts blowing left to right, each its own: where it
+//! Airflow behind the hero: gusts blowing right to left, each its own: where it
 //! crosses, how long and how wavy it is, how fast it travels and how long it
 //! lasts. The wind has weather, too: lulls with a stray wisp, then bursts of
 //! several gusts at once. Decorative only: it never carries meaning.
@@ -188,13 +188,14 @@ pub fn paint(painter: &Painter, rect: Rect, color: Color32, air: Option<Air>) {
         let length = w * g.length * (1.0 + 0.5 * energy);
         // A slight push as it goes: it eases in and leaves quicker.
         let travel = progress * (0.75 + 0.25 * progress);
-        let head = rect.left() - length + travel * (w + 2.0 * length);
+        // Right to left: the head enters at the right edge, the tail trails behind it.
+        let head = rect.right() + length - travel * (w + 2.0 * length);
         // Fades in, holds, fades out: never pops.
         let envelope = (progress * std::f32::consts::PI).sin().powf(0.6);
         const STEPS: usize = 28;
         let point = |i: usize| {
             let along = i as f32 / STEPS as f32;
-            let x = head - length + along * length;
+            let x = head + (1.0 - along) * length;
             let phase = (x - rect.left()) / w * g.waves * std::f32::consts::TAU
                 + (t as f32) * 0.8
                 + g.y * 9.0;
@@ -248,7 +249,7 @@ mod tests {
     }
 
     #[test]
-    fn gusts_blow_left_to_right_and_live_their_time() {
+    fn gusts_move_on_and_live_their_time() {
         let (g, _) = alive(42, 100.0).next().or_else(|| alive(42, 120.0).next()).unwrap();
         let at = |t: f64| alive(42, t).find(|(x, _)| x.start == g.start).map(|(_, p)| p);
         let p1 = at(g.start + g.life * 0.3).unwrap();
