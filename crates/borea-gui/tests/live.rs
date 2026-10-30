@@ -237,6 +237,8 @@ fn renders_each_step() {
         press(&mut h, "Compose a desktop");
         press(&mut h, "MangoWC");
         press(&mut h, "No shell");
+        h.get_by_role_and_label(Role::Button, "Compose a desktop").scroll_to_me();
+        h.run();
         h.render().unwrap().save(format!("{dir}/live-{name}-5-desktop.png")).unwrap();
         h.get_by_role_and_label(Role::CheckBox, "Gaming for CachyOS").scroll_to_me();
         h.run();
