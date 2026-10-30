@@ -1,3 +1,9 @@
+# Windpad design notes
+
+The shipped Windpad and Borea Live windows use the [Slint interface](slint-ui.md): Material-inspired surfaces, official logo images, and matching family/distribution cards without decorative frames.
+
+## Earlier egui reference
+
 # Windpad and wind design
 
 ## Layout and hierarchy

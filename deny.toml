@@ -4,6 +4,20 @@
 
 [advisories]
 ignore = [
+    # Slint 1.11 is the last release compatible with the backend's zbus 5.5
+    # pin. Slint 1.14 would change that pin and still uses rustybuzz/ttf-parser;
+    # current Slint 1.18 requires zbus >=5.14 (Rust 1.87). The four advisories
+    # below report maintenance status, not a
+    # patched vulnerability. Retire these exceptions when Slint can move to
+    # its newer text/menu/accessibility stack without changing backend MSRV.
+    # paste: Slint -> accesskit_windows; also image -> exr/pulp and rav1e.
+    { id = "RUSTSEC-2024-0436", reason = "Slint 1.11 accesskit_windows and image codec macros require paste; no same-package upgrade; revisit on Slint/image upgrade" },
+    # proc-macro-error: Slint -> muda -> GTK/glib build-time macros.
+    { id = "RUSTSEC-2024-0370", reason = "Slint 1.11 declared native-menu chain pins glib-macros/proc-macro-error 1; revisit when compatible Slint drops that chain" },
+    # rustybuzz: Slint text shaping and its resvg/usvg image renderer.
+    { id = "RUSTSEC-2026-0206", reason = "Slint 1.11 and resvg/usvg require rustybuzz; harfrust is not API-compatible; revisit with compatible newer Slint" },
+    # ttf-parser: Slint/fontdb/fontdue/usvg and Winit's Adwaita font stack.
+    { id = "RUSTSEC-2026-0192", reason = "Slint 1.11 font stack requires ttf-parser; skrifa is not API-compatible; revisit on Slint/Winit font-stack upgrade" },
     # quick-xml 0.38: quadratic duplicate-attribute check and unbounded namespace
     # allocation (denial of service only). Pulled in only by the GUI's
     # accessibility stack: eframe 0.37 -> accesskit_unix -> atspi-common ->

@@ -9,11 +9,14 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Padding, Paragraph};
 
 /// Borea's dark palette, for terminals.
-pub const ACCENT: Color = Color::Rgb(0xa2, 0xc4, 0xa8);
-pub const SUB: Color = Color::Rgb(0x8a, 0x96, 0x8c);
-pub const WARN: Color = Color::Rgb(0xe3, 0x9b, 0x84);
-pub const LINE: Color = Color::Rgb(0x39, 0x44, 0x3b);
-pub const SELECTED: Color = Color::Rgb(0x2d, 0x3b, 0x30);
+pub const ACCENT: Color = Color::Rgb(0xc9, 0xbe, 0xff);
+pub const SUB: Color = Color::Rgb(0xb3, 0xb0, 0xc3);
+pub const WARN: Color = Color::Rgb(0xff, 0xb4, 0xab);
+pub const LINE: Color = Color::Rgb(0x49, 0x46, 0x53);
+pub const SELECTED: Color = Color::Rgb(0x3d, 0x34, 0x55);
+const BACKGROUND: Color = Color::Rgb(0x14, 0x15, 0x1b);
+const SURFACE: Color = Color::Rgb(0x20, 0x21, 0x29);
+const TEXT: Color = Color::Rgb(0xec, 0xea, 0xf4);
 
 /// The widest the content column gets, so long lines stay readable.
 const COLUMN: u16 = 88;
@@ -43,6 +46,7 @@ pub fn note_style(text: &str) -> Style {
 /// Draw the header and footer for `step`, and return the content column.
 /// `note` sits just above the key hints; both wrap to the column's width.
 pub fn screen(frame: &mut Frame, step: Step, note: Option<&str>, keys: &[(&str, &str)]) -> Rect {
+    frame.render_widget(Block::new().style(Style::new().bg(BACKGROUND).fg(TEXT)), frame.area());
     let area = column(frame.area());
     let note_lines: Vec<Line> = note
         .map(|text| {
@@ -98,9 +102,9 @@ fn render_header(frame: &mut Frame, area: Rect, step: Step) {
         Line::from(""),
         Line::from(vec![
             Span::raw("Borea").bold(),
-            Span::styled("  rataTUI", SUB),
+            Span::styled("  /  USB creator", SUB),
             Span::styled(
-                "   ∼ go wherever the wind takes you",
+                "   Go wherever the wind takes you.",
                 Style::new().fg(ACCENT).add_modifier(Modifier::DIM),
             ),
         ]),
@@ -185,6 +189,7 @@ pub fn bar(ratio: f64, width: u16) -> Line<'static> {
 /// A rounded panel with a quiet title.
 pub fn panel(title: &str) -> Block<'_> {
     Block::new()
+        .style(Style::new().bg(SURFACE).fg(TEXT))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(Style::new().fg(LINE))

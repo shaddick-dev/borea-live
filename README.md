@@ -84,8 +84,8 @@ Start with an [issue](https://github.com/shaddick-dev/borea-live/issues) or a sm
 
 ## Docs
 
+- [Slint interface](docs/slint-ui.md) — design, launch commands and captures.
 - [Arch + Hyprland + Noctalia](docs/arch-noctalia.md)
-
 - [Architecture](docs/architecture.md) — components and privilege boundaries.
 - [Installer backend](backend/README.md) — plans, adapters and CLI usage.
 - [Live environment](live/README.md) — boot, graphics and image builds.

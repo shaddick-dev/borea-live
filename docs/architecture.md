@@ -42,12 +42,12 @@ borea/
 
 | Area | Proposed choice | Reason and qualification |
 | --- | --- | --- |
-| GUI | egui/eframe | Rust-first, straightforward custom wizard and shared state; prove text input, accessibility, and live-environment rendering in a spike |
-| Graphics | A tested eframe renderer configuration | Test Wayland, X11, and software-rendered VM environments; do not assume universal GPU support |
+| GUI | Slint over the existing Rust workflow | Shared Windpad/live-ISO screens, embedded official logos and accessible controls; legacy egui views remain regression fixtures |
+| Graphics | Slint software renderer, Winit on Wayland/X11 | Native startup tested in the Debian runtime under cage without GPU access; Fontconfig and fonts are included |
 | TUI | Ratatui + Crossterm | Terminal layout, keyboard input, progress display |
 | Hardware | Rust sysfs/udev access and bounded native queries | Progressive local read-only facts, hotplug invalidation |
 | Wi-Fi | NetworkManager D-Bus via zbus | Shared TUI/GUI connections and scoped secret handling |
-| Wind motion | egui painter paths and capped view-local animation | Reduced-motion/static mode, pause when inactive or reviewing disk changes |
+| Wind motion | A subtle embedded airflow image with a Slint timer | Pause control stops its motion; no decorative logo frames |
 | Async and HTTP | Tokio + Reqwest with Rustls | Streaming downloads, cancellation, TLS without assuming host OpenSSL |
 | Serialization | Serde; TOML for authored profiles; JSON for IPC and exported plans | Explicit schemas and easy inspection |
 | Domain errors | thiserror | Typed failures with user-facing recovery guidance |

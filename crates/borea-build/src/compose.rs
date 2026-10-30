@@ -590,7 +590,7 @@ pub fn root() -> Result {
     )?;
     let id = iso::build_id()?;
     write(root.join("etc/borea-live-build"), format!("{id}\n"))?;
-    for lib in ["libEGL.so.1", "libwayland-egl.so.1"] {
+    for lib in ["libEGL.so.1", "libwayland-egl.so.1", "libfontconfig.so.1"] {
         root_link(root, &format!("x86_64-linux-gnu/{lib}"), &format!("usr/lib/{lib}"))?;
     }
     let versions = fs::read_dir(root.join("usr/lib/modules"))

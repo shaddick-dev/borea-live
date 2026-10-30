@@ -69,6 +69,78 @@ pub struct NativeInstall {
 }
 
 impl NativeInstall {
+    pub(crate) fn edit_account(&mut self, field: &str, value: String) {
+        if self.page != Page::Account || self.busy() {
+            return;
+        }
+        self.invalidate();
+        match field {
+            "full-name" => self.user.full_name = value,
+            "username" => self.user.username = value,
+            "hostname" => self.user.hostname = value,
+            "password" => *self.password = value,
+            "confirmation" => *self.confirmation = value,
+            _ => {}
+        }
+    }
+    pub(crate) fn review_details(&self) -> Option<String> {
+        let (plan, _, review) = self.approval.as_ref()?;
+        let storage = match &plan.disk {
+            DiskPlan::Whole { .. } => {
+                "Erase this entire drive. All existing data on it will be lost.".to_owned()
+            }
+            DiskPlan::Alongside { windows_part, linux_size, .. } => format!(
+                "Shrink {} and use {} GiB for Linux. Keep Windows and its EFI files.",
+                windows_part.path.display(),
+                linux_size / crate::handoff::GIB
+            ),
+        };
+        let packages = review["review"]["packages"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|p| p["name"].as_str().or_else(|| p.as_str()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let warnings = review["review"]["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join("\n");
+        Some(format!(
+            "Drive: {}\n{storage}\nEncrypted Linux storage · LUKS2 and Btrfs\n\nAccount: {} · {}\nLanguage: {}\nKeyboard: {} ({})\nDisk unlock keyboard: {}\nTime zone: {}\n\nRequired packages: {packages}\n\n{warnings}",
+            plan.disk.disk().path.display(),
+            plan.user.username,
+            plan.user.hostname,
+            plan.locale.lang,
+            plan.locale.keyboard.layout,
+            plan.locale.keyboard.variant,
+            plan.locale.keyboard.console,
+            plan.locale.timezone
+        ))
+    }
+    pub(crate) fn loading(&self) -> bool {
+        self.loading
+    }
+    pub(crate) fn refresh_disks(&mut self) {
+        self.loaded = false;
+        self.load();
+    }
+    pub(crate) fn retry_progress(&mut self) {
+        if let Some(action) = self.retry.clone() {
+            self.ask("install.retry", json!({"action_id":action}), Answer::Retry);
+        } else if !self.stopped {
+            self.error = None;
+            self.follow();
+        }
+    }
+    pub(crate) fn reboot(&self) {
+        if self.page == Page::Finished || self.stopped {
+            self.ask("system.reboot", json!({"firmware_setup":false}), Answer::Reboot);
+        }
+    }
     pub fn context(&self) -> egui::Context {
         self.ctx.clone()
     }
