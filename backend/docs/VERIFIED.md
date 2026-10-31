@@ -61,6 +61,9 @@ Native metadata preflight, approval checks and disk guards are enforced in code.
 ## Noctalia native-package unblock — 31 October 2026
 
 - The earlier exact GitHub-patch gate is superseded: Review now approves stable major v5, and native pacman preparation accepts signed stable 5.4.0+ packages before target writes. Exact-version approvals from older jobs remain exact. Tests reject v4/v6, old config APIs, development versions and malformed versions.
-- Live Arch extra metadata still offers `noctalia 5.4.0-1`. Upstream v5.4.1 assets were downloaded and SHA-256 verified; the archive contains C++ source, not a prebuilt executable. Borea keeps native packages and does not compile that source.
+- Earlier mirror metadata offered `noctalia 5.4.0-1`; fresh CI resolved signed `5.4.1-1`. Upstream v5.4.1 assets were downloaded and SHA-256 verified; the archive contains C++ source, not a prebuilt executable. Borea keeps native packages and does not compile that source.
 - Non-Arch GUI families are disabled in presentation and action handling. Omarchy handoff and the backend CLI remain available.
 - Passing package/config checks do not certify real graphical login, lock/unlock, suspend or Arc A770 hardware. Installed-system verification is recorded separately.
+
+- All six Arch/CachyOS × Hyprland/niri/MangoWC whole-drive, Secure Boot-off installs and subsequent boots pass without repair at `c37b14f`. Assertions cover OS identity, LUKS, account, network, sudo, active greeter/account services and the chosen configs. [Results](verification/noctalia-installed-2026-10-31.json). This does not certify interactive graphical login, lock/suspend, first-login app downloads or physical Arc hardware.
+- Updated ISO composition and both USB boot fixtures pass; workspace tests, Rust 1.85, native compositor/Noctalia config validation and static Ratatui checks also pass. The 18-second H.264 walkthrough decodes successfully; its poster and Pages player reference the MP4.
