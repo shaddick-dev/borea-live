@@ -14,7 +14,7 @@ One Cargo workspace (`Cargo.toml`, one `Cargo.lock`), every crate under `crates/
   `borea-installd` (the root service), `borea-cli` (its command line) and
   `borea-protocol` (the socket contract both clients share). Docs, service
   files, signing keys and the disposable-VM harness are in `backend/`.
-- **Live front end** (needs Rust 1.95 for eframe/egui 0.37): `borea-gui`
+- **Live front end** (workspace Rust 1.95 baseline, Iced 0.14): `borea-gui`
   (`borea-live`, `windpad`), `borea-bootstrap` (`borea`), `borea-flash`,
   `borea-build`, `borea-init`, `borea-hardware`, `borea-host`, `borea-network`,
   `borea-distro`, `borea-live-core`, `borea-live-catalog`, `borea-testkit`.

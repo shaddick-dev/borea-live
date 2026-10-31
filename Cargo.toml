@@ -5,7 +5,7 @@ members = ["crates/*", "backend/tests/vm"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-# Live/GUI crates: eframe/egui 0.37 need 1.95. Installer backend crates pin 1.85 in their own manifests.
+# Live/GUI workspace baseline. Installer backend crates pin Rust 1.85 in their own manifests.
 rust-version = "1.95"
 publish = false
 

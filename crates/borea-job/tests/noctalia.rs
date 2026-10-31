@@ -10,8 +10,12 @@ fn scenario(alongside: bool) -> Job {
 }
 
 fn scenario_with_locale(alongside: bool, locale: LocaleChoice) -> Job {
+    scenario_target(alongside, locale, false)
+}
+fn scenario_target(alongside: bool, locale: LocaleChoice, cachyos: bool) -> Job {
     let mut plan = common::plan(Distribution::Arch, true);
     plan.locale = locale;
+    plan.derivative = cachyos.then_some(ArchDerivative::Cachyos);
     plan.desktop = Some(Desktop::HyprlandNoctalia);
     plan.env = "composed".into();
     plan.secure_boot = Some(false);
@@ -273,4 +277,107 @@ fn gaming_enables_multilib_for_selected_apps_even_without_a_detected_gpu() {
     hw.gpus.clear();
     let review = borea_core::review(&job.plan, &hw).unwrap();
     assert!(review.packages.iter().any(|p| p.name == "steam" && p.source == "arch.multilib"));
+}
+
+#[test]
+fn cachyos_both_layouts_use_signed_upstream_packages_and_the_correct_kernel() {
+    for alongside in [false, true] {
+        let job = scenario_target(alongside, common::plan(Distribution::Arch, true).locale, true);
+        assert_eq!(job.review.derivative, Some(ArchDerivative::Cachyos));
+        assert!(job.stages[0].actions.iter().all(Action::preparation_only));
+        let names = job.review.packages.iter().map(|p| p.name.as_str()).collect::<Vec<_>>();
+        for package in borea_backend::cachyos::PACKAGES {
+            assert!(names.contains(package), "{package}");
+        }
+        assert!(!names.contains(&"linux"));
+        let boot = written(&job, "/boot/loader/entries/arch.conf");
+        assert!(boot.contains("title CachyOS\n"));
+        assert!(boot.contains("linux /vmlinuz-linux-cachyos\n"));
+        assert!(boot.contains("initrd /initramfs-linux-cachyos.img\n"));
+        assert!(
+            job.stages
+                .iter()
+                .flat_map(|s| &s.actions)
+                .any(|a| matches!(a, Action::CopyArchRepositories))
+        );
+        let config = written(&job, "/etc/pacman.conf");
+        assert!(config.find("[cachyos]").unwrap() < config.find("[core]").unwrap());
+        assert!(config.contains("SigLevel = Required"));
+        let queue = written(&job, "/var/lib/borea/firstboot.json");
+        assert!(queue.contains("firefox"));
+        for required in borea_backend::cachyos::PACKAGES {
+            assert!(!queue.contains(required), "mandatory package deferred: {required}");
+        }
+        assert!(job.stages.iter().flat_map(|s|&s.actions).any(|a|matches!(a,Action::Run(c)if c.program=="/usr/share/libalpm/scripts/cachyos-branding" && c.args==["os-release"])));
+        assert!(names.contains(&"mesa"));
+        assert!(names.contains(&"vulkan-intel"));
+    }
+}
+#[test]
+fn cachyos_secure_boot_uses_its_kernel_preset_for_both_layouts() {
+    for alongside in [false, true] {
+        let prior = scenario_target(alongside, common::plan(Distribution::Arch, true).locale, true);
+        let mut plan = prior.plan;
+        plan.secure_boot = Some(true);
+        let mut hw = borea_catalog::hardware::samples().remove(0).1;
+        hw.secure_boot = false;
+        hw.setup_mode = Some(true);
+        let mut facts = DiskFacts {
+            uefi: true,
+            disks: vec![Disk {
+                id: plan.disk.disk().clone(),
+                readonly: false,
+                in_use: false,
+                live: false,
+                removable: false,
+                transport: "virtio".into(),
+                parts: vec![],
+            }],
+        };
+        // Reuse the existing layout's preserved NTFS fixture when needed.
+        if alongside {
+            facts.disks[0].parts = vec![
+                Partition {
+                    path: "/dev/vda1".into(),
+                    number: 1,
+                    uuid: "EFI".into(),
+                    start: GIB,
+                    size: GIB,
+                    fs: "vfat".into(),
+                    efi: true,
+                    free: Some(GIB / 2),
+                    bitlocker: false,
+                    ntfs_checked: false,
+                    ntfs_hibernated: false,
+                    ntfs_dirty: false,
+                    ntfs_min_size: None,
+                },
+                Partition {
+                    path: "/dev/vda3".into(),
+                    number: 3,
+                    uuid: "WINDOWS".into(),
+                    start: 3 * GIB,
+                    size: 90 * GIB,
+                    fs: "ntfs".into(),
+                    efi: false,
+                    free: None,
+                    bitlocker: false,
+                    ntfs_checked: true,
+                    ntfs_hibernated: false,
+                    ntfs_dirty: false,
+                    ntfs_min_size: Some(10 * GIB),
+                },
+            ];
+        }
+        let job = compile(&plan, &hw, &facts, &prior.bootstrap).unwrap();
+        let preset = written(&job, "/etc/mkinitcpio.d/linux-cachyos.preset");
+        assert!(preset.contains("ALL_kver=\"/boot/vmlinuz-linux-cachyos\""));
+        assert!(!job.stages.iter().flat_map(|s| &s.actions).any(
+            |a| matches!(a,Action::WriteFile{path,..}if path=="/etc/mkinitcpio.d/linux.preset")
+        ));
+        assert!(
+            written(&job, "/etc/pacman.d/hooks/zz-borea-secureboot.hook")
+                .contains("Target = linux-cachyos\n")
+        );
+    }
 }

@@ -31,11 +31,12 @@ flowchart LR
 - The live desktop has passed UEFI VM boot tests.
 - Omarchy handoff opens its upstream installer; whole-disk and Windows-alongside paths have been tested in VMs.
 - Base distro adapters are available through `borea-cli`; test coverage varies.
+- Arch/CachyOS + Hyprland + Noctalia use the Iced disk/account flow. See [pathway status](docs/arch-noctalia.md).
 - Target installations require UEFI. Secure Boot is optional.
 
 | Family | Base backend | Other targets |
 | --- | --- | --- |
-| Arch | Arch rolling | Omarchy handoff; CachyOS planned |
+| Arch | Arch rolling | CachyOS minimal integration; Omarchy upstream handoff |
 | Fedora | Fedora stable | Bazzite and Nobara planned |
 | Debian | Debian 13 | Butterbian and PikaOS planned |
 | openSUSE | Tumbleweed | Desktop and package extras |
@@ -84,7 +85,7 @@ Start with an [issue](https://github.com/shaddick-dev/borea-live/issues) or a sm
 
 ## Docs
 
-- [Slint interface](docs/slint-ui.md) — design, launch commands and captures.
+- [Iced interface](docs/iced-ui.md) — design, launch commands and captures.
 - [Arch + Hyprland + Noctalia](docs/arch-noctalia.md)
 - [Architecture](docs/architecture.md) — components and privilege boundaries.
 - [Installer backend](backend/README.md) — plans, adapters and CLI usage.

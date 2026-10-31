@@ -3,7 +3,6 @@ use crate::handoff::{Disk, Service, Where};
 use borea_core::{
     Desktop, DiskPlan, Identity, Keyboard, LocaleChoice, NetChoice, PartId, Plan, SourcePreference,
 };
-use eframe::egui::{self, Ui};
 use serde_json::{Value, json};
 use std::{
     collections::BTreeSet,
@@ -40,6 +39,7 @@ struct Message {
 
 pub struct NativeInstall {
     pub page: Page,
+    derivative: Option<borea_core::ArchDerivative>,
     pub disks: Vec<Disk>,
     pub pick: Option<Where>,
     pub user: Identity,
@@ -65,10 +65,22 @@ pub struct NativeInstall {
     service: Service,
     tx: Sender<Message>,
     rx: Receiver<Message>,
-    ctx: egui::Context,
 }
 
 impl NativeInstall {
+    #[cfg(test)]
+    pub(crate) fn derivative_for_test(&self) -> Option<borea_core::ArchDerivative> {
+        self.derivative
+    }
+    pub(crate) fn target(&mut self, cachyos: bool) {
+        let derivative = cachyos.then_some(borea_core::ArchDerivative::Cachyos);
+        if self.derivative != derivative && !self.busy() {
+            self.invalidate();
+            self.derivative = derivative;
+            self.pick = None;
+            self.page = Page::Storage;
+        }
+    }
     pub(crate) fn edit_account(&mut self, field: &str, value: String) {
         if self.page != Page::Account || self.busy() {
             return;
@@ -141,13 +153,11 @@ impl NativeInstall {
             self.ask("system.reboot", json!({"firmware_setup":false}), Answer::Reboot);
         }
     }
-    pub fn context(&self) -> egui::Context {
-        self.ctx.clone()
-    }
-    pub fn with_service(ctx: egui::Context, service: Service) -> Self {
+    pub fn with_service(service: Service) -> Self {
         let (tx, rx) = mpsc::channel();
         Self {
             page: Page::Storage,
+            derivative: None,
             disks: vec![],
             pick: None,
             user: Identity {
@@ -186,17 +196,16 @@ impl NativeInstall {
             service,
             tx,
             rx,
-            ctx,
         }
     }
-    pub fn system(ctx: egui::Context) -> Self {
-        Self::with_service(
-            ctx,
-            Arc::new(|method, params| {
-                borea_protocol::call(method, params, Duration::from_secs(600))
-                    .map_err(|e| e.to_string())
-            }),
-        )
+    pub fn system() -> Self {
+        Self::with_service(Arc::new(|method, params| {
+            borea_protocol::call(method, params, Duration::from_secs(600))
+                .map_err(|e| e.to_string())
+        }))
+    }
+    pub(crate) fn stopped(&self) -> bool {
+        self.stopped
     }
     pub fn busy(&self) -> bool {
         self.page == Page::Running
@@ -223,8 +232,7 @@ impl NativeInstall {
         }
     }
     fn ask(&self, method: &'static str, mut params: Value, kind: Answer) {
-        let (service, tx, ctx, revision) =
-            (Arc::clone(&self.service), self.tx.clone(), self.ctx.clone(), self.revision);
+        let (service, tx, revision) = (Arc::clone(&self.service), self.tx.clone(), self.revision);
         if thread::Builder::new()
             .name("native-install".into())
             .spawn(move || {
@@ -233,7 +241,6 @@ impl NativeInstall {
                     secret.zeroize();
                 }
                 let _ = tx.send(Message { revision, kind, result });
-                ctx.request_repaint();
             })
             .is_err()
         {
@@ -277,6 +284,7 @@ impl NativeInstall {
         let plan = Plan {
             version: 1,
             distro: borea_core::Distribution::Arch,
+            derivative: self.derivative,
             release: "rolling".into(),
             desktop: Some(Desktop::HyprlandNoctalia),
             env: "composed".into(),
@@ -344,13 +352,8 @@ impl NativeInstall {
         self.confirmation.zeroize();
     }
     fn follow(&self) {
-        let (service, tx, ctx, revision, mut cursor) = (
-            Arc::clone(&self.service),
-            self.tx.clone(),
-            self.ctx.clone(),
-            self.revision,
-            self.cursor,
-        );
+        let (service, tx, revision, mut cursor) =
+            (Arc::clone(&self.service), self.tx.clone(), self.revision, self.cursor);
         let _ = thread::Builder::new().name("native-events".into()).spawn(move || {
             loop {
                 let result = service("install.events", &json!({"after":cursor}));
@@ -365,7 +368,6 @@ impl NativeInstall {
                     cursor = batch["cursor"].as_u64().unwrap_or(cursor);
                 }
                 let _ = tx.send(Message { revision, kind: Answer::Events, result });
-                ctx.request_repaint();
                 if stop {
                     break;
                 }
@@ -462,281 +464,7 @@ impl NativeInstall {
             }
         }
     }
-    pub fn ui(&mut self, ui: &mut Ui) {
-        ui.set_max_width(660.0);
-        if let Some(error) = &self.error {
-            ui.colored_label(egui::Color32::from_rgb(208, 135, 112), error);
-            ui.add_space(8.0);
-        }
-        match self.page {
-            Page::Storage => {
-                ui.heading("Where should Arch go?");
-                ui.label("Choose a drive and layout. Nothing is selected automatically.");
-                let mut selected = self.pick.clone();
-                for (i, disk) in self
-                    .disks
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, d)| d.usable() && d.size() >= 40 * crate::handoff::GIB)
-                {
-                    ui.separator();
-                    ui.label(format!("{} · {}", disk.name(), disk.path()));
-                    if ui
-                        .radio(
-                            matches!(selected, Some(Where::Whole {disk}) if disk == i),
-                            "Erase this disk",
-                        )
-                        .clicked()
-                    {
-                        selected = Some(Where::Whole { disk: i });
-                    }
-                    for (j, p) in disk.parts.iter().enumerate() {
-                        let Some(max) =
-                            p.max_linux_size.filter(|max| *max >= 40 * crate::handoff::GIB)
-                        else {
-                            continue;
-                        };
-                        if ui.radio(matches!(selected, Some(Where::Alongside {disk,part,..}) if disk == i && part == j), format!("Alongside Windows on {}", p.path)).clicked() {
-                            selected = Some(Where::Alongside {disk:i,part:j,size: (60 * crate::handoff::GIB).min(max)});
-                        }
-                        if let Some(Where::Alongside { disk, part, size }) = &mut selected
-                            && *disk == i
-                            && *part == j
-                        {
-                            let mut gib = *size / crate::handoff::GIB;
-                            ui.add(
-                                egui::Slider::new(&mut gib, 40..=max / crate::handoff::GIB)
-                                    .text("Linux space (GiB)"),
-                            );
-                            *size = gib * crate::handoff::GIB;
-                        }
-                    }
-                }
-                if selected != self.pick {
-                    self.invalidate();
-                    self.pick = selected;
-                }
-                if self.loading {
-                    ui.spinner();
-                }
-                if self.disks.is_empty() && !self.loading && ui.button("Refresh disks").clicked() {
-                    self.loaded = false;
-                    self.load();
-                }
-                ui.add_space(12.0);
-                if ui
-                    .add_enabled(self.pick.is_some(), egui::Button::new("Account and region"))
-                    .clicked()
-                {
-                    self.page = Page::Account;
-                }
-            }
-            Page::Account => {
-                ui.heading("Your account");
-                let mut changed = false;
-                for (label, value) in [
-                    ("Full name", &mut self.user.full_name),
-                    ("Username", &mut self.user.username),
-                    ("Computer name", &mut self.user.hostname),
-                ] {
-                    let name = ui.label(label);
-                    changed |= ui.text_edit_singleline(value).labelled_by(name.id).changed();
-                }
-                let name = ui.label("Password");
-                changed |= ui
-                    .add(egui::TextEdit::singleline(&mut *self.password).password(true))
-                    .labelled_by(name.id)
-                    .changed();
-                let name = ui.label("Confirm password");
-                changed |= ui
-                    .add(egui::TextEdit::singleline(&mut *self.confirmation).password(true))
-                    .labelled_by(name.id)
-                    .changed();
-                ui.label("This password unlocks your encrypted Linux disk and signs you in.");
-                ui.add_space(10.0);
-                ui.heading("Region");
-                changed |= choose(
-                    ui,
-                    "Language",
-                    &mut self.locale.lang,
-                    borea_locale::LOCALES.iter().map(|v| (v.id.to_owned(), v.english.to_owned())),
-                );
-                let mut keyboard =
-                    format!("{}:{}", self.locale.keyboard.layout, self.locale.keyboard.variant);
-                if choose(
-                    ui,
-                    "Keyboard",
-                    &mut keyboard,
-                    borea_locale::KEYBOARDS
-                        .iter()
-                        .map(|v| (format!("{}:{}", v.layout, v.variant), v.description.to_owned())),
-                ) {
-                    if let Some((layout, variant)) = keyboard.split_once(':') {
-                        self.locale.keyboard.layout = layout.into();
-                        self.locale.keyboard.variant = variant.into();
-                    }
-                    // Console keys are chosen separately because XKB variants are not 1:1.
-                    changed = true;
-                }
-                changed |= choose(
-                    ui,
-                    "Keyboard for disk unlock",
-                    &mut self.locale.keyboard.console,
-                    borea_locale::console_keymaps().map(|key| (key.to_owned(), key.to_owned())),
-                );
-                changed |= choose(
-                    ui,
-                    "Time zone",
-                    &mut self.locale.timezone,
-                    borea_locale::TIMEZONES.iter().map(|v| (v.to_string(), v.replace('_', " "))),
-                );
-                ui.add_space(10.0);
-                ui.heading("Extra apps");
-                ui.label("These finish quietly after your first login.");
-                egui::CollapsingHeader::new("Choose applications").show(ui, |ui| {
-                    let sources = borea_catalog::Sources::defaults(borea_catalog::Distro::Arch);
-                    for app in borea_catalog::APPS {
-                        let available = matches!(
-                            borea_catalog::resolve(app, &sources, borea_catalog::Prefer::Native),
-                            borea_catalog::Resolution::From {
-                                source: borea_catalog::Source::Repo(_)
-                                    | borea_catalog::Source::Flathub,
-                                ..
-                            }
-                        );
-                        let mut on = self.apps.contains(app.id);
-                        if ui
-                            .add_enabled(available, egui::Checkbox::new(&mut on, app.name))
-                            .changed()
-                        {
-                            if on {
-                                self.apps.insert(app.id.into());
-                            } else {
-                                self.apps.remove(app.id);
-                            }
-                            changed = true;
-                        }
-                    }
-                });
-                if changed {
-                    self.invalidate();
-                }
-                if self.loading {
-                    ui.spinner();
-                } else {
-                    if ui.button("Check installation plan").clicked() {
-                        self.review();
-                    }
-                    if ui.button("Back to storage").clicked() {
-                        self.invalidate();
-                        self.page = Page::Storage;
-                    }
-                }
-            }
-            Page::Review => {
-                ui.heading("Ready to install Arch");
-                if let Some((plan, _, review)) = &self.approval {
-                    ui.label(format!("Drive: {}", plan.disk.disk().path.display()));
-                    ui.label(match plan.disk {
-                        DiskPlan::Whole { .. } => "Erase the selected disk",
-                        _ => "Shrink Windows and install alongside",
-                    });
-                    ui.label(format!("Account: {} · {}", plan.user.username, plan.user.hostname));
-                    ui.label(format!(
-                        "Language: {} · Time zone: {}",
-                        plan.locale.lang, plan.locale.timezone
-                    ));
-                    let keyboard = &plan.locale.keyboard;
-                    ui.label(format!(
-                        "Keyboard: {}{} · Disk unlock: {}",
-                        keyboard.layout,
-                        if keyboard.variant.is_empty() {
-                            String::new()
-                        } else {
-                            format!(" ({})", keyboard.variant)
-                        },
-                        keyboard.console
-                    ));
-                    ui.label("Encrypted Linux storage · Hyprland + Noctalia · Noctalia Greeter");
-                    ui.label(format!(
-                        "Noctalia {}",
-                        review["external"]["noctalia"].as_str().unwrap_or("v5")
-                    ));
-                    for warning in review["review"]["warnings"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter_map(Value::as_str)
-                    {
-                        ui.label(warning);
-                    }
-                    egui::CollapsingHeader::new("Packages and disk changes").show(ui,|ui| { ui.monospace(serde_json::to_string_pretty(&json!({"packages":review["review"]["packages"],"storage":review["layout"]})).unwrap_or_default()); });
-                }
-                ui.checkbox(
-                    &mut self.confirmed,
-                    "I confirm these disk changes and have backed up important files.",
-                );
-                if ui.add_enabled(self.ready(), egui::Button::new("Install Arch")).clicked() {
-                    self.start();
-                }
-                if ui.button("Edit choices").clicked() {
-                    self.invalidate();
-                    self.page = Page::Account;
-                }
-            }
-            Page::Running => {
-                ui.heading(&self.stage);
-                ui.add(egui::ProgressBar::new(self.progress).show_percentage());
-                ui.label("Keep the Borea USB connected until installation finishes.");
-                if let Some(action) = self.retry.clone()
-                    && ui.button("Retry this step").clicked()
-                {
-                    self.ask("install.retry", json!({"action_id":action}), Answer::Retry);
-                }
-                if self.error.is_some()
-                    && self.retry.is_none()
-                    && !self.stopped
-                    && ui.button("Reconnect progress").clicked()
-                {
-                    self.error = None;
-                    self.follow();
-                }
-                if self.stopped {
-                    ui.label("Installation stopped. Check the error before restarting from the Borea USB.");
-                    if ui.button("Restart this computer").clicked() {
-                        self.ask("system.reboot", json!({"firmware_setup":false}), Answer::Reboot);
-                    }
-                }
-            }
-            Page::Finished => {
-                ui.heading("Arch is installed");
-                ui.label("Restart, unlock the disk, then sign in through Noctalia Greeter. Your extra apps will install in the background.");
-                if ui.button("Restart into Arch").clicked() {
-                    self.ask("system.reboot", json!({"firmware_setup":false}), Answer::Reboot);
-                }
-            }
-        }
-    }
 }
-
-fn choose(
-    ui: &mut Ui,
-    label: &str,
-    value: &mut String,
-    items: impl Iterator<Item = (String, String)>,
-) -> bool {
-    let mut changed = false;
-    egui::ComboBox::from_label(label)
-        .selected_text(if value.is_empty() || value == ":" { "Choose…" } else { value.as_str() })
-        .height(200.0)
-        .show_ui(ui, |ui| {
-            for (id, name) in items {
-                changed |= ui.selectable_value(value, id, name).changed();
-            }
-        });
-    changed
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -808,15 +536,12 @@ mod tests {
             };
             let expected_locale = serde_json::to_value(&locale).unwrap();
             let mock = service(calls.clone());
-            let mut link = NativeInstall::with_service(
-                egui::Context::default(),
-                Arc::new(move |method, params| {
-                    if matches!(method, "plan.review" | "install.start") {
-                        assert_eq!(params["plan"]["locale"], expected_locale);
-                    }
-                    mock(method, params)
-                }),
-            );
+            let mut link = NativeInstall::with_service(Arc::new(move |method, params| {
+                if matches!(method, "plan.review" | "install.start") {
+                    assert_eq!(params["plan"]["locale"], expected_locale);
+                }
+                mock(method, params)
+            }));
             link.load();
             wait(&mut link, |l| l.loaded);
             assert!(link.pick.is_none());
@@ -850,8 +575,7 @@ mod tests {
     }
     #[test]
     fn changed_choices_discard_a_pending_review() {
-        let mut link =
-            NativeInstall::with_service(egui::Context::default(), Arc::new(|_, _| Ok(Value::Null)));
+        let mut link = NativeInstall::with_service(Arc::new(|_, _| Ok(Value::Null)));
         let old_revision = link.revision;
         link.choices(["gaming".into()].into(), false, NetChoice::Ethernet);
         link.tx

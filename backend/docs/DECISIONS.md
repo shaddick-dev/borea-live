@@ -61,3 +61,22 @@
 - One Cargo workspace and lockfile for the whole repository. Backend crates moved to `crates/` and keep MSRV 1.85 and GPL-3.0-or-later in their own manifests; the live GUI crates need Rust 1.95. The GUI's own core and catalog crates were renamed `borea-live-core` and `borea-live-catalog` to end the name clash. zbus stays pinned at 5.5.0 (and zvariant at 5.9.2) because newer releases need Rust 1.87.
 - `borea-installd` is the only installer. `borea-engine` and `borea-worker` (Arch Minimal, run by hand as root) were retired; Borea Live ships the service, `borea-cli` and the static first-boot helper. The socket contract (`borea-protocol`) is shared by the service, the GUI and `borea-cli`, so method names and payloads are checked at compile time.
 - The live polkit rule grants udisks2 only the removable-media actions borea-flash uses. Writing internal disks is reserved to `borea-installd` and its approval digest.
+
+- 2026-10-31: Iced owns presentation only. Hardware, Wi-Fi, firmware, account,
+  native installation and upstream handoff workers communicate through Rust
+  channels; none depends on a GUI context. The live ISO uses Iced's tiny-skia CPU
+  renderer and bundled Noto Sans, avoiding a mandatory accelerated graphics path.
+- CachyOS minimal is an explicit `derivative: cachyos` on an Arch-family Plan,
+  included in the approval digest. It uses the authenticated Arch bootstrap,
+  CachyOS's signed generic x86_64 repository, upstream kernel, hooks and settings.
+  Generic packages deliberately avoid assuming AVX2 or installing v3/v4 binaries
+  on an unknown CPU. Package availability and the selected Noctalia version are
+  checked in the RAM tool root before storage writes. A derivative cannot be
+  attached to a different source family. This supersedes the earlier blanket
+  statement that every derivative is only a future adapter.
+- CachyOS trust is bundled from CachyOS/CachyOS-PKGBUILDS commit
+  4dd0b9d487fa3dc2975c0acd155a93c974176783, checked against its PKGBUILD SHA-512s.
+  Master fingerprint: 882DCFE48E2051D48E2562ABF3B607488DB35A47. Package signatures
+  remain required; key rotation needs a reviewed source update. No remote shell
+  installer is piped into an interpreter. Arch-family applications retain the
+  existing official-package/Flathub quiet-install policy.

@@ -1,14 +1,13 @@
-//! Slint presentation over the existing installer state machine and service clients.
+//! Iced presentation. The installer workflow and workers contain no GUI types.
 use super::*;
 use crate::install::Page;
-use slint::{ComponentHandle, Model, ModelRc, SharedString, Timer, TimerMode, VecModel};
-use std::{
-    cell::RefCell,
-    rc::Rc,
-    time::{Duration, Instant},
+use crate::model::hardware_facts;
+use iced::widget::{
+    self, button, checkbox, column, container, image, pick_list, progress_bar, row, scrollable,
+    slider, space, stack, svg, text, text_input,
 };
-slint::include_modules!();
-
+use iced::{Alignment, Background, Border, Color, Element, Length, Subscription, Task, Theme};
+use std::time::{Duration, Instant};
 #[derive(Clone, PartialEq)]
 struct Tile {
     key: String,
@@ -45,15 +44,10 @@ struct Section {
 fn section(title: &str, choices: Vec<Tile>) -> Section {
     Section { title: title.into(), choices }
 }
-fn strings(items: impl IntoIterator<Item = String>) -> ModelRc<SharedString> {
-    Rc::new(VecModel::from(items.into_iter().map(Into::into).collect::<Vec<_>>())).into()
-}
 struct Bridge {
     app: LiveInstaller,
-    ctx: egui::Context,
     network: Option<usize>,
-    heroes: Vec<Tile>,
-    groups: Vec<Section>,
+    network_name: Option<String>,
     pending_family: Option<(Family, Instant)>,
 }
 impl Bridge {
@@ -113,6 +107,10 @@ impl Bridge {
             }),
             "network" => {
                 self.network = index(1).filter(|i| *i < self.app.wifi.networks.len());
+                self.network_name = self
+                    .network
+                    .and_then(|i| self.app.wifi.networks.get(i))
+                    .map(|n| n.ssid.clone());
                 None
             }
             "whole" | "alongside" => {
@@ -127,6 +125,7 @@ impl Bridge {
                             index(2).and_then(|j| {
                                 d.parts
                                     .get(j)
+                                    .filter(|p| p.fs == "ntfs")
                                     .and_then(|p| p.max_linux_size)
                                     .filter(|m| *m >= minimum * handoff::GIB)
                                     .map(|m| Where::Alongside {
@@ -143,7 +142,7 @@ impl Bridge {
                         self.app.native.invalidate();
                         self.app.native.pick = Some(pick);
                     } else {
-                        self.app.apply(&self.ctx, Action::HandoffChoose(pick));
+                        self.app.apply(Action::HandoffChoose(pick));
                     }
                 }
                 None
@@ -171,7 +170,7 @@ impl Bridge {
             _ => None,
         };
         if let Some(action) = action {
-            self.app.apply(&self.ctx, action);
+            self.app.apply(action);
         }
     }
     fn next(&mut self) {
@@ -187,6 +186,7 @@ impl Bridge {
                 Page::Storage if n.pick.is_some() => n.page = Page::Account,
                 Page::Account => n.review(),
                 Page::Review => n.start(),
+                Page::Running if n.stopped() => n.reboot(),
                 Page::Running if n.error.is_some() => n.retry_progress(),
                 Page::Finished => n.reboot(),
                 _ => {}
@@ -194,12 +194,12 @@ impl Bridge {
         } else if self.app.step == Step::Review && self.app.handoff_target().is_some() {
             match self.app.handoff.phase {
                 Phase::Choosing => self.app.handoff.review(),
-                Phase::Reviewed(_) => self.app.apply(&self.ctx, Action::Next),
+                Phase::Reviewed(_) => self.app.apply(Action::Next),
                 Phase::Failed(_) => self.app.handoff.retry(),
                 _ => {}
             }
         } else {
-            self.app.apply(&self.ctx, Action::Next);
+            self.app.apply(Action::Next);
         }
     }
     fn back(&mut self) {
@@ -213,7 +213,7 @@ impl Bridge {
             n.invalidate();
             n.page = if prior == Page::Review { Page::Account } else { Page::Storage };
         } else {
-            self.app.apply(&self.ctx, Action::Back);
+            self.app.apply(Action::Back);
         }
     }
     fn region(&mut self, kind: &str, index: i32) {
@@ -272,7 +272,7 @@ impl Bridge {
                 self.app.native.invalidate();
                 self.app.native.pick = Some(pick);
             } else {
-                self.app.apply(&self.ctx, Action::HandoffChoose(pick));
+                self.app.apply(Action::HandoffChoose(pick));
             }
         }
     }
@@ -348,6 +348,8 @@ impl Bridge {
                 for (i, d) in a.catalog.family(f).enumerate() {
                     let status = if d.id.as_str() == "omarchy" {
                         "Official installer, via Borea".into()
+                    } else if matches!(d.id.as_str(), "arch" | "cachyos") {
+                        "Minimal · Hyprland + Noctalia".into()
                     } else {
                         format!("{} integration", crate::model::capitalize(&d.status.to_string()))
                     };
@@ -553,239 +555,6 @@ impl Bridge {
         }
         (heroes, groups)
     }
-    fn refresh(&mut self, ui: &BoreaWindow) {
-        if self.app.step != Step::System {
-            self.pending_family = None;
-        }
-        if let Some((family, at)) = self.pending_family
-            && (self.app.still || at.elapsed() >= Duration::from_millis(280))
-        {
-            self.pending_family = None;
-            self.app.apply(&self.ctx, Action::Family(family));
-        }
-        self.app.poll();
-        let (heroes, groups) = self.tiles();
-        if heroes != self.heroes {
-            ui.set_heroes(update_tiles(ui, &ui.get_heroes(), &self.heroes, &heroes));
-            self.heroes = heroes;
-        }
-        if groups != self.groups {
-            let current = ui.get_groups();
-            if groups.len() == self.groups.len()
-                && groups.iter().zip(&self.groups).all(|(a, b)| a.title == b.title)
-            {
-                for (i, (group, old)) in groups.iter().zip(&self.groups).enumerate() {
-                    if let Some(mut row) = current.row_data(i) {
-                        let updated = update_tiles(ui, &row.choices, &old.choices, &group.choices);
-                        if old.choices.len() != group.choices.len()
-                            || old.choices.iter().zip(&group.choices).any(|(a, b)| a.key != b.key)
-                        {
-                            row.choices = updated;
-                            if let Some(model) =
-                                current.as_any().downcast_ref::<VecModel<ChoiceGroup>>()
-                            {
-                                model.set_row_data(i, row);
-                            }
-                        }
-                    }
-                }
-            } else {
-                ui.set_groups(
-                    Rc::new(VecModel::from(
-                        groups
-                            .iter()
-                            .map(|g| ChoiceGroup {
-                                title: g.title.clone().into(),
-                                choices: tiles_model(ui, &g.choices),
-                            })
-                            .collect::<Vec<_>>(),
-                    ))
-                    .into(),
-                );
-            }
-            self.groups = groups;
-        }
-        let a = &self.app;
-        ui.set_page((a.step.number() - 1) as i32);
-        ui.set_reached((a.reached.number() - 1) as i32);
-        ui.set_heading(a.step.title().into());
-        ui.set_subtitle(a.step.lead().into());
-        ui.set_summary(a.selection_title().into());
-        ui.set_connection(a.wifi.connection_label().into());
-        ui.set_dark(a.palette.dark);
-        ui.global::<Design>().set_dark(a.palette.dark);
-        ui.set_motion_paused(a.still);
-        ui.global::<Design>().set_motion(!a.still && ui.get_motion_active());
-        ui.set_locked(self.busy() || a.firmware_dialog);
-        ui.set_firmware_dialog(a.firmware_dialog);
-        ui.set_firmware_available(a.firmware.control(a.uefi()).0);
-        ui.set_secure_boot_visible(a.step == Step::Review);
-        ui.set_secure_boot_available(matches!(a.secure_boot(), Some(Readiness::Available { .. })));
-        ui.set_secure_boot_note(
-            match a.secure_boot() {
-                Some(Readiness::Unavailable(reason)) => {
-                    format!("Optional. Leave Secure Boot off: {reason}.")
-                }
-                Some(Readiness::Available { .. }) if a.selection.secure_boot => {
-                    secure_boot::STEPS.join("\n")
-                }
-                _ => "Optional. Leave it off for machines without Secure Boot support.".into(),
-            }
-            .into(),
-        );
-        ui.set_secure_boot(a.selection.secure_boot);
-        ui.set_notice("".into());
-        ui.set_details("".into());
-        ui.set_account(self.native() && a.native.page == Page::Account);
-        ui.set_space_visible(false);
-        ui.set_space_min(if self.native() { 40. } else { 32. });
-        ui.set_confirmation_visible(false);
-        ui.set_progress_visible(false);
-        ui.set_next_label(if a.step == Step::Desktop { "Review" } else { "Continue" }.into());
-        ui.set_next_enabled(a.can_continue() && !self.busy());
-        if a.step == Step::Machine
-            && let Some(hw) = a.hardware()
-        {
-            ui.set_details(
-                borea_distro::machine_findings(hw)
-                    .into_iter()
-                    .map(|finding| match finding {
-                        borea_distro::Finding::Recommend(text)
-                        | borea_distro::Finding::Unknown(text)
-                        | borea_distro::Finding::Blocker(text) => text,
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n")
-                    .into(),
-            );
-        }
-        if a.step == Step::Connect {
-            ui.set_notice(
-                a.wifi.message.clone().or(a.wifi.unavailable.clone()).unwrap_or_default().into(),
-            );
-            ui.set_wifi_selected(self.network.is_some());
-            ui.set_wifi_secured(self.network.and_then(|i| a.wifi.networks.get(i)).is_some_and(
-                |n| {
-                    !matches!(
-                        n.security,
-                        borea_network::Security::Open | borea_network::Security::EnhancedOpen
-                    )
-                },
-            ));
-        }
-        if self.native() {
-            let n = &a.native;
-            ui.set_notice(n.error.clone().unwrap_or_default().into());
-            ui.set_next_enabled(!n.loading());
-            match n.page {
-                Page::Storage => {
-                    ui.set_heading("Where should Arch go?".into());
-                    ui.set_next_label("Account and region".into());
-                    ui.set_next_enabled(n.pick.is_some() && !n.loading());
-                }
-                Page::Account => {
-                    ui.set_heading("Make it yours.".into());
-                    ui.set_subtitle(
-                        "Your account, region and applications. Every choice belongs to you."
-                            .into(),
-                    );
-                    ui.set_account(true);
-                    ui.set_next_label("Check installation plan".into());
-                }
-                Page::Review => {
-                    ui.set_heading("Check your installation.".into());
-                    ui.set_details(n.review_details().unwrap_or_default().into());
-                    ui.set_next_label("Install Arch".into());
-                    ui.set_next_enabled(n.ready());
-                    ui.set_confirmation_visible(true);
-                    ui.set_confirmed(n.confirmed);
-                    ui.set_confirmation_label("Apply these disk changes and install Arch. I have backed up anything important.".into());
-                }
-                Page::Running => {
-                    ui.set_heading("Installing Arch.".into());
-                    ui.set_details(n.stage.clone().into());
-                    ui.set_progress_visible(true);
-                    ui.set_progress(n.progress);
-                    ui.set_next_label("Retry / reconnect".into());
-                    ui.set_next_enabled(n.error.is_some());
-                }
-                Page::Finished => {
-                    ui.set_heading("Ready for a fresh start.".into());
-                    ui.set_details("Restart, unlock the disk and sign in through Noctalia Greeter. Extra apps finish quietly after login.".into());
-                    ui.set_next_label("Restart into Arch".into());
-                    ui.set_next_enabled(true);
-                }
-            }
-            update_space(ui, &n.disks, &n.pick);
-            if n.page != Page::Account {
-                ui.set_password("".into());
-                ui.set_password_confirmation("".into());
-            }
-        } else if a.step == Step::Review && a.handoff_target().is_some() {
-            let h = &a.handoff;
-            match &h.phase {
-                Phase::Idle | Phase::Loading => {
-                    ui.set_next_enabled(false);
-                    ui.set_notice("Looking for installation drives…".into());
-                }
-                Phase::Choosing => {
-                    ui.set_heading("Where should Omarchy go?".into());
-                    ui.set_next_label("Check this plan".into());
-                    ui.set_next_enabled(h.pick.is_some());
-                }
-                Phase::Reviewing => {
-                    ui.set_next_label("Checking…".into());
-                    ui.set_next_enabled(false);
-                }
-                Phase::Reviewed(review) => {
-                    ui.set_details(
-                        format!("{}\n\n{}", review.steps.join("\n"), review.choose).into(),
-                    );
-                    ui.set_confirmation_visible(true);
-                    ui.set_confirmation_label(
-                        "Apply these disk changes. I have backed up anything important.".into(),
-                    );
-                    ui.set_confirmed(h.confirmed);
-                    ui.set_next_label("Begin installation".into());
-                    ui.set_next_enabled(h.ready());
-                }
-                Phase::Running { stage, fraction, .. } => {
-                    ui.set_heading("Getting Omarchy ready.".into());
-                    ui.set_details(stage.clone().into());
-                    ui.set_progress_visible(true);
-                    ui.set_progress(fraction.unwrap_or(0.));
-                    ui.set_next_enabled(false);
-                }
-                Phase::Finished { choose } => {
-                    ui.set_heading("Restarting into Omarchy.".into());
-                    ui.set_details(choose.clone().into());
-                    ui.set_next_enabled(false);
-                }
-                Phase::Failed(e) => {
-                    ui.set_notice(e.clone().into());
-                    ui.set_next_label("Try again".into());
-                    ui.set_next_enabled(true);
-                }
-            }
-            update_space(ui, &h.disks, &h.pick);
-        } else if a.step == Step::Review {
-            ui.set_notice(
-                "This target is a preview. Its installation pathway is not connected yet.".into(),
-            );
-            ui.set_details(a.selection.title(&a.catalog, a.family()).into());
-            ui.set_next_label("Not available yet".into());
-            ui.set_next_enabled(false);
-        }
-        if a.firmware_dialog {
-            ui.set_next_enabled(false);
-            if let Some(error) = &a.firmware.error {
-                ui.set_notice(error.clone().into());
-            }
-        }
-        if self.pending_family.is_some() {
-            ui.set_next_enabled(false);
-        }
-    }
 }
 fn family_id(f: Family) -> &'static str {
     match f {
@@ -793,112 +562,6 @@ fn family_id(f: Family) -> &'static str {
         Family::Fedora => "fedora",
         Family::Debian => "debian",
         Family::Opensuse => "opensuse",
-    }
-}
-fn tiles_model(ui: &BoreaWindow, tiles: &[Tile]) -> ModelRc<ChoiceData> {
-    Rc::new(VecModel::from(
-        tiles
-            .iter()
-            .map(|t| ChoiceData {
-                key: t.key.clone().into(),
-                label: t.label.clone().into(),
-                description: t.description.clone().into(),
-                meta: t.meta.clone().into(),
-                logo: logo(ui, &t.logo),
-                selected: t.selected,
-                enabled: t.enabled,
-            })
-            .collect::<Vec<_>>(),
-    ))
-    .into()
-}
-
-/// Keep item identities (and their focus and animation state) across a pick.
-fn update_tiles(
-    ui: &BoreaWindow,
-    current: &ModelRc<ChoiceData>,
-    old: &[Tile],
-    next: &[Tile],
-) -> ModelRc<ChoiceData> {
-    if old.len() == next.len()
-        && old.iter().zip(next).all(|(a, b)| a.key == b.key)
-        && let Some(model) = current.as_any().downcast_ref::<VecModel<ChoiceData>>()
-    {
-        for (i, (a, b)) in old.iter().zip(next).enumerate() {
-            if a != b {
-                model.set_row_data(i, tile_data(ui, b));
-            }
-        }
-        return current.clone();
-    }
-    tiles_model(ui, next)
-}
-
-fn tile_data(ui: &BoreaWindow, t: &Tile) -> ChoiceData {
-    ChoiceData {
-        key: t.key.clone().into(),
-        label: t.label.clone().into(),
-        description: t.description.clone().into(),
-        meta: t.meta.clone().into(),
-        logo: logo(ui, &t.logo),
-        selected: t.selected,
-        enabled: t.enabled,
-    }
-}
-
-fn wind_frame(
-    ui: &BoreaWindow,
-    motion: &mut crate::frost_motion::FrostMotion,
-    dt: f64,
-    changed: bool,
-    paused: bool,
-    progress: Option<f32>,
-) {
-    motion.advance(dt, changed, paused, progress);
-    ui.set_motion_active(!paused);
-    ui.global::<Design>().set_motion(!paused);
-    if !paused || ui.get_wind().row_count() == 0 {
-        ui.set_wind(
-            Rc::new(VecModel::from(
-                motion
-                    .trails()
-                    .into_iter()
-                    .map(|g| WindData {
-                        x: g.x,
-                        y: g.y,
-                        length: g.length,
-                        height: g.height,
-                        alpha: g.alpha,
-                    })
-                    .collect::<Vec<_>>(),
-            ))
-            .into(),
-        );
-    }
-}
-
-fn view_key(b: &Bridge) -> String {
-    format!(
-        "{:?}:{:?}:{:?}:{:?}",
-        b.app.step,
-        b.app.native.page,
-        std::mem::discriminant(&b.app.handoff.phase),
-        b.pending_family.map(|(f, _)| f)
-    )
-}
-fn logo(ui: &BoreaWindow, id: &str) -> slint::Image {
-    let logos = ui.global::<Logos>();
-    match id {
-        "arch" => logos.get_arch(),
-        "fedora" => logos.get_fedora(),
-        "debian" => logos.get_debian(),
-        "opensuse" | "tumbleweed" => logos.get_opensuse(),
-        "cachyos" => logos.get_cachyos(),
-        "omarchy" => logos.get_omarchy(),
-        "bazzite" => logos.get_bazzite(),
-        "nobara" => logos.get_nobara(),
-        "pikaos" => logos.get_pikaos(),
-        _ => slint::Image::default(),
     }
 }
 fn storage_tiles(disks: &[handoff::Disk], pick: &Option<Where>, minimum: u64) -> Vec<Section> {
@@ -930,423 +593,1250 @@ fn storage_tiles(disks: &[handoff::Disk], pick: &Option<Where>, minimum: u64) ->
     choices.push(Tile::new("refresh/disks", "Refresh drives", "Read the drive list again", false));
     vec![section("Storage", choices)]
 }
-fn update_space(ui: &BoreaWindow, disks: &[handoff::Disk], pick: &Option<Where>) {
-    if let Some(Where::Alongside { disk, part, size }) = pick
-        && let Some(max) =
-            disks.get(*disk).and_then(|d| d.parts.get(*part)).and_then(|p| p.max_linux_size)
-    {
-        ui.set_space_visible(true);
-        ui.set_space_max((max / handoff::GIB) as f32);
-        ui.set_space((*size / handoff::GIB) as f32);
+
+#[derive(Clone)]
+enum Message {
+    Tick(Instant),
+    Key(iced::keyboard::Event),
+    Choose(String),
+    Next,
+    Back,
+    Action(Action),
+    Field(&'static str, String),
+    Region(&'static str, String),
+    Space(f32),
+    Confirm(bool),
+    Apps(bool),
+    WifiPassword(String),
+    Reveal(bool),
+    Join,
+    Rescan,
+    Hidden(bool),
+    HiddenSsid(String),
+    HiddenSecurity(String),
+}
+impl std::fmt::Debug for Message {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Iced requires Debug, but credentials and network names never belong in diagnostics.
+        f.write_str(match self {
+            Self::Field(..) | Self::WifiPassword(..) | Self::HiddenSsid(..) => "Input([redacted])",
+            Self::Tick(..) => "Tick",
+            Self::Key(..) => "Key",
+            Self::Choose(..) => "Choose",
+            Self::Next => "Next",
+            Self::Back => "Back",
+            Self::Action(..) => "Action",
+            Self::Region(..) => "Region",
+            Self::Space(..) => "Space",
+            Self::Confirm(..) => "Confirm",
+            Self::Apps(..) => "Apps",
+            Self::Reveal(..) => "Reveal",
+            Self::Join => "Join",
+            Self::Rescan => "Rescan",
+            Self::Hidden(..) => "Hidden",
+            Self::HiddenSecurity(..) => "HiddenSecurity",
+        })
     }
 }
-fn connect(ui: &BoreaWindow, state: Rc<RefCell<Bridge>>) {
-    macro_rules! callback{($name:ident,|$b:ident $(,$arg:ident)*|$body:block)=>{{let weak=ui.as_weak();let state=state.clone();ui.$name(move|$($arg),*|{if let Some(ui)=weak.upgrade(){let mut $b=state.borrow_mut();$body $b.refresh(&ui);}});}};}
-    callback!(on_choose, |b, key| {
-        b.command(key.as_str());
-    });
-    callback!(on_advance, |b| {
-        b.next();
-    });
-    callback!(on_back, |b| {
-        b.back();
-    });
-    callback!(on_navigate, |b, index| {
-        b.pending_family = None;
-        if let Ok(i) = usize::try_from(index)
-            && let Some(step) = Step::ALL.get(i)
-        {
-            let ctx = b.ctx.clone();
-            b.app.apply(&ctx, Action::Go(*step));
+const FONT: &[u8] = include_bytes!("../assets/NotoSans-Regular.ttf");
+const FACE: iced::Font = iced::Font::with_name("Noto Sans");
+struct App {
+    bridge: Bridge,
+    wind: crate::frost_motion::FrostMotion,
+    last: Instant,
+    view_key: String,
+    elapsed: f32,
+    pulse: f32,
+    password: zeroize::Zeroizing<String>,
+    confirmation: zeroize::Zeroizing<String>,
+    wifi_password: zeroize::Zeroizing<String>,
+    reveal: bool,
+    hidden: bool,
+    hidden_ssid: String,
+    hidden_security: String,
+    apps_open: bool,
+    boot_smoke: bool,
+    ready: bool,
+}
+impl App {
+    fn new(live: bool, boot_smoke: bool) -> Self {
+        let mut app = LiveInstaller::for_desktop();
+        app.still = false;
+        let _ = live; // Both binaries use the same reviewed workflow.
+        Self::from_workflow(app, boot_smoke)
+    }
+    fn from_workflow(app: LiveInstaller, boot_smoke: bool) -> Self {
+        Self {
+            bridge: Bridge { app, network: None, network_name: None, pending_family: None },
+            wind: Default::default(),
+            last: Instant::now(),
+            view_key: String::new(),
+            elapsed: 0.,
+            pulse: 1.,
+            password: Default::default(),
+            confirmation: Default::default(),
+            wifi_password: Default::default(),
+            reveal: false,
+            hidden: false,
+            hidden_ssid: String::new(),
+            hidden_security: "WPA2 Personal".into(),
+            apps_open: false,
+            boot_smoke,
+            ready: false,
         }
-    });
-    callback!(on_theme, |b| {
-        let ctx = b.ctx.clone();
-        b.app.apply(&ctx, Action::ToggleTheme);
-    });
-    callback!(on_motion, |b| {
-        let ctx = b.ctx.clone();
-        b.app.apply(&ctx, Action::ToggleMotion);
-    });
-    callback!(on_change_field, |b, field, value| {
-        b.app.native.edit_account(field.as_str(), value.to_string());
-    });
-    callback!(on_region, |b, kind, index| {
-        b.region(kind.as_str(), index);
-    });
-    callback!(on_set_space, |b, value| {
-        b.space(value);
-    });
-    callback!(on_confirm, |b, on| {
-        if b.native() {
-            b.app.native.confirmed = on;
-        } else {
-            b.app.handoff.confirm(on);
-        }
-    });
-    callback!(on_set_secure_boot, |b, on| {
-        if !on || matches!(b.app.secure_boot(), Some(Readiness::Available { .. })) {
-            let ctx = b.ctx.clone();
-            b.app.apply(&ctx, Action::SecureBoot(on));
-        }
-    });
-    callback!(on_firmware, |b, action| {
-        let ctx = b.ctx.clone();
-        b.app.apply(
-            &ctx,
-            match action.as_str() {
-                "open" => Action::OpenFirmware,
-                "restart" => Action::RestartFirmware,
-                _ => Action::CancelFirmware,
-            },
-        );
-    });
-    let weak = ui.as_weak();
-    let wifi_state = state.clone();
-    ui.on_wifi(move |action| {
-        if let Some(ui) = weak.upgrade() {
-            let mut b = wifi_state.borrow_mut();
-            if !b.busy() {
-                match action.as_str() {
-                    "rescan" => b.app.wifi.send(crate::wifi::Command::Rescan),
-                    "join" => {
-                        let password = zeroize::Zeroizing::new(ui.get_wifi_password().to_string());
-                        let secret = if password.is_empty() {
-                            None
+    }
+    fn key(&self) -> String {
+        format!(
+            "{:?}:{:?}:{:?}",
+            self.bridge.app.step,
+            self.bridge.app.native.page,
+            self.bridge.pending_family.map(|(f, _)| f)
+        )
+    }
+    fn update(&mut self, message: Message) -> Task<Message> {
+        match message {
+            Message::Key(iced::keyboard::Event::KeyPressed { key, modifiers, .. }) => {
+                use iced::keyboard::{Key, key::Named};
+                match key.as_ref() {
+                    Key::Named(Named::Tab) => {
+                        return if modifiers.shift() {
+                            iced::widget::operation::focus_previous()
                         } else {
-                            Some(borea_network::Secret::new(password.to_string()))
+                            iced::widget::operation::focus_next()
                         };
-                        if ui.get_hidden_network() {
-                            b.app.wifi.send(crate::wifi::Command::JoinHidden {
-                                ssid: ui.get_hidden_ssid().to_string(),
-                                security: match ui.get_hidden_security() {
-                                    1 => borea_network::Security::Wpa3Personal,
-                                    2 => borea_network::Security::Open,
-                                    _ => borea_network::Security::WpaPersonal,
-                                },
-                                passphrase: secret,
-                            });
-                        } else if let Some(n) =
-                            b.network.and_then(|i| b.app.wifi.networks.get(i)).cloned()
-                        {
-                            b.app.wifi.send(crate::wifi::Command::Join {
-                                network: n,
-                                passphrase: secret,
-                            });
+                    }
+                    Key::Named(Named::Escape) if self.bridge.app.firmware_dialog => {
+                        self.bridge.app.apply(Action::CancelFirmware)
+                    }
+                    Key::Named(Named::ArrowLeft) if modifiers.control() => self.bridge.back(),
+                    Key::Named(Named::ArrowRight)
+                        if modifiers.control()
+                            && self.bridge.app.step != Step::Review
+                            && self.nav().1 =>
+                    {
+                        self.bridge.next()
+                    }
+                    Key::Character(s) if !modifiers.control() && !self.bridge.busy() => {
+                        if let Ok(index) = s.parse::<usize>() {
+                            let (heroes, groups) = self.bridge.tiles();
+                            let choices = if heroes.is_empty() {
+                                groups.first().map(|g| g.choices.clone()).unwrap_or_default()
+                            } else {
+                                heroes
+                            };
+                            if let Some(tile) = index
+                                .checked_sub(1)
+                                .and_then(|i| choices.get(i))
+                                .filter(|t| t.enabled)
+                            {
+                                self.bridge.command(&tile.key);
+                                self.pulse = 1.;
+                            }
                         }
-                        ui.set_wifi_password("".into());
                     }
                     _ => {}
                 }
             }
-            b.refresh(&ui);
+            Message::Tick(now) => {
+                let dt = now.saturating_duration_since(self.last).as_secs_f64().min(0.1);
+                self.last = now;
+                self.bridge.app.poll();
+                if let Some(name) = &self.bridge.network_name {
+                    self.bridge.network =
+                        self.bridge.app.wifi.networks.iter().position(|n| n.ssid == *name);
+                    if self.bridge.network.is_none() && !self.hidden {
+                        use zeroize::Zeroize;
+                        self.wifi_password.zeroize();
+                    }
+                } else if !self.bridge.app.wifi.connected()
+                    && let Some(name) = self.bridge.app.suggested_network()
+                {
+                    self.bridge.network =
+                        self.bridge.app.wifi.networks.iter().position(|n| n.ssid == name);
+                    self.bridge.network_name = self
+                        .bridge
+                        .network
+                        .and_then(|i| self.bridge.app.wifi.networks.get(i))
+                        .map(|n| n.ssid.clone());
+                }
+                if self.bridge.app.step != Step::System {
+                    self.bridge.pending_family = None;
+                }
+                if let Some((f, at)) = self.bridge.pending_family
+                    && (self.bridge.app.still
+                        || now.saturating_duration_since(at) >= Duration::from_millis(280))
+                {
+                    self.bridge.pending_family = None;
+                    self.bridge.app.apply(Action::Family(f));
+                }
+                let key = self.key();
+                let changed = key != self.view_key;
+                self.view_key = key;
+                let paused = self.bridge.app.still;
+                self.wind.advance(dt, changed, paused, self.bridge.app.install_progress());
+                if !paused {
+                    self.elapsed += dt as f32;
+                    self.pulse = (self.pulse - dt as f32 / 0.7).max(0.);
+                }
+                if self.bridge.app.native.page != Page::Account {
+                    use zeroize::Zeroize;
+                    self.password.zeroize();
+                    self.confirmation.zeroize();
+                }
+                if self.boot_smoke && !self.ready {
+                    self.ready = true;
+                    println!("BOREA_GUI_READY");
+                    return iced::exit();
+                }
+            }
+            Message::Action(action) => {
+                if !self.bridge.app.firmware_dialog
+                    || matches!(action, Action::CancelFirmware | Action::RestartFirmware)
+                {
+                    self.bridge.app.apply(action);
+                }
+            }
+            Message::Back => self.bridge.back(),
+            Message::Next => self.bridge.next(),
+            Message::Choose(key) => {
+                let prior = self.bridge.network;
+                self.bridge.command(&key);
+                if prior != self.bridge.network {
+                    use zeroize::Zeroize;
+                    self.wifi_password.zeroize();
+                }
+                self.pulse = 1.;
+            }
+            Message::Field(field, value)
+                if self.bridge.native()
+                    && !self.bridge.busy()
+                    && !self.bridge.app.firmware_dialog =>
+            {
+                match field {
+                    "password" => *self.password = value.clone(),
+                    "confirmation" => *self.confirmation = value.clone(),
+                    _ => {}
+                }
+                self.bridge.app.native.edit_account(field, value);
+            }
+            Message::Region(kind, value)
+                if !self.bridge.busy() && !self.bridge.app.firmware_dialog =>
+            {
+                let index = region_options(kind).iter().position(|s| s == &value);
+                if let Some(i) = index {
+                    self.bridge.region(kind, i as i32);
+                }
+            }
+            Message::Space(v) if !self.bridge.app.firmware_dialog => self.bridge.space(v),
+            Message::Confirm(on) if !self.bridge.busy() && !self.bridge.app.firmware_dialog => {
+                if self.bridge.native() {
+                    self.bridge.app.native.confirmed = on;
+                } else {
+                    self.bridge.app.handoff.confirm(on);
+                }
+            }
+            Message::Apps(on) => self.apps_open = on,
+            Message::WifiPassword(value) => *self.wifi_password = value,
+            Message::Reveal(on) => self.reveal = on,
+            Message::Hidden(on) => self.hidden = on,
+            Message::HiddenSsid(value) => self.hidden_ssid = value,
+            Message::HiddenSecurity(value) => self.hidden_security = value,
+            Message::Rescan => self.bridge.app.wifi.send(crate::wifi::Command::Rescan),
+            Message::Join
+                if !self.bridge.busy() && !self.bridge.app.firmware_dialog && self.join_valid() =>
+            {
+                let security = self.network_security();
+                let passphrase = (!matches!(
+                    security,
+                    borea_network::Security::Open | borea_network::Security::EnhancedOpen
+                ))
+                .then(|| borea_network::Secret::new(self.wifi_password.to_string()));
+                let command = if self.hidden {
+                    Some(crate::wifi::Command::JoinHidden {
+                        ssid: self.hidden_ssid.clone(),
+                        security,
+                        passphrase,
+                    })
+                } else {
+                    self.bridge
+                        .network
+                        .and_then(|i| self.bridge.app.wifi.networks.get(i))
+                        .cloned()
+                        .map(|network| crate::wifi::Command::Join { network, passphrase })
+                };
+                if let Some(command) = command {
+                    self.bridge.app.wifi.send(command);
+                }
+                use zeroize::Zeroize;
+                self.wifi_password.zeroize();
+            }
+            _ => {}
         }
-    });
-    ui.set_languages(strings(
-        borea_locale::LOCALES.iter().map(|v| format!("{} · {}", v.english, v.id)),
-    ));
-    ui.set_keyboards(strings(borea_locale::KEYBOARDS.iter().map(|v| v.description.to_owned())));
-    ui.set_consoles(strings(borea_locale::console_keymaps().map(|v| format!("Disk unlock · {v}"))));
-    ui.set_timezones(strings(borea_locale::TIMEZONES.iter().map(|v| format!("Time zone · {v}"))));
+        Task::none()
+    }
+    fn theme(&self) -> Theme {
+        let p = self.colors();
+        Theme::custom(
+            "Borea frost",
+            iced::theme::Palette {
+                background: p.bg,
+                text: p.text,
+                primary: p.ice,
+                success: Color::from_rgb8(163, 190, 140),
+                warning: Color::from_rgb8(235, 203, 139),
+                danger: Color::from_rgb8(191, 97, 106),
+            },
+        )
+    }
+    fn colors(&self) -> Colors {
+        Colors::new(self.bridge.app.dark)
+    }
+    fn subscription(&self) -> Subscription<Message> {
+        Subscription::batch([
+            iced::time::every(if self.bridge.app.still {
+                Duration::from_millis(150)
+            } else {
+                crate::wind::FRAME
+            })
+            .map(Message::Tick),
+            iced::keyboard::listen().map(Message::Key),
+        ])
+    }
+    fn network_security(&self) -> borea_network::Security {
+        if self.hidden {
+            match self.hidden_security.as_str() {
+                "Open" => borea_network::Security::Open,
+                "WPA3 Personal" => borea_network::Security::Wpa3Personal,
+                _ => borea_network::Security::WpaPersonal,
+            }
+        } else {
+            self.bridge
+                .network
+                .and_then(|i| self.bridge.app.wifi.networks.get(i))
+                .map_or(borea_network::Security::Open, |n| n.security)
+        }
+    }
+    fn join_valid(&self) -> bool {
+        let selected = if self.hidden {
+            !self.hidden_ssid.trim().is_empty() && self.hidden_ssid.len() <= 32
+        } else {
+            self.bridge.network.is_some()
+        };
+        selected && crate::wifi::valid_passphrase(self.network_security(), &self.wifi_password)
+    }
+    fn nav(&self) -> (String, bool) {
+        let b = &self.bridge;
+        if b.native() {
+            let n = &b.app.native;
+            let label = match n.page {
+                Page::Storage => "Account and region",
+                Page::Account => "Check installation plan",
+                Page::Review => "Install",
+                Page::Running if n.stopped() => "Restart to recover",
+                Page::Running => "Retry / reconnect",
+                Page::Finished => "Restart",
+            };
+            let enabled = match n.page {
+                Page::Storage => n.pick.is_some(),
+                Page::Review => n.ready(),
+                Page::Running => n.error.is_some(),
+                _ => true,
+            };
+            return (label.into(), enabled && !n.loading());
+        }
+        if b.app.step == Step::Review && b.app.handoff_target().is_some() {
+            return match &b.app.handoff.phase {
+                Phase::Choosing => ("Check installation plan".into(), b.app.handoff.pick.is_some()),
+                Phase::Reviewed(_) => ("Begin installation".into(), b.app.handoff.ready()),
+                Phase::Failed(_) => ("Try again".into(), true),
+                _ => ("Preparing…".into(), false),
+            };
+        }
+        (
+            if b.app.step == Step::Desktop { "Review" } else { "Continue" }.into(),
+            b.app.can_continue() && b.pending_family.is_none(),
+        )
+    }
+    fn heading(&self) -> String {
+        if self.bridge.native() {
+            match self.bridge.app.native.page {
+                Page::Storage => format!("Where should {} go?", self.bridge.app.distro().name),
+                Page::Account => "Make it yours.".into(),
+                Page::Review => "One final check.".into(),
+                Page::Running => "A new system is taking shape.".into(),
+                Page::Finished => "Ready for a fresh start.".into(),
+            }
+        } else {
+            self.bridge.app.step.title().into()
+        }
+    }
+    fn view(&self) -> Element<'_, Message> {
+        let p = self.colors();
+        let a = &self.bridge.app;
+        let mut rail = column![
+            text("Borea").size(32).color(p.ice),
+            text("Follow the wind.").size(13).color(p.muted),
+            space().height(28)
+        ]
+        .spacing(9);
+        for step in Step::ALL {
+            let active = step == a.step;
+            let mut content =
+                column![text(format!("{:02}  {}", step.number(), step.name())).size(14)].spacing(5);
+            if let Some(summary) = a.summary(step) {
+                content = content.push(text(summary).size(11).color(p.muted));
+            }
+            let enabled = step <= a.reached && !self.bridge.busy();
+            rail = rail.push(
+                button(content)
+                    .padding(12)
+                    .width(Length::Fill)
+                    .on_press_maybe(enabled.then_some(Message::Action(Action::Go(step))))
+                    .style(move |_, status| tile_style(p, active, status)),
+            );
+        }
+        rail = rail
+            .push(space().height(Length::Fill))
+            .push(text(a.wifi.connection_label()).size(12).color(p.muted))
+            .push(
+                button(if a.dark { "Light theme" } else { "Dark theme" })
+                    .on_press(Message::Action(Action::ToggleTheme))
+                    .style(button::text),
+            )
+            .push(
+                button(if a.still { "Resume wind" } else { "Pause wind" })
+                    .on_press(Message::Action(Action::ToggleMotion))
+                    .style(button::text),
+            );
+        let firmware = button(
+            row![
+                svg(svg::Handle::from_memory(include_bytes!("../ui/cpu.svg").as_slice()))
+                    .width(18)
+                    .height(18)
+                    .style(move |_, _| svg::Style { color: Some(p.ice) }),
+                text("UEFI setup").size(12)
+            ]
+            .spacing(8),
+        )
+        .on_press_maybe(
+            (a.firmware.control(a.uefi()).0 && !self.bridge.busy())
+                .then_some(Message::Action(Action::OpenFirmware)),
+        )
+        .style(button::text);
+        rail = rail.push(firmware);
+        let rail = container(rail).width(212).height(Length::Fill).padding(20).style(move |_| {
+            container::Style { background: Some(p.surface.into()), ..Default::default() }
+        });
+        let (heroes, groups) = self.bridge.tiles();
+        let mut body = column![
+            text(format!("STEP {:02} / 06", a.step.number())).size(11).color(p.ice),
+            text(self.heading()).size(31),
+            text(a.step.lead()).size(13).color(p.muted)
+        ]
+        .spacing(12);
+        if !heroes.is_empty() {
+            let mut cards = row![].spacing(12);
+            for tile in heroes {
+                cards = cards.push(self.card(tile, true));
+            }
+            body = body.push(cards);
+        }
+        if self.bridge.native() && a.native.page == Page::Account {
+            body = body.push(self.account());
+        }
+        if a.step == Step::Connect {
+            body =
+                body.push(button("Rescan networks").on_press(Message::Rescan).style(button::text));
+        }
+        for group in groups {
+            if self.bridge.native() && a.native.page == Page::Account && !self.apps_open {
+                continue;
+            }
+            body = body.push(text(group.title).size(12).color(p.ice));
+            // Compact rows keep long shell/app catalogs readable at laptop resolutions.
+            for chunk in group
+                .choices
+                .chunks(if a.step == Step::Connect || a.step == Step::Review { 1 } else { 2 })
+            {
+                let mut choices = row![].spacing(10);
+                for tile in chunk {
+                    choices = choices.push(self.card(tile.clone(), false));
+                }
+                body = body.push(choices);
+            }
+        }
+        if a.step == Step::Connect {
+            body = body.push(self.wifi());
+        }
+        if a.step == Step::Machine
+            && let Some(hw) = a.hardware()
+        {
+            for finding in borea_distro::machine_findings(hw) {
+                let (borea_distro::Finding::Recommend(note)
+                | borea_distro::Finding::Unknown(note)
+                | borea_distro::Finding::Blocker(note)) = finding;
+                body = body.push(text(note).size(13).color(p.muted));
+            }
+        }
+        if a.step == Step::Review {
+            body = self.review(body);
+        }
+        let (label, enabled) = self.nav();
+        let footer = row![
+            button("Back")
+                .on_press_maybe(
+                    (a.step != Step::Connect && !self.bridge.busy()).then_some(Message::Back)
+                )
+                .style(button::text),
+            text(a.selection_title()).size(11).color(p.muted),
+            space().width(Length::Fill),
+            button(text(label).size(14))
+                .padding([12, 24])
+                .on_press_maybe(enabled.then_some(Message::Next))
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center);
+        let main =
+            column![scrollable(body.padding([8, 4])).height(Length::Fill), footer].spacing(18);
+        let content = container(
+            row![rail, container(main).padding(28).width(Length::Fill)].height(Length::Fill),
+        )
+        .style(move |_| container::Style { text_color: Some(p.text), ..Default::default() });
+        let background =
+            widget::canvas(AirCanvas { trails: self.wind.trails(), t: self.elapsed, dark: a.dark })
+                .width(Length::Fill)
+                .height(Length::Fill);
+        let base: Element<'_, Message> = stack![background, content].into();
+        if a.firmware_dialog {
+            let dialog = column![text("Restart into UEFI setup?").size(24),
+                text("This restarts the computer. Your installer choices will be lost. Return to the Borea USB afterwards.").size(14),
+                text(a.firmware.error.clone().unwrap_or_default()).size(13),
+                row![button("Cancel").on_press_maybe((!a.firmware.restarting).then_some(Message::Action(Action::CancelFirmware))),
+                    button("Restart into firmware").on_press_maybe((!a.firmware.restarting).then_some(Message::Action(Action::RestartFirmware)))].spacing(12)].spacing(20);
+            let modal = container(container(dialog).padding(28).max_width(520).style(move |_| {
+                container::Style {
+                    background: Some(p.surface.into()),
+                    border: Border { color: p.ice, width: 1., radius: 20.into() },
+                    ..Default::default()
+                }
+            }))
+            .center(Length::Fill)
+            .style(|_| container::Style {
+                background: Some(Color::from_rgba(0., 0., 0., 0.72).into()),
+                ..Default::default()
+            });
+            stack![base, iced::widget::opaque(modal)].into()
+        } else {
+            base
+        }
+    }
+    fn card(&self, tile: Tile, hero: bool) -> Element<'_, Message> {
+        let p = self.colors();
+        let selected = tile.selected;
+        let mut title = column![].spacing(if hero { 14 } else { 6 });
+        if hero {
+            if let Some(logo) = logo(&tile.logo, self.bridge.app.dark) {
+                title = title.push(logo);
+            }
+            title = title.push(text(tile.meta).size(10).color(p.ice));
+        }
+        title = title
+            .push(text(tile.label).size(if hero { 19 } else { 15 }))
+            .push(text(tile.description).size(12).color(p.muted));
+        if selected {
+            title = title.push(text("SELECTED").size(9).color(p.ice));
+        }
+        let enabled = tile.enabled && !tile.key.is_empty() && !self.bridge.busy();
+        let pick = Message::Choose(tile.key);
+        let card: Element<'_, Message> = button(title)
+            .padding(if hero { 22 } else { 14 })
+            .width(Length::Fill)
+            .height(if hero { Length::Fixed(255.) } else { Length::Shrink })
+            .on_press_maybe(enabled.then_some(pick))
+            .style(move |_, status| tile_style(p, selected, status))
+            .into();
+        if selected {
+            let energy = widget::canvas(SelectionFx {
+                t: self.elapsed,
+                pulse: if self.bridge.app.still { 0. } else { self.pulse },
+                color: p.ice,
+            })
+            .width(Length::Fill)
+            .height(Length::Fill);
+            stack![card, energy].into()
+        } else {
+            card
+        }
+    }
+    fn account(&self) -> Element<'_, Message> {
+        let n = &self.bridge.app.native;
+        let p = self.colors();
+        let field = |label: &'static str,
+                     key: &'static str,
+                     value: &str,
+                     secret: bool|
+         -> Element<'_, Message> {
+            column![
+                text(label).size(12),
+                text_input(label, value)
+                    .secure(secret)
+                    .on_input(move |s| Message::Field(key, s))
+                    .padding(12)
+                    .style(move |_, status| input_style(p, status))
+            ]
+            .spacing(6)
+            .width(Length::Fill)
+            .into()
+        };
+        let mut content = column![
+            row![
+                field("Full name", "full-name", &n.user.full_name, false),
+                field("Username", "username", &n.user.username, false)
+            ]
+            .spacing(12),
+            field("Computer name", "hostname", &n.user.hostname, false),
+            row![
+                field("Password", "password", &self.password, true),
+                field("Confirm password", "confirmation", &self.confirmation, true)
+            ]
+            .spacing(12),
+        ]
+        .spacing(14);
+        for (kind, label) in [
+            ("language", "Language"),
+            ("keyboard", "Keyboard"),
+            ("console", "Disk unlock keyboard"),
+            ("timezone", "Time zone"),
+        ] {
+            let value = match kind {
+                "language" => borea_locale::LOCALES.iter().position(|v| v.id == n.locale.lang),
+                "keyboard" => borea_locale::KEYBOARDS.iter().position(|v| {
+                    v.layout == n.locale.keyboard.layout && v.variant == n.locale.keyboard.variant
+                }),
+                "console" => {
+                    borea_locale::console_keymaps().position(|v| v == n.locale.keyboard.console)
+                }
+                _ => borea_locale::TIMEZONES.iter().position(|v| *v == n.locale.timezone),
+            };
+            let options = region_options(kind);
+            let selected = value.and_then(|i| options.get(i)).cloned();
+            content = content.push(
+                column![
+                    text(label).size(12),
+                    pick_list(options, selected, move |s| Message::Region(kind, s))
+                        .placeholder("Choose…")
+                        .width(Length::Fill)
+                        .padding(12)
+                ]
+                .spacing(6),
+            );
+        }
+        content
+            .push(
+                checkbox(self.apps_open)
+                    .label("Choose extra applications (optional)")
+                    .on_toggle(Message::Apps),
+            )
+            .into()
+    }
+    fn wifi(&self) -> Element<'_, Message> {
+        let p = self.colors();
+        let mut content = column![
+            text(
+                self.bridge
+                    .app
+                    .wifi
+                    .message
+                    .clone()
+                    .or(self.bridge.app.wifi.unavailable.clone())
+                    .unwrap_or_default()
+            )
+            .size(13)
+            .color(p.muted),
+            checkbox(self.hidden).label("Hidden network").on_toggle(Message::Hidden)
+        ]
+        .spacing(12);
+        if self.hidden {
+            content = content.push(
+                row![
+                    text_input("Network name", &self.hidden_ssid)
+                        .on_input(Message::HiddenSsid)
+                        .padding(12)
+                        .style(move |_, status| input_style(p, status)),
+                    pick_list(
+                        vec![
+                            "WPA2 Personal".to_string(),
+                            "WPA3 Personal".to_string(),
+                            "Open".to_string()
+                        ],
+                        Some(self.hidden_security.clone()),
+                        Message::HiddenSecurity
+                    )
+                ]
+                .spacing(12),
+            );
+        }
+        if self.hidden || self.bridge.network.is_some() {
+            let secured = !matches!(
+                self.network_security(),
+                borea_network::Security::Open | borea_network::Security::EnhancedOpen
+            );
+            let mut join = row![].spacing(10).align_y(Alignment::Center);
+            if secured {
+                join = join.push(
+                    text_input("Passphrase", &self.wifi_password)
+                        .secure(!self.reveal)
+                        .on_input(Message::WifiPassword)
+                        .on_submit_maybe(self.join_valid().then_some(Message::Join))
+                        .padding(12)
+                        .style(move |_, status| input_style(p, status)),
+                );
+            }
+            if self.join_valid() {
+                join = join.push(button("Join network").on_press(Message::Join).padding(12));
+            }
+            content = content.push(join);
+            if secured {
+                content = content.push(
+                    checkbox(self.reveal).label("Show passphrase").on_toggle(Message::Reveal),
+                );
+            }
+        }
+        content.into()
+    }
+    fn review<'a>(&'a self, mut body: widget::Column<'a, Message>) -> widget::Column<'a, Message> {
+        let a = &self.bridge.app;
+        let p = self.colors();
+        let (disks, pick) = if self.bridge.native() {
+            (&a.native.disks, &a.native.pick)
+        } else {
+            (&a.handoff.disks, &a.handoff.pick)
+        };
+        if let Some(Where::Alongside { disk, part, size }) = pick
+            && let Some(max) =
+                disks.get(*disk).and_then(|d| d.parts.get(*part)).and_then(|p| p.max_linux_size)
+        {
+            let minimum = if self.bridge.native() { 40. } else { 32. };
+            body =
+                body.push(text(format!("Linux space: {} GiB", size / handoff::GIB)).size(13)).push(
+                    slider(
+                        minimum..=(max / handoff::GIB) as f32,
+                        (*size / handoff::GIB) as f32,
+                        Message::Space,
+                    )
+                    .step(1_f32),
+                );
+        }
+        if self.bridge.native() {
+            let n = &a.native;
+            if let Some(e) = &n.error {
+                body = body.push(text(e.clone()).color(Color::from_rgb8(208, 135, 112)));
+            }
+            match n.page {
+                Page::Storage if n.disks.is_empty() => {
+                    body = body.push(text("Looking for available drives…").size(14))
+                }
+                Page::Review => {
+                    body = body.push(text(n.review_details().unwrap_or_default()).size(14)).push(
+                        checkbox(n.confirmed)
+                            .label("Apply these disk changes. I have backed up anything important.")
+                            .on_toggle(Message::Confirm),
+                    );
+                }
+                Page::Running => {
+                    body =
+                        body.push(text(n.stage.clone())).push(progress_bar(0.0..=1.0, n.progress))
+                }
+                Page::Finished => body = body.push(text(
+                    "Restart, unlock your disk and sign in. Extra apps finish quietly after login.",
+                )),
+                _ => {}
+            }
+        } else if a.handoff_target().is_some() {
+            match &a.handoff.phase {
+                Phase::Reviewed(review) => {
+                    body=body.push(text(format!("{}\n\n{}",review.steps.join("\n"),review.choose)))
+                        .push(checkbox(a.handoff.confirmed).label("Apply these disk changes. I have backed up anything important.").on_toggle(Message::Confirm));
+                }
+                Phase::Running { stage, fraction, .. } => {
+                    body = body
+                        .push(text(stage.clone()))
+                        .push(progress_bar(0.0..=1.0, fraction.unwrap_or(0.)))
+                }
+                Phase::Finished { choose } => body = body.push(text(choose.clone())),
+                Phase::Failed(error) => body = body.push(text(error.clone())),
+                _ => {}
+            }
+        } else {
+            body = body.push(
+                text(
+                    "This combination is a preview. Its installation pathway is not connected yet.",
+                )
+                .color(p.muted),
+            );
+        }
+        if !self.bridge.busy() {
+            let available = matches!(a.secure_boot(), Some(Readiness::Available { .. }));
+            let mut control =
+                checkbox(a.selection.secure_boot).label("Enable Secure Boot (optional)");
+            if available {
+                control = control.on_toggle(|v| Message::Action(Action::SecureBoot(v)));
+            }
+            body = body.push(control).push(
+                text(match a.secure_boot() {
+                    Some(Readiness::Unavailable(why)) => format!("Leave Secure Boot off: {why}."),
+                    _ => "Works with Secure Boot off. Firmware support is optional.".into(),
+                })
+                .size(12)
+                .color(p.muted),
+            );
+        }
+        body
+    }
+}
+fn region_options(kind: &str) -> Vec<String> {
+    match kind {
+        "language" => {
+            borea_locale::LOCALES.iter().map(|v| format!("{} · {}", v.english, v.id)).collect()
+        }
+        "keyboard" => borea_locale::KEYBOARDS.iter().map(|v| v.description.to_string()).collect(),
+        "console" => borea_locale::console_keymaps().map(str::to_string).collect(),
+        _ => borea_locale::TIMEZONES.iter().map(|s| s.to_string()).collect(),
+    }
+}
+#[derive(Clone, Copy)]
+struct Colors {
+    bg: Color,
+    surface: Color,
+    raised: Color,
+    text: Color,
+    muted: Color,
+    ice: Color,
+    line: Color,
+    selected: Color,
+}
+impl Colors {
+    fn new(dark: bool) -> Self {
+        let rgb = Color::from_rgb8;
+        if dark {
+            Self {
+                bg: rgb(35, 42, 54),
+                surface: rgb(46, 52, 64),
+                raised: rgb(59, 66, 82),
+                text: rgb(236, 239, 244),
+                muted: rgb(180, 193, 209),
+                ice: rgb(136, 192, 208),
+                line: rgb(76, 86, 106),
+                selected: rgb(48, 76, 94),
+            }
+        } else {
+            Self {
+                bg: rgb(236, 239, 244),
+                surface: rgb(229, 233, 240),
+                raised: rgb(216, 222, 233),
+                text: rgb(46, 52, 64),
+                muted: rgb(76, 86, 106),
+                ice: rgb(46, 99, 126),
+                line: rgb(170, 187, 203),
+                selected: rgb(206, 227, 237),
+            }
+        }
+    }
+}
+fn tile_style(p: Colors, selected: bool, status: button::Status) -> button::Style {
+    let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
+    button::Style {
+        background: Some(Background::Color(if selected {
+            p.selected
+        } else if hovered {
+            p.raised
+        } else {
+            p.surface
+        })),
+        text_color: if matches!(status, button::Status::Disabled) && !selected {
+            p.muted
+        } else {
+            p.text
+        },
+        border: Border {
+            color: if selected || hovered { p.ice } else { p.line },
+            width: if selected { 2. } else { 1. },
+            radius: 16.into(),
+        },
+        shadow: iced::Shadow {
+            color: Color { a: if selected { 0.17 } else { 0. }, ..p.ice },
+            offset: iced::Vector::ZERO,
+            blur_radius: 18.,
+        },
+        ..Default::default()
+    }
+}
+fn logo(id: &str, dark: bool) -> Option<Element<'static, Message>> {
+    let bytes: &'static [u8] = match id {
+        "arch" => include_bytes!("../ui/logos/arch.svg"),
+        "debian" => include_bytes!("../ui/logos/debian.svg"),
+        "opensuse" | "tumbleweed" => include_bytes!("../ui/logos/opensuse.svg"),
+        "cachyos" => include_bytes!("../ui/logos/cachyos.svg"),
+        "omarchy" => include_bytes!("../ui/logos/omarchy.svg"),
+        "bazzite" => include_bytes!("../ui/logos/bazzite.svg"),
+        "nobara" => include_bytes!("../ui/logos/nobara.svg"),
+        "pikaos" => include_bytes!("../ui/logos/pikaos.svg"),
+        "fedora" => {
+            return Some(
+                image(image::Handle::from_bytes(
+                    include_bytes!("../ui/logos/fedora.png").as_slice(),
+                ))
+                .width(52)
+                .height(52)
+                .into(),
+            );
+        }
+        _ => return None,
+    };
+    let mark = svg(svg::Handle::from_memory(bytes))
+        .width(if id == "omarchy" { 96 } else { 52 })
+        .height(52);
+    let mark = if id == "omarchy" {
+        mark.style(move |_, _| svg::Style {
+            color: Some(if dark { Color::WHITE } else { Color::BLACK }),
+        })
+    } else {
+        mark
+    };
+    Some(mark.into())
 }
 
-fn start_motion(ui: &BoreaWindow, state: Rc<RefCell<Bridge>>) -> Timer {
-    let motion_timer = Timer::default();
-    let motion_ui = ui.as_weak();
-    let motion_state = state.clone();
-    let mut wind = crate::frost_motion::FrostMotion::default();
-    let mut last_frame = Instant::now();
-    let mut last_view = view_key(&state.borrow());
-    motion_timer.start(TimerMode::Repeated, crate::wind::FRAME, move || {
-        if let Some(ui) = motion_ui.upgrade() {
-            let now = Instant::now();
-            let dt = now.duration_since(last_frame).as_secs_f64();
-            last_frame = now;
-            let b = motion_state.borrow();
-            let view = view_key(&b);
-            let paused = b.app.still || !ui.window().is_visible() || ui.window().is_minimized();
-            let progress = (b.app.native.page == Page::Running).then_some(b.app.native.progress);
-            wind_frame(&ui, &mut wind, dt, view != last_view, paused, progress);
-            last_view = view;
-        }
-    });
-    motion_timer
+struct AirCanvas {
+    trails: Vec<crate::frost_motion::Trail>,
+    t: f32,
+    dark: bool,
 }
-
+impl widget::canvas::Program<Message> for AirCanvas {
+    type State = ();
+    fn draw(
+        &self,
+        _: &(),
+        renderer: &iced::Renderer,
+        _: &Theme,
+        bounds: iced::Rectangle,
+        _: iced::mouse::Cursor,
+    ) -> Vec<widget::canvas::Geometry> {
+        use widget::canvas::{Frame, Path, Stroke};
+        let mut f = Frame::new(renderer, bounds.size());
+        let p = Colors::new(self.dark);
+        f.fill_rectangle(iced::Point::ORIGIN, bounds.size(), p.bg);
+        for g in &self.trails {
+            let x = g.x * bounds.width;
+            let y = g.y * bounds.height;
+            let len = g.length * bounds.width;
+            // Layered, slightly diverging currents. All travel right to left.
+            for strand in 0..3 {
+                let h = g.height * (strand as f32 + 1.) * 0.4;
+                let path = Path::new(|b| {
+                    b.move_to(iced::Point::new(x, y + h));
+                    b.bezier_curve_to(
+                        iced::Point::new(x - len * 0.33, y - h),
+                        iced::Point::new(x - len * 0.66, y + h * 0.6),
+                        iced::Point::new(x - len, y),
+                    );
+                });
+                f.stroke(
+                    &path,
+                    Stroke::default()
+                        .with_color(Color { a: g.alpha / (strand as f32 + 1.), ..p.ice })
+                        .with_width(if strand == 0 { 1.3 } else { 0.6 }),
+                );
+            }
+            // Frost motes dissolve along the current, without strobing.
+            for i in 0..3 {
+                let phase = (self.t * 0.11 + i as f32 * 0.31).fract();
+                let at = iced::Point::new(
+                    x - len * phase,
+                    y + (phase * 6. + i as f32).sin() * g.height * 0.4,
+                );
+                f.fill(&Path::circle(at, 1.2), Color { a: g.alpha * 0.8, ..p.ice });
+            }
+        }
+        vec![f.into_geometry()]
+    }
+}
+struct SelectionFx {
+    t: f32,
+    pulse: f32,
+    color: Color,
+}
+impl widget::canvas::Program<Message> for SelectionFx {
+    type State = ();
+    fn draw(
+        &self,
+        _: &(),
+        renderer: &iced::Renderer,
+        _: &Theme,
+        bounds: iced::Rectangle,
+        _: iced::mouse::Cursor,
+    ) -> Vec<widget::canvas::Geometry> {
+        use widget::canvas::{Frame, Path, Stroke};
+        let mut f = Frame::new(renderer, bounds.size());
+        let w = bounds.width;
+        let h = bounds.height;
+        // Organic icy veins hug the selected edge; they never frame the logo.
+        for edge in 0..2 {
+            let y = if edge == 0 { 4. } else { h - 4. };
+            let path = Path::new(|b| {
+                b.move_to(iced::Point::new(18., y));
+                for i in 1..=32 {
+                    let x = 18. + (w - 36.) * i as f32 / 32.;
+                    let wave = (i as f32 * 0.7 + self.t * 1.1).sin() * 1.4;
+                    b.line_to(iced::Point::new(x, y + wave));
+                }
+            });
+            f.stroke(
+                &path,
+                Stroke::default()
+                    .with_width(0.7)
+                    .with_color(Color { a: 0.25 + self.pulse * 0.4, ..self.color }),
+            );
+        }
+        if self.pulse > 0. {
+            let x = (1. - self.pulse) * (w + 80.) - 40.;
+            for i in 0..12 {
+                f.fill_rectangle(
+                    iced::Point::new(x - i as f32 * 3., 6.),
+                    iced::Size::new(3., (h - 12.).max(0.)),
+                    Color { a: self.pulse * (1. - i as f32 / 12.) * 0.025, ..self.color },
+                );
+            }
+        }
+        vec![f.into_geometry()]
+    }
+}
 pub fn run(live: bool) -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().collect();
     if let Some(i) = args.iter().position(|a| a == "--showcase") {
-        return showcase(std::path::Path::new(
-            args.get(i + 1).ok_or("--showcase needs an output directory")?,
-        ));
+        let dir = args.get(i + 1).ok_or("--showcase needs an output directory")?;
+        return showcase(std::path::Path::new(dir), args.iter().any(|a| a == "--animate"));
     }
-    let ctx = egui::Context::default();
-    let app = if args.iter().any(|a| a == "--preview") {
-        LiveInstaller::with_hardware(&ctx, borea_hardware::scan(), true)
-    } else {
-        LiveInstaller::for_desktop(ctx.clone())
-    };
-    let ui = BoreaWindow::new()?;
-    ui.set_product(if live { "Borea Live" } else { "Windpad" }.into());
-    let state = Rc::new(RefCell::new(Bridge {
-        app,
-        ctx,
-        network: None,
-        heroes: vec![],
-        groups: vec![],
-        pending_family: None,
-    }));
-    connect(&ui, state.clone());
-    state.borrow_mut().refresh(&ui);
-    let _motion_timer = start_motion(&ui, state.clone());
-    let weak = ui.as_weak();
-    let smoke = args.iter().any(|a| a == "--boot-smoke");
-    let ticks = Rc::new(RefCell::new(0u32));
-    let timer = Timer::default();
-    timer.start(TimerMode::Repeated, Duration::from_millis(150), move || {
-        if let Some(ui) = weak.upgrade() {
-            state.borrow_mut().refresh(&ui);
-            *ticks.borrow_mut() += 1;
-            if smoke && *ticks.borrow() >= 3 {
-                println!("BOREA_GUI_READY");
-                let _ = ui.hide();
-                let _ = slint::quit_event_loop();
-            }
-        }
-    });
-    if live && !args.iter().any(|a| a == "--window") {
-        ui.window().set_fullscreen(true);
-    }
-    ui.run()?;
+    let boot_smoke = args.iter().any(|a| a == "--boot-smoke");
+    let windowed = args.iter().any(|a| a == "--window");
+    iced::application(move || App::new(live, boot_smoke), App::update, App::view)
+        .title(if live { "Borea Live" } else { "Windpad" })
+        .theme(App::theme)
+        .subscription(App::subscription)
+        .font(FONT)
+        .default_font(FACE)
+        .window(iced::window::Settings {
+            size: iced::Size::new(1120., 753.),
+            min_size: Some(iced::Size::new(900., 600.)),
+            fullscreen: live && !windowed,
+            ..Default::default()
+        })
+        .run()?;
     Ok(())
 }
 
 #[path = "../tests/common/mod.rs"]
 mod showcase_fixture;
-
-/// Render actual Slint components without a display server or installer service.
-fn showcase(dir: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
-    use slint::platform::{
-        Platform, WindowAdapter,
-        software_renderer::{MinimalSoftwareWindow, RepaintBufferType},
-    };
-    struct Headless(Rc<MinimalSoftwareWindow>, Rc<std::cell::Cell<Duration>>);
-    impl Platform for Headless {
-        fn create_window_adapter(&self) -> Result<Rc<dyn WindowAdapter>, slint::PlatformError> {
-            Ok(self.0.clone())
-        }
-        fn duration_since_start(&self) -> Duration {
-            self.1.get()
-        }
-    }
-    let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
-    let clock = Rc::new(std::cell::Cell::new(Duration::ZERO));
-    slint::platform::set_platform(Box::new(Headless(window.clone(), clock.clone())))?;
-    let ui = BoreaWindow::new()?;
-    let ctx = egui::Context::default();
-    let wifi = WifiLink::simulated(
-        borea_network::Status {
-            connectivity: borea_network::Connectivity::None,
-            radio_enabled: true,
-            radio_unblocked: true,
-            primary: None,
-        },
-        vec![borea_network::Network::sample(
-            "Breeze Studio",
-            86,
-            borea_network::Security::Wpa3Personal,
-            borea_network::Band::Ghz5,
-            false,
-        )],
+/// Render the real Iced widget tree with the same CPU renderer used on the ISO.
+fn capture(
+    app: &App,
+    path: &std::path::Path,
+    width: u32,
+    height: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use iced_runtime::user_interface::{Cache, UserInterface};
+    let mut renderer = iced_tiny_skia::Renderer::new(FACE, iced::Pixels(14.));
+    let size = iced::Size::new(width as f32, height as f32);
+    let mut ui = UserInterface::build(app.view(), size, Cache::new(), &mut renderer);
+    ui.draw(
+        &mut renderer,
+        &app.theme(),
+        &iced::advanced::renderer::Style { text_color: app.colors().text },
+        iced::mouse::Cursor::Unavailable,
     );
-    let state = Rc::new(RefCell::new(Bridge {
-        app: LiveInstaller::with_link(&ctx, showcase_fixture::machine(), wifi, true),
-        ctx,
-        network: Some(0),
-        heroes: vec![],
-        groups: vec![],
-        pending_family: None,
-    }));
-    connect(&ui, state.clone());
-    window.set_size(slint::PhysicalSize::new(1280, 860));
-    ui.show()?;
-    std::fs::create_dir_all(dir)?;
-    let mut still_wind = crate::frost_motion::FrostMotion::default();
-    wind_frame(&ui, &mut still_wind, 0., false, true, None);
-    let capture = |name: &str| -> Result<(), Box<dyn std::error::Error>> {
-        state.borrow_mut().refresh(&ui);
-        clock.set(clock.get() + Duration::from_millis(83));
-        slint::platform::update_timers_and_animations();
-        let size = window.size();
-        let mut pixels = vec![slint::Rgb8Pixel::default(); (size.width * size.height) as usize];
-        window.request_redraw();
-        window.draw_if_needed(|renderer| {
-            renderer.render(&mut pixels, size.width as usize);
-        });
-        let data: Vec<u8> = pixels.iter().flat_map(|p| [p.r, p.g, p.b]).collect();
-        let file = std::fs::File::create(dir.join(format!("{name}.png")))?;
-        let mut png = png::Encoder::new(file, size.width, size.height);
-        png.set_color(png::ColorType::Rgb);
-        png.set_depth(png::BitDepth::Eight);
-        png.write_header()?.write_image_data(&data)?;
-        Ok(())
-    };
-    for dark in [true, false] {
-        {
-            let mut b = state.borrow_mut();
-            b.app.palette = if dark { DARK } else { LIGHT };
-            b.app = LiveInstaller::with_link(
-                &b.ctx,
-                showcase_fixture::machine(),
-                WifiLink::simulated(
-                    borea_network::Status {
-                        connectivity: borea_network::Connectivity::None,
-                        radio_enabled: true,
-                        radio_unblocked: true,
-                        primary: None,
-                    },
-                    vec![borea_network::Network::sample(
-                        "Breeze Studio",
-                        86,
-                        borea_network::Security::Wpa3Personal,
-                        borea_network::Band::Ghz5,
-                        false,
-                    )],
-                ),
-                dark,
-            );
-        }
-        let mode = if dark { "dark" } else { "light" };
-        capture(&format!("{mode}-1-connect"))?;
-        {
-            let mut b = state.borrow_mut();
-            b.app.go(Step::Machine);
-        }
-        capture(&format!("{mode}-2-machine"))?;
-        {
-            let mut b = state.borrow_mut();
-            b.app.go(Step::System);
-        }
-        capture(&format!("{mode}-3-family"))?;
-        ui.invoke_choose("family/0".into());
-        let before = ui.get_heroes();
-        ui.invoke_choose("distro/1".into());
-        assert!(
-            std::ptr::addr_eq(before.as_any(), ui.get_heroes().as_any()),
-            "selection must retain card instances"
-        );
-        capture(&format!("{mode}-4-distribution"))?;
-        ui.invoke_choose("edition/2".into());
-        ui.invoke_advance();
-        ui.invoke_choose("mode/compose".into());
-        ui.invoke_choose("compositor/hyprland".into());
-        ui.invoke_choose("shell/noctalia".into());
-        capture(&format!("{mode}-5-desktop"))?;
-        ui.invoke_choose("extra/gaming".into());
-        ui.set_scroll_bottom(true);
-        capture(&format!("{mode}-5-extras"))?;
-        ui.invoke_advance();
-        ui.set_scroll_bottom(false);
-        capture(&format!("{mode}-6-review"))?;
+    let mut pixels =
+        tiny_skia::Pixmap::new(width, height).ok_or("Invalid screenshot dimensions")?;
+    let mut mask = tiny_skia::Mask::new(width, height).ok_or("Invalid clip dimensions")?;
+    renderer.draw(
+        &mut pixels.as_mut(),
+        &mut mask,
+        &iced_tiny_skia::graphics::Viewport::with_physical_size(iced::Size::new(width, height), 1.),
+        &[iced::Rectangle::with_size(size)],
+        app.colors().bg,
+    );
+    // tiny-skia's window renderer writes BGRA for softbuffer. PNG expects RGBA.
+    for pixel in pixels.data_mut().as_chunks_mut::<4>().0 {
+        pixel.swap(0, 2);
     }
-    ui.invoke_navigate(2);
-    ui.set_product("Windpad".into());
-    capture("windpad-family")?;
-    window.set_size(slint::PhysicalSize::new(900, 600));
-    capture("small-family")?;
-    window.set_size(slint::PhysicalSize::new(1280, 860));
-    ui.set_product("Borea Live".into());
-    state.borrow_mut().app.set_install_service(std::sync::Arc::new(|method,_| {
-        if method == "disks.list" { Ok(serde_json::json!({"disks":[{
-            "id":{"logical_sector":512,"path":"/dev/vda","serial":"SHOWCASE","size":512000000000u64,"model":"Example NVMe"},
-            "readonly":false,"in_use":false,"live":false,"parts":[{"path":"/dev/vda3","number":3,"uuid":"EXAMPLE-WINDOWS","fs":"ntfs","max_linux_size":200*handoff::GIB}]
-        }]})) } else { Err("Showcase mode cannot approve or start an installation".into()) }
-    }));
-    ui.invoke_choose("family/0".into());
-    ui.invoke_choose("distro/0".into());
-    ui.invoke_choose("edition/3".into());
-    ui.invoke_advance();
-    ui.invoke_choose("mode/compose".into());
-    ui.invoke_choose("compositor/hyprland".into());
-    ui.invoke_choose("shell/noctalia".into());
-    ui.invoke_advance();
-    for _ in 0..20 {
-        state.borrow_mut().app.poll();
-        std::thread::sleep(Duration::from_millis(2));
-    }
-    capture("native-storage")?;
-    assert!(state.borrow().app.native.pick.is_none());
-    ui.invoke_choose("whole/0".into());
-    ui.invoke_advance();
-    capture("native-account")?;
-    if std::env::args().any(|a| a == "--animate") {
-        std::fs::create_dir_all(dir.join("motion"))?;
-        {
-            let mut b = state.borrow_mut();
-            b.app = LiveInstaller::with_hardware(&b.ctx, showcase_fixture::machine(), true);
-            b.app.still = false;
-            b.pending_family = None;
-        }
-        ui.set_scroll_bottom(false);
-        ui.set_motion_active(true);
-        state.borrow_mut().refresh(&ui);
-        let mut wind = crate::frost_motion::FrostMotion::default();
-        let mut view = view_key(&state.borrow());
-        // Actual Slint frames at 12 fps, driven by the same motion engine with
-        // a virtual monotonic clock. No sleeps, synthetic fades or disk service.
-        for frame in 0..180 {
-            match frame {
-                12 => state.borrow_mut().app.go(Step::Machine),
-                24 => state.borrow_mut().app.go(Step::System),
-                45 => {
-                    state.borrow_mut().pending_family = Some((Family::Arch, Instant::now()));
-                }
-                49 => {
-                    let mut b = state.borrow_mut();
-                    b.pending_family = None;
-                    let ctx = b.ctx.clone();
-                    b.app.apply(&ctx, Action::Family(Family::Arch));
-                }
-                56 => ui.invoke_choose("distro/1".into()),
-                84 => {
-                    ui.invoke_choose("edition/2".into());
-                    ui.invoke_advance();
-                }
-                92 => ui.invoke_choose("mode/compose".into()),
-                100 => ui.invoke_choose("compositor/hyprland".into()),
-                112 => ui.invoke_choose("shell/noctalia".into()),
-                124 => {
-                    ui.invoke_choose("extra/gaming".into());
-                    ui.set_scroll_bottom(true);
-                }
-                152 => {
-                    ui.invoke_advance();
-                    ui.set_scroll_bottom(false);
-                }
-                _ => {}
-            }
-            let next = view_key(&state.borrow());
-            wind_frame(&ui, &mut wind, 1. / 12., next != view, false, None);
-            view = next;
-            capture(&format!("motion/frame-{frame:04}"))?;
-        }
-    }
-    ui.hide()?;
-    println!("Slint showcase captured in {}", dir.display());
+    pixels.save_png(path)?;
     Ok(())
 }
-
+fn showcase_disks() -> Vec<handoff::Disk> {
+    serde_json::from_value(serde_json::json!([{
+        "id":{"logical_sector":512,"path":"/dev/vda","serial":"SHOWCASE","size":512_000_000_000u64,"model":"Example NVMe"},
+        "readonly":false,"in_use":false,"live":false,"parts":[{"path":"/dev/vda3","number":3,"uuid":"SHOWCASE-NTFS","fs":"ntfs","max_linux_size":128_849_018_880u64}]
+    }])).unwrap_or_default()
+}
+fn showcase_account(app: &mut App) {
+    for (field, value) in [
+        ("full-name", "Alex"),
+        ("username", "alex"),
+        ("hostname", "frost"),
+        ("password", "showcase-only-password"),
+        ("confirmation", "showcase-only-password"),
+    ] {
+        let _ = app.update(Message::Field(field, value.into()));
+    }
+    let locale = borea_core::LocaleChoice {
+        lang: "en_GB.UTF-8".into(),
+        timezone: "Europe/London".into(),
+        keyboard: borea_core::Keyboard {
+            layout: "gb".into(),
+            variant: String::new(),
+            console: "uk".into(),
+        },
+    };
+    app.bridge.app.native.locale = locale;
+}
+fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use std::borrow::Cow;
+    iced_tiny_skia::graphics::text::font_system()
+        .write()
+        .map_err(|_| "Font system lock failed")?
+        .load_font(Cow::Borrowed(FONT));
+    std::fs::create_dir_all(dir.join("motion"))?;
+    let make = || {
+        let wifi = WifiLink::simulated(
+            borea_network::Status {
+                connectivity: borea_network::Connectivity::None,
+                radio_enabled: true,
+                radio_unblocked: true,
+                primary: None,
+            },
+            vec![borea_network::Network::sample(
+                "Breeze Studio",
+                86,
+                borea_network::Security::Wpa3Personal,
+                borea_network::Band::Ghz5,
+                false,
+            )],
+        );
+        let mut workflow = LiveInstaller::with_link(showcase_fixture::machine(), wifi, true);
+        // Capture fixtures cannot start installation, reboot or contact any service.
+        workflow.set_install_service(std::sync::Arc::new(|method,_|match method {
+            "plan.review"=>Ok(serde_json::json!({"approval":"showcase-only","review":{"packages":[{"name":"hyprland"},{"name":"noctalia"},{"name":"noctalia-greeter"}],"warnings":["Example plan. This capture does not install a system."]}})),
+            _=>Err("Unavailable in showcase mode".into()),
+        }));
+        let mut app = App::from_workflow(workflow, false);
+        app.bridge.network = Some(0);
+        app
+    };
+    let mut app = make();
+    capture(&app, &dir.join("connect.png"), 1120, 753)?;
+    app.bridge.app.go(Step::Machine);
+    capture(&app, &dir.join("machine.png"), 1120, 753)?;
+    app.bridge.app.go(Step::System);
+    for dark in [true, false] {
+        app.bridge.app.dark = dark;
+        capture(
+            &app,
+            &dir.join(if dark { "family-dark.png" } else { "family-light.png" }),
+            1120,
+            753,
+        )?;
+    }
+    app.bridge.app.dark = true;
+    app.bridge.command("family/0");
+    app.bridge.command("distro/0");
+    app.bridge.command("edition/3");
+    capture(&app, &dir.join("distribution.png"), 1120, 753)?;
+    app.bridge.next();
+    app.bridge.command("mode/compose");
+    app.bridge.command("compositor/hyprland");
+    app.bridge.command("shell/noctalia");
+    capture(&app, &dir.join("desktop.png"), 1120, 753)?;
+    app.bridge.next();
+    app.bridge.app.native.disks = showcase_disks();
+    capture(&app, &dir.join("storage.png"), 1120, 753)?;
+    app.bridge.command("whole/0");
+    app.bridge.next();
+    capture(&app, &dir.join("account.png"), 1120, 753)?;
+    capture(&app, &dir.join("account-small.png"), 900, 600)?;
+    showcase_account(&mut app);
+    app.bridge.app.native.review();
+    for _ in 0..100 {
+        app.bridge.app.native.poll();
+        if app.bridge.app.native.page == Page::Review {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    capture(&app, &dir.join("review.png"), 1120, 753)?;
+    if !animate {
+        println!("Iced showcase captured in {}", dir.display());
+        return Ok(());
+    }
+    app = make();
+    app.bridge.app.still = false;
+    let mut previous = String::new();
+    for frame in 0..216 {
+        match frame {
+            8 => *app.wifi_password = "showcase-only-password".into(),
+            20 => app.bridge.app.go(Step::Machine),
+            36 => app.bridge.app.go(Step::System),
+            52 => {
+                app.bridge.pending_family = Some((Family::Arch, Instant::now()));
+                app.pulse = 1.;
+            }
+            56 => {
+                app.bridge.pending_family = None;
+                app.bridge.app.apply(Action::Family(Family::Arch));
+            }
+            66 => {
+                app.bridge.command("distro/0");
+                app.pulse = 1.;
+            }
+            80 => app.bridge.command("edition/3"),
+            92 => app.bridge.next(),
+            100 => app.bridge.command("mode/compose"),
+            110 => app.bridge.command("compositor/hyprland"),
+            126 => {
+                app.bridge.command("shell/noctalia");
+                app.pulse = 1.;
+            }
+            142 => app.bridge.command("extra/gaming"),
+            154 => {
+                app.bridge.next();
+                app.bridge.app.native.disks = showcase_disks();
+            }
+            168 => {
+                app.bridge.command("whole/0");
+                app.bridge.next();
+            }
+            180 => showcase_account(&mut app),
+            196 => app.bridge.app.native.review(),
+            _ => {}
+        }
+        if frame >= 196 {
+            app.bridge.app.native.poll();
+        }
+        let next = app.key();
+        app.wind.advance(1. / 12., next != previous, false, None);
+        previous = next;
+        app.elapsed += 1. / 12.;
+        app.pulse = (app.pulse - 1. / 12. / 0.7).max(0.);
+        capture(&app, &dir.join(format!("motion/frame-{frame:04}.png")), 1120, 753)?;
+    }
+    println!("Iced showcase captured in {}", dir.display());
+    Ok(())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
     fn bridge() -> Bridge {
-        let ctx = egui::Context::default();
         Bridge {
-            app: LiveInstaller::with_hardware(&ctx, showcase_fixture::machine(), true),
-            ctx,
+            app: LiveInstaller::with_hardware(showcase_fixture::machine(), true),
             network: None,
-            heroes: vec![],
-            groups: vec![],
+            network_name: None,
             pending_family: None,
         }
     }
@@ -1363,7 +1853,7 @@ mod tests {
         assert!(b.native());
     }
     #[test]
-    fn slint_commands_require_every_choice_and_reset_later_choices() {
+    fn iced_commands_require_every_choice_and_reset_later_choices() {
         let mut b = bridge();
         b.app.go(Step::System);
         b.next();
@@ -1396,7 +1886,7 @@ mod tests {
         assert!(!b.app.picked_edition);
     }
     #[test]
-    fn slint_account_and_region_reach_the_reviewed_plan() {
+    fn iced_account_and_region_reach_the_reviewed_plan() {
         let mut b = bridge();
         native_path(&mut b);
         b.app.native.disks=serde_json::from_value(serde_json::json!([{
@@ -1449,5 +1939,290 @@ mod tests {
             Page::Account,
             "an unavailable review service cannot approve an installation"
         );
+    }
+}
+
+#[cfg(test)]
+mod iced_tests {
+    use super::*;
+    fn app() -> App {
+        App::from_workflow(LiveInstaller::with_hardware(showcase_fixture::machine(), true), false)
+    }
+    fn path(a: &mut App, cachy: bool) {
+        a.bridge.app.go(Step::System);
+        a.bridge.command("family/0");
+        a.bridge.command(if cachy { "distro/1" } else { "distro/0" });
+        a.bridge.command(if cachy { "edition/2" } else { "edition/3" });
+        a.bridge.next();
+        a.bridge.command("mode/compose");
+        a.bridge.command("compositor/hyprland");
+        a.bridge.command("shell/noctalia");
+        a.bridge.next();
+    }
+    #[test]
+    fn selection_is_explicit_for_each_family() {
+        for i in 0..4 {
+            let mut a = app();
+            a.bridge.app.go(Step::System);
+            a.bridge.next();
+            assert_eq!(a.bridge.app.step, Step::System);
+            a.bridge.command(&format!("family/{i}"));
+            let (heroes, _) = a.bridge.tiles();
+            assert!(heroes.iter().all(|t| !t.selected));
+            a.bridge.next();
+            assert_eq!(a.bridge.app.step, Step::Distribution);
+        }
+    }
+    #[test]
+    fn real_iced_family_button_dispatches_a_choice() {
+        use iced_runtime::user_interface::{Cache, UserInterface};
+        let mut a = app();
+        a.bridge.app.go(Step::System);
+        let mut renderer = iced_tiny_skia::Renderer::new(FACE, iced::Pixels(14.));
+        let mut ui = UserInterface::build(
+            a.view(),
+            iced::Size::new(1120., 753.),
+            Cache::new(),
+            &mut renderer,
+        );
+        let mut clipboard = iced::advanced::clipboard::Null;
+        let cursor = iced::mouse::Cursor::Available(iced::Point::new(310., 230.));
+        let mut messages = vec![];
+        let events = [
+            iced::Event::Mouse(iced::mouse::Event::ButtonPressed(iced::mouse::Button::Left)),
+            iced::Event::Mouse(iced::mouse::Event::ButtonReleased(iced::mouse::Button::Left)),
+        ];
+        let _ = ui.update(&events, cursor, &mut renderer, &mut clipboard, &mut messages);
+        drop(ui);
+        assert!(messages.iter().any(|m| matches!(m,Message::Choose(k)if k=="family/0")));
+        for m in messages {
+            let _ = a.update(m);
+        }
+        assert_eq!(a.bridge.app.step, Step::Distribution);
+    }
+    #[test]
+    fn arch_and_cachyos_use_distinct_reviewed_targets() {
+        for cachy in [false, true] {
+            let mut a = app();
+            path(&mut a, cachy);
+            assert!(a.bridge.native());
+            assert_eq!(
+                a.bridge.app.native.derivative_for_test(),
+                cachy.then_some(borea_core::ArchDerivative::Cachyos)
+            );
+            assert!(!a.nav().1, "no disk is preselected");
+        }
+    }
+    #[test]
+    fn selecting_another_target_clears_storage_and_approval() {
+        let mut a = app();
+        path(&mut a, false);
+        a.bridge.app.native.pick = Some(Where::Whole { disk: 0 });
+        a.bridge.app.go(Step::Distribution);
+        a.bridge.command("distro/1");
+        a.bridge.command("edition/2");
+        a.bridge.next();
+        a.bridge.command("mode/compose");
+        a.bridge.command("compositor/hyprland");
+        a.bridge.command("shell/noctalia");
+        a.bridge.next();
+        assert!(a.bridge.app.native.pick.is_none());
+        assert!(!a.bridge.app.native.ready());
+    }
+    #[test]
+    fn wifi_join_rejects_short_or_unsupported_keys() {
+        let mut a = app();
+        a.hidden = true;
+        a.hidden_ssid = "Example".into();
+        *a.wifi_password = "short".into();
+        assert!(!a.join_valid());
+        *a.wifi_password = "eight-or-more".into();
+        assert!(a.join_valid());
+        a.hidden_security = "Open".into();
+        *a.wifi_password = String::new();
+        assert!(a.join_valid());
+        a.hidden_ssid = String::new();
+        assert!(!a.join_valid());
+    }
+    #[test]
+    fn credentials_are_redacted_and_erased_outside_the_account_page() {
+        let mut a = app();
+        path(&mut a, false);
+        a.bridge.app.native.page = Page::Account;
+        let secret = "never-print-this";
+        let message = Message::Field("password", secret.into());
+        assert!(!format!("{message:?}").contains(secret));
+        let _ = a.update(message);
+        assert_eq!(a.password.as_str(), secret);
+        a.bridge.app.native.page = Page::Review;
+        let _ = a.update(Message::Tick(Instant::now()));
+        assert!(a.password.is_empty());
+    }
+    #[test]
+    fn firmware_confirmation_blocks_page_mutation_and_preview_restart() {
+        let mut a = app();
+        let _ = a.update(Message::Action(Action::OpenFirmware));
+        let step = a.bridge.app.step;
+        let _ = a.update(Message::Next);
+        assert_eq!(a.bridge.app.step, step);
+        let _ = a.update(Message::Action(Action::RestartFirmware));
+        assert!(!a.bridge.app.firmware.restarting);
+        assert!(a.bridge.app.firmware.error.as_deref().is_some_and(|e| e.contains("preview")));
+    }
+    #[test]
+    fn boot_smoke_exits_only_after_the_event_loop_ticks() {
+        let mut a = app();
+        a.boot_smoke = true;
+        assert!(!a.ready);
+        let _ = a.update(Message::Tick(Instant::now()));
+        assert!(a.ready);
+    }
+    #[test]
+    fn paused_motion_does_not_advance_card_effects() {
+        let mut a = app();
+        let elapsed = a.elapsed;
+        let pulse = a.pulse;
+        let _ = a.update(Message::Tick(Instant::now() + Duration::from_secs(2)));
+        assert_eq!(a.elapsed, elapsed);
+        assert_eq!(a.pulse, pulse);
+    }
+    #[test]
+    fn blank_account_has_no_implicit_region_or_credentials() {
+        let mut a = app();
+        path(&mut a, false);
+        a.bridge.app.native.page = Page::Account;
+        let n = &a.bridge.app.native;
+        assert!(n.user.username.is_empty());
+        assert!(n.locale.lang.is_empty());
+        assert!(n.locale.timezone.is_empty());
+        assert!(n.locale.keyboard.layout.is_empty());
+        assert!(n.apps.is_empty());
+    }
+    #[test]
+    fn live_and_mounted_disks_are_never_offered() {
+        let disks: Vec<handoff::Disk>=serde_json::from_value(serde_json::json!([
+            {"id":{"logical_sector":512,"path":"/dev/sda","serial":"STICK","size":64000000000u64,"model":"Live USB"},"readonly":false,"in_use":true,"live":true,"parts":[]},
+            {"id":{"logical_sector":512,"path":"/dev/vda","serial":"TEST","size":100000000000u64,"model":"Target"},"readonly":false,"in_use":false,"live":false,"parts":[]}
+        ])).unwrap();
+        let groups = storage_tiles(&disks, &None, 40);
+        assert!(groups[0].choices.iter().all(|t| !t.label.contains("Live USB")));
+        assert!(groups[0].choices.iter().any(|t| t.key == "whole/1"));
+    }
+    #[test]
+    fn alongside_choice_is_bounded_and_requires_ntfs() {
+        let mut a = app();
+        path(&mut a, false);
+        a.bridge.app.native.disks=serde_json::from_value(serde_json::json!([{
+            "id":{"logical_sector":512,"path":"/dev/vda","serial":"TEST","size":200000000000u64,"model":"Target"},"readonly":false,"in_use":false,"live":false,
+            "parts":[{"path":"/dev/vda3","number":3,"uuid":"WIN","fs":"ntfs","max_linux_size":80*handoff::GIB}]}])).unwrap();
+        a.bridge.command("alongside/0/0");
+        a.bridge.space(200.);
+        assert!(
+            matches!(a.bridge.app.native.pick,Some(Where::Alongside{size,..})if size==80*handoff::GIB)
+        );
+        a.bridge.space(1.);
+        assert!(
+            matches!(a.bridge.app.native.pick,Some(Where::Alongside{size,..})if size==40*handoff::GIB)
+        );
+        a.bridge.app.native.pick = None;
+        a.bridge.app.native.disks[0].parts[0].fs = "ext4".into();
+        a.bridge.command("alongside/0/0");
+        assert!(a.bridge.app.native.pick.is_none());
+    }
+    #[test]
+    fn omarchy_reaches_its_upstream_handoff_and_keeps_extras() {
+        let mut a = app();
+        a.bridge.app.go(Step::System);
+        a.bridge.command("family/0");
+        a.bridge.command("distro/2");
+        a.bridge.command("edition/0");
+        a.bridge.next();
+        a.bridge.command("extra/printing");
+        a.bridge.next();
+        assert_eq!(a.bridge.app.handoff_target(), Some("omarchy"));
+        assert!(!a.bridge.native());
+        assert!(a.bridge.app.handoff.extras.contains(&"printing".into()));
+    }
+    #[test]
+    fn native_services_and_hardware_poll_without_gui_contexts() {
+        let mut a = app();
+        let _ = a.update(Message::Tick(Instant::now()));
+        assert!(a.bridge.app.hardware().is_some());
+    }
+}
+
+fn input_style(p: Colors, status: text_input::Status) -> text_input::Style {
+    text_input::Style {
+        background: p.surface.into(),
+        border: Border {
+            color: if matches!(
+                status,
+                text_input::Status::Focused { .. } | text_input::Status::Hovered
+            ) {
+                p.ice
+            } else {
+                p.line
+            },
+            width: 1.,
+            radius: 10.into(),
+        },
+        icon: p.muted,
+        placeholder: p.muted,
+        value: p.text,
+        selection: p.selected,
+    }
+}
+
+#[cfg(test)]
+mod network_tests {
+    use super::*;
+    #[test]
+    fn rescans_keep_the_selected_ssid_and_erase_a_lost_networks_key() {
+        let mut app = App::from_workflow(
+            LiveInstaller::with_hardware(showcase_fixture::machine(), true),
+            false,
+        );
+        let network = |ssid| {
+            borea_network::Network::sample(
+                ssid,
+                80,
+                borea_network::Security::WpaPersonal,
+                borea_network::Band::Ghz5,
+                false,
+            )
+        };
+        app.bridge.app.wifi.networks = vec![network("Chosen"), network("Other")];
+        app.bridge.command("network/0");
+        *app.wifi_password = "never-send-to-another-network".into();
+        app.bridge.app.wifi.networks.swap(0, 1);
+        let _ = app.update(Message::Tick(Instant::now()));
+        assert_eq!(app.bridge.network, Some(1));
+        assert!(!app.wifi_password.is_empty());
+        app.bridge.app.wifi.networks.remove(1);
+        let _ = app.update(Message::Tick(Instant::now()));
+        assert!(app.bridge.network.is_none());
+        assert!(app.wifi_password.is_empty());
+    }
+    #[test]
+    fn native_secure_boot_requires_firmware_setup_mode() {
+        let mut hardware = showcase_fixture::machine();
+        hardware.setup_mode = Fact::Known(false);
+        let mut bridge = Bridge {
+            app: LiveInstaller::with_hardware(hardware, true),
+            network: None,
+            network_name: None,
+            pending_family: None,
+        };
+        bridge.app.go(Step::System);
+        bridge.command("family/0");
+        bridge.command("distro/0");
+        bridge.command("edition/3");
+        bridge.next();
+        bridge.command("mode/compose");
+        bridge.command("compositor/hyprland");
+        bridge.command("shell/noctalia");
+        assert!(matches!(bridge.app.secure_boot(), Some(Readiness::Unavailable(_))));
+        bridge.app.apply(Action::SecureBoot(true));
+        assert!(!bridge.app.selection.secure_boot);
     }
 }

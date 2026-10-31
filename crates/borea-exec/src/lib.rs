@@ -975,6 +975,24 @@ impl Session {
                 };
                 self.cmd(&command, emit)?;
             }
+            Action::CopyArchRepositories => {
+                let root = Path::new("/run/borea/tools/arch");
+                for path in [
+                    "/etc/pacman.conf",
+                    "/etc/pacman.d/mirrorlist",
+                    "/etc/pacman.d/cachyos-mirrorlist",
+                ] {
+                    let content = io(fs::read_to_string(root.join(path.trim_start_matches('/'))))?;
+                    self.write(path, &content, 0o644)?;
+                }
+                self.command(Root::Target, "/usr/bin/pacman-key", vec!["--init".into()], emit)?;
+                self.command(
+                    Root::Target,
+                    "/usr/bin/pacman-key",
+                    vec!["--populate".into(), "archlinux".into(), "cachyos".into()],
+                    emit,
+                )?;
+            }
             Action::CopyNativeRepositories => {
                 let root =
                     PathBuf::from(format!("/run/borea/tools/{}", self.job.plan.distro.key()));
@@ -1234,10 +1252,23 @@ impl Session {
                 } else {
                     ""
                 };
+                let cachyos = self.job.plan.derivative == Some(borea_core::ArchDerivative::Cachyos);
+                let overlay = if cachyos { borea_backend::cachyos::repositories() } else { "" };
+                if cachyos {
+                    io(fs::write(
+                        root.join("etc/pacman.d/cachyos-mirrorlist"),
+                        borea_backend::cachyos::MIRRORLIST,
+                    ))?;
+                    let keys = root.join("usr/share/pacman/keyrings");
+                    io(fs::create_dir_all(&keys))?;
+                    io(fs::write(keys.join("cachyos.gpg"), borea_backend::cachyos::KEYRING))?;
+                    io(fs::write(keys.join("cachyos-trusted"), borea_backend::cachyos::TRUSTED))?;
+                    io(fs::write(keys.join("cachyos-revoked"), borea_backend::cachyos::REVOKED))?;
+                }
                 io(fs::write(
                     root.join("etc/pacman.conf"),
                     format!(
-                        "[options]\nArchitecture = auto\nSigLevel = Required DatabaseOptional\n[core]\nInclude = /etc/pacman.d/mirrorlist\n[extra]\nInclude = /etc/pacman.d/mirrorlist\n{multilib}"
+                        "[options]\nArchitecture = auto\nSigLevel = Required DatabaseOptional\n{overlay}[core]\nInclude = /etc/pacman.d/mirrorlist\n[extra]\nInclude = /etc/pacman.d/mirrorlist\n{multilib}"
                     ),
                 ))?;
                 self.command(Root::Tools, "/usr/bin/pacman-key", vec!["--init".into()], emit)?;
@@ -1247,6 +1278,14 @@ impl Session {
                     vec!["--populate".into(), "archlinux".into()],
                     emit,
                 )?;
+                if cachyos {
+                    self.command(
+                        Root::Tools,
+                        "/usr/bin/pacman-key",
+                        vec!["--populate".into(), "cachyos".into()],
+                        emit,
+                    )?;
+                }
                 self.command(
                     Root::Tools,
                     "/usr/bin/pacman",

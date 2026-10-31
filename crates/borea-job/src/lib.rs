@@ -51,6 +51,7 @@ pub enum Action {
     RestoreInitramfs,
     EnrollMok,
     CopyNativeRepositories,
+    CopyArchRepositories,
     InstallEfiFallback { shim: String, grub: String, mok: String, config: String },
     PreserveEfiFallback,
     RestoreEfiFallback,
@@ -192,6 +193,9 @@ pub fn compile(
     }
     let mut review = borea_core::review(plan, hw)?;
     let secure_boot = plan.target_secure_boot(hw);
+    let cachyos = plan.derivative == Some(borea_core::ArchDerivative::Cachyos);
+    let kernel = if cachyos { "linux-cachyos" } else { "linux" };
+    let system_name = if cachyos { "CachyOS" } else { "Arch Linux" };
     if secure_boot && !hw.secure_boot {
         review.warnings.push("Signed boot is being prepared; enable Secure Boot in firmware after installation if it remains off.".into());
     }
@@ -205,6 +209,24 @@ pub fn compile(
         if !review.packages.iter().any(|v| v.name == *p) {
             review.packages.push(borea_core::Package { source: base.into(), name: (*p).into() });
         }
+    }
+    if cachyos {
+        review.packages.retain(|p| p.name != "linux");
+        for package in &mut review.packages {
+            if package.name == "nvidia-open" {
+                package.name = "linux-cachyos-nvidia-open".into();
+                package.source = "arch.cachyos".into();
+            }
+        }
+        for name in borea_backend::cachyos::PACKAGES {
+            if !review.packages.iter().any(|p| p.name == *name) {
+                review.packages.push(borea_core::Package {
+                    source: "arch.cachyos".into(),
+                    name: (*name).into(),
+                });
+            }
+        }
+        review.warnings.push("CachyOS minimal: signed generic x86_64 CachyOS packages take priority over Arch repositories. CachyOS kernel, hooks and settings are required before reboot.".into());
     }
     if secure_boot && plan.distro == Distro::Arch {
         for name in ["sbctl", "sbsigntools", "systemd-ukify"] {
@@ -274,6 +296,11 @@ pub fn compile(
             mandatory.extend(["sbctl", "sbsigntools", "systemd-ukify"].map(str::to_owned));
         }
         mandatory.insert("flatpak".into());
+        if cachyos {
+            mandatory.extend(borea_backend::cachyos::PACKAGES.iter().map(|s| (*s).to_owned()));
+            // Kernel-matched NVIDIA modules must exist before the first login.
+            mandatory.insert("linux-cachyos-nvidia-open".into());
+        }
         deferred_native.extend(
             review
                 .packages
@@ -534,7 +561,10 @@ pub fn compile(
     let native = review
         .packages
         .iter()
-        .filter(|p| p.source == base && !deferred_native.contains(&p.name))
+        .filter(|p| {
+            (p.source == base || (cachyos && p.source == "arch.cachyos"))
+                && !deferred_native.contains(&p.name)
+        })
         .map(|p| p.name.clone())
         .collect::<BTreeSet<_>>()
         .into_iter()
@@ -634,6 +664,9 @@ pub fn compile(
             options: options.into(),
         });
     }
+    if cachyos {
+        bootstrap_actions.push(Action::CopyArchRepositories);
+    }
     bootstrap_actions.push(Action::CopyNetwork);
     stages.push(Stage {
         title: format!("Installing {}.", plan.distro.name()),
@@ -649,9 +682,10 @@ pub fn compile(
     let mut repos = vec![Action::ImportRepositoryKeys];
     match plan.distro {
         Distro::Arch => {
+            let overlay = if cachyos { borea_backend::cachyos::repositories() } else { "" };
             let multilib = sources.contains_key("arch.multilib")
                 || plan.sources.get("arch.multilib") == Some(&true);
-            repos.push(write("/etc/pacman.conf",format!("[options]\nArchitecture = auto\nCheckSpace\nSigLevel = Required DatabaseOptional\nLocalFileSigLevel = Optional\n[core]\nInclude = /etc/pacman.d/mirrorlist\n[extra]\nInclude = /etc/pacman.d/mirrorlist\n{}",if multilib{"[multilib]\nInclude = /etc/pacman.d/mirrorlist\n"}else{""}),0o644));
+            repos.push(write("/etc/pacman.conf",format!("[options]\nArchitecture = auto\nCheckSpace\nSigLevel = Required DatabaseOptional\nLocalFileSigLevel = Optional\n{overlay}[core]\nInclude = /etc/pacman.d/mirrorlist\n[extra]\nInclude = /etc/pacman.d/mirrorlist\n{}",if multilib{"[multilib]\nInclude = /etc/pacman.d/mirrorlist\n"}else{""}),0o644));
         }
         Distro::Debian => {
             let mut components = vec!["main"];
@@ -846,6 +880,10 @@ pub fn compile(
             ["enable", "snapper-timeline.timer", "snapper-cleanup.timer"],
         ));
     }
+    if cachyos {
+        config.push(target("/usr/share/libalpm/scripts/cachyos-branding", ["os-release"]));
+        config.push(target("/usr/bin/systemctl", ["enable", "ananicy-cpp.service"]));
+    }
     let admin = borea_backend::admin_group(plan.distro);
     if composed {
         config.extend(noctalia::configure(plan));
@@ -989,7 +1027,7 @@ pub fn compile(
                 "default arch.conf\ntimeout 4\neditor no\n".into(),
                 0o644,
             ));
-            boot.push(write("/boot/loader/entries/arch.conf",format!("title Arch Linux\nlinux /vmlinuz-linux\ninitrd /initramfs-linux.img\noptions {cmdline}\n"),0o644));
+            boot.push(write("/boot/loader/entries/arch.conf",format!("title {system_name}\nlinux /vmlinuz-{kernel}\ninitrd /initramfs-{kernel}.img\noptions {cmdline}\n"),0o644));
         }
         Distro::Debian => {
             boot.push(write("/etc/default/grub",format!("GRUB_DEFAULT=0\nGRUB_TIMEOUT=4\nGRUB_CMDLINE_LINUX=\"root=/dev/mapper/borea-root rootflags=subvol={} {}\"\nGRUB_DISABLE_OS_PROBER=false\n",layout.root_subvol,review.kernel_args.join(" ")),0o644));
@@ -1110,7 +1148,7 @@ pub fn compile(
     if secure_boot && plan.distro == Distro::Arch {
         boot.push(install(plan.distro, vec!["sbctl".into(), "sbsigntools".into()]));
         boot.push(target("/usr/bin/sbctl", ["create-keys"]));
-        boot.push(write("/etc/mkinitcpio.d/linux.preset","ALL_config=\"/etc/mkinitcpio.conf\"\nALL_kver=\"/boot/vmlinuz-linux\"\nPRESETS=('default')\ndefault_uki=\"/boot/EFI/Linux/arch-linux.efi\"\n".into(),0o644));
+        boot.push(write(&format!("/etc/mkinitcpio.d/{kernel}.preset"),format!("ALL_config=\"/etc/mkinitcpio.conf\"\nALL_kver=\"/boot/vmlinuz-{kernel}\"\nPRESETS=('default')\ndefault_uki=\"/boot/EFI/Linux/arch-linux.efi\"\n"),0o644));
         boot.push(target("/usr/bin/mkdir", ["-p", "/boot/EFI/Linux"]));
         boot.push(target("/usr/bin/mkinitcpio", ["-P"]));
         for file in [
@@ -1123,10 +1161,10 @@ pub fn compile(
         boot.push(target("/usr/bin/sbctl", ["enroll-keys", "-m"]));
         boot.push(write(
             "/boot/loader/entries/arch.conf",
-            "title Arch Linux\nefi /EFI/Linux/arch-linux.efi\n".into(),
+            format!("title {system_name}\nefi /EFI/Linux/arch-linux.efi\n"),
             0o644,
         ));
-        boot.push(write("/etc/pacman.d/hooks/zz-borea-secureboot.hook","[Trigger]\nOperation = Install\nOperation = Upgrade\nType = Package\nTarget = linux\nTarget = systemd\n[Action]\nDescription = Renew Borea Secure Boot signatures\nWhen = PostTransaction\nExec = /usr/bin/sbctl sign-all\n".into(),0o644));
+        boot.push(write("/etc/pacman.d/hooks/zz-borea-secureboot.hook",format!("[Trigger]\nOperation = Install\nOperation = Upgrade\nType = Package\nTarget = {kernel}\nTarget = systemd\n[Action]\nDescription = Renew Borea Secure Boot signatures\nWhen = PostTransaction\nExec = /usr/bin/sbctl sign-all\n"),0o644));
     }
     if plan.distro == Distro::Fedora
         && review.packages.iter().any(|p| p.name.starts_with("akmod-nvidia"))

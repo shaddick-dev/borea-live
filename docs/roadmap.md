@@ -6,7 +6,7 @@ Milestones have exit criteria instead of speculative calendar promises. The read
 
 Build four small spikes:
 
-1. A Rust egui window running under tested X11/Wayland and VM graphics configurations, both in a Borea Live prototype and in a live session of another family.
+1. A Rust Iced window running under tested X11/Wayland and VM graphics configurations, both in a Borea Live prototype and in a live session of another family.
 2. A manually assembled Arch target disk booting via a pinned Limine release in QEMU/OVMF.
 3. A native Arch kernel upgrade that regenerates the required initramfs/boot entries and still boots via Limine.
 4. **Host independence:** assemble the Arch target using tools from the signed upstream bootstrap archive, run from a non-Arch live session (Fedora or Debian live) as well as from Arch. Then prove one acquisition strategy of each other kind on paper or in a VM: a container-image toolchain (Fedora or Tumbleweed), an image used as a source without booting it (PikaOS or Nobara), and Bazzite's image deployment.
@@ -111,7 +111,7 @@ VM tests should verify boot success through a guest-side signal and inspect the 
 
 ## Initial implementation backlog
 
-1. Record architecture decisions for egui, Limine version, Borea Live base and build tooling, worker privilege mechanism, and release trust library.
+1. Record architecture decisions for Iced, Limine version, Borea Live base and build tooling, worker privilege mechanism, and release trust library.
 2. Build the Limine first-boot and kernel-upgrade spike.
 3. Build the GUI/live-environment compatibility spike.
 4. ~~Create the Cargo workspace and shared domain/error types.~~ Done: read-only foundations and `borea doctor`.

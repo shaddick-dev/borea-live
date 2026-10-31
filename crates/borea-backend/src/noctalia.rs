@@ -58,7 +58,7 @@ pub fn check_version(package: &str, approved: &str) -> Result<(), Hint> {
         return Err(hint(
             "desktop",
             format!(
-                "Noctalia {approved} is required, but Arch offers {package}. Wait for the signed Arch package to update, then review again. Nothing has been written to the target disk."
+                "Noctalia {approved} is required, but the selected repository offers {package}. Wait for the signed package to update, then review again. Nothing has been written to the target disk."
             ),
         ));
     }
@@ -66,6 +66,10 @@ pub fn check_version(package: &str, approved: &str) -> Result<(), Hint> {
 }
 
 pub fn resolve() -> Result<String, Hint> {
+    resolve_for(false)
+}
+
+pub fn resolve_for(cachyos: bool) -> Result<String, Hint> {
     let latest = metadata("https://api.github.com/repos/noctalia-dev/noctalia/releases/latest")?;
     let version = match latest_v5(&serde_json::json!([latest])) {
         Ok(version) => version,
@@ -73,6 +77,9 @@ pub fn resolve() -> Result<String, Hint> {
             "https://api.github.com/repos/noctalia-dev/noctalia/releases?per_page=100",
         )?)?,
     };
+    if cachyos {
+        return Ok(version);
+    }
     let index = metadata("https://archlinux.org/packages/search/json/?name=noctalia")?;
     let package = index["results"]
         .as_array()

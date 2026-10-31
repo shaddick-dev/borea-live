@@ -6,10 +6,6 @@ use std::thread;
 use std::time::Duration;
 
 use borea_network::{Network, Secret, Security, Status, Wifi};
-use eframe::egui::{self, Align, ComboBox, Layout, RichText, ScrollArea, TextEdit, Ui};
-
-use crate::theme::{Palette, size};
-use crate::widgets::{caption, choice_card, notice, primary, quiet};
 
 pub enum Command {
     Refresh,
@@ -79,7 +75,7 @@ const WATCH: Duration = Duration::from_secs(4);
 const STARTUP: Duration = Duration::from_secs(90);
 
 impl WifiLink {
-    pub fn spawn(ctx: egui::Context) -> Self {
+    pub fn spawn() -> Self {
         let (commands, inbox) = mpsc::channel::<Command>();
         let (outbox, updates) = mpsc::channel::<Update>();
         thread::Builder::new()
@@ -87,7 +83,6 @@ impl WifiLink {
             .spawn(move || {
                 let send = |update| {
                     let _ = outbox.send(update);
-                    ctx.request_repaint();
                 };
                 let Some(wifi) = connect(&send) else { return };
                 let refresh = |wifi: &Wifi| {
@@ -234,176 +229,19 @@ impl WifiLink {
 #[derive(Default)]
 pub struct WifiForm {
     picked: Option<String>,
-    passphrase: String,
-    reveal: bool,
-    hidden_ssid: String,
-    hidden_security: usize,
-    hidden_passphrase: String,
-    hidden_reveal: bool,
-    /// Put the cursor in the passphrase field on the next frame.
-    focus: bool,
 }
-
 impl WifiForm {
-    /// Choose a network for the user, ready to type its passphrase, unless they have
-    /// already chosen one themselves.
     pub fn suggest(&mut self, ssid: &str) {
         if self.picked.is_none() {
             self.picked = Some(ssid.to_owned());
-            self.focus = true;
         }
     }
-
     pub fn picked(&self) -> Option<&str> {
         self.picked.as_deref()
     }
-
-    pub fn forget_passphrase(&mut self) {
-        self.passphrase.clear();
-        self.hidden_passphrase.clear();
-    }
-
-    fn take_passphrase(&mut self, security: Security) -> Option<Secret> {
-        let passphrase = std::mem::take(&mut self.passphrase);
-        security.needs_passphrase().then(|| Secret::new(passphrase))
-    }
 }
 
-const HIDDEN_SECURITY: [(Security, &str); 3] =
-    [(Security::WpaPersonal, "WPA2"), (Security::Wpa3Personal, "WPA3"), (Security::Open, "Open")];
-
-/// The Wi-Fi panel, shared by Windpad's drawer and the live installer's Connect step.
-/// Returns a request for the worker when the user asks for one.
-pub fn panel(ui: &mut Ui, p: &Palette, link: &WifiLink, form: &mut WifiForm) -> Option<Command> {
-    let mut command = None;
-    if let Some(reason) = &link.unavailable {
-        notice(ui, p, &format!("Wi-Fi is unavailable here: {reason}."));
-        return None;
-    }
-    let Some(status) = &link.status else {
-        ui.label(caption("Asking NetworkManager…", p));
-        return None;
-    };
-    ui.horizontal(|ui| {
-        let radio = match (status.radio_unblocked, status.radio_enabled) {
-            (false, _) => "Wi-Fi blocked by a switch",
-            (true, false) => "Wi-Fi off",
-            (true, true) => "Wi-Fi on",
-        };
-        ui.label(caption(format!("{} · {radio}", link.connection_label()), p));
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if quiet(ui, p, "Rescan").clicked() {
-                command = Some(Command::Rescan);
-            }
-        });
-    });
-    if let Some(message) = &link.message {
-        ui.label(caption(message, p));
-    }
-    ui.add_space(6.0);
-    ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
-        for network in &link.networks {
-            let picked = form.picked.as_deref() == Some(network.ssid.as_str());
-            let label = format!("{} · {}% · {}", network.ssid, network.strength, network.security);
-            let card = choice_card(
-                ui,
-                p,
-                ("ssid", &network.ssid),
-                &label,
-                picked || network.active,
-                true,
-                |ui| {
-                    ui.horizontal(|ui| {
-                        let dot = if network.active {
-                            format!("{}  ", crate::icon::DOT)
-                        } else {
-                            String::new()
-                        };
-                        ui.label(RichText::new(format!("{dot}{}", network.ssid)).size(size::BODY));
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            let detail = format!(
-                                "{}% · {} · {}",
-                                network.strength, network.security, network.band
-                            );
-                            ui.label(caption(detail, p));
-                        });
-                    });
-                },
-            );
-            if card.clicked() && !picked {
-                form.passphrase.clear();
-                form.picked = Some(network.ssid.clone());
-                form.focus = true;
-            }
-        }
-    });
-    if let Some(network) =
-        link.networks.iter().find(|n| form.picked.as_deref() == Some(n.ssid.as_str()))
-    {
-        ui.add_space(6.0);
-        if matches!(network.security, Security::Enterprise | Security::Wep) {
-            ui.label(caption("This network needs a security setup Borea does not yet support.", p));
-        } else {
-            let focus = std::mem::take(&mut form.focus);
-            if join_field(
-                ui,
-                p,
-                &mut form.passphrase,
-                &mut form.reveal,
-                focus,
-                network.security,
-                &format!("Join {}", network.ssid),
-            ) {
-                let passphrase = form.take_passphrase(network.security);
-                command = Some(Command::Join { network: network.clone(), passphrase });
-            }
-        }
-    }
-    ui.add_space(6.0);
-    egui::CollapsingHeader::new(caption("Hidden network", p)).show(ui, |ui| {
-        let name = ui.label(RichText::new("Network name").size(size::TINY).color(p.sub));
-        ui.add(TextEdit::singleline(&mut form.hidden_ssid).desired_width(f32::INFINITY))
-            .labelled_by(name.id);
-        let security = ui.label(RichText::new("Security").size(size::TINY).color(p.sub));
-        ComboBox::from_id_salt("hidden-security")
-            .selected_text(HIDDEN_SECURITY[form.hidden_security].1)
-            .show_index(ui, &mut form.hidden_security, HIDDEN_SECURITY.len(), |i| {
-                HIDDEN_SECURITY[i].1
-            })
-            .labelled_by(security.id);
-        let (kind, _) = HIDDEN_SECURITY[form.hidden_security];
-        let submitted = ui
-            .add_enabled_ui(!form.hidden_ssid.trim().is_empty(), |ui| {
-                join_field(
-                    ui,
-                    p,
-                    &mut form.hidden_passphrase,
-                    &mut form.hidden_reveal,
-                    false,
-                    kind,
-                    "Join hidden network",
-                )
-            })
-            .inner;
-        if submitted {
-            let text = std::mem::take(&mut form.hidden_passphrase);
-            let passphrase = kind.needs_passphrase().then(|| Secret::new(text));
-            command = Some(Command::JoinHidden {
-                ssid: form.hidden_ssid.trim().to_owned(),
-                security: kind,
-                passphrase,
-            });
-        }
-    });
-    ui.add_space(4.0);
-    ui.label(caption(
-        "Connections are added to this live session only. Passphrases are never logged.",
-        p,
-    ));
-    command
-}
-
-fn valid_passphrase(security: Security, text: &str) -> bool {
+pub(crate) fn valid_passphrase(security: Security, text: &str) -> bool {
     match security {
         Security::WpaPersonal => {
             (8..=63).contains(&text.len())
@@ -418,55 +256,6 @@ fn valid_passphrase(security: Security, text: &str) -> bool {
 /// A bounded row keeps Join immediately beside the field, instead of centering
 /// it in all of the space left below the network list.
 #[allow(clippy::too_many_arguments)]
-fn join_field(
-    ui: &mut Ui,
-    p: &Palette,
-    passphrase: &mut String,
-    reveal: &mut bool,
-    focus: bool,
-    security: Security,
-    join_label: &str,
-) -> bool {
-    if !security.needs_passphrase() {
-        return ui.horizontal(|ui| primary(ui, p, join_label, false).clicked()).inner;
-    }
-    let label = ui.label(RichText::new("Passphrase").size(size::TINY).color(p.sub));
-    let submitted = ui
-        .horizontal(|ui| {
-            let width = (ui.available_width() - 86.0 - ui.spacing().item_spacing.x).max(40.0);
-            let field = ui
-                .add_sized([width, 36.0], TextEdit::singleline(passphrase).password(!*reveal))
-                .labelled_by(label.id);
-            if focus {
-                field.request_focus();
-            }
-            let ready = valid_passphrase(security, passphrase);
-            let clicked = !passphrase.is_empty()
-                && ui
-                    .add_enabled_ui(ready, |ui| {
-                        let response = primary(ui, p, "Join", false).on_hover_text(join_label);
-                        response.widget_info(|| {
-                            egui::WidgetInfo::labeled(egui::Role::Button, ready, join_label)
-                        });
-                        // Accessibility uses the full network name; the visible button stays compact.
-                        response.clicked()
-                    })
-                    .inner;
-            clicked || ready && field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
-        })
-        .inner;
-    if !passphrase.is_empty() && !valid_passphrase(security, passphrase) {
-        let hint = if security == Security::Wpa3Personal {
-            "WPA3 needs a passphrase of 1–63 bytes."
-        } else {
-            "WPA2 needs 8–63 bytes, or a 64-digit hexadecimal key."
-        };
-        ui.label(caption(hint, p));
-    }
-    ui.checkbox(reveal, caption("Show passphrase", p));
-    submitted
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

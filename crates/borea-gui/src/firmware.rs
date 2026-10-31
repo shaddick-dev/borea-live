@@ -5,19 +5,7 @@ use std::{
     time::Duration,
 };
 
-use eframe::egui;
 use serde_json::Value;
-
-use crate::icon;
-use crate::theme::{Palette, size};
-use crate::widgets::{caption, dialog, dialog_head, notice, primary, quiet};
-
-/// What was chosen in the restart confirmation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Choice {
-    Cancel,
-    Restart,
-}
 use zbus::blocking::{Connection, Proxy};
 
 pub struct FirmwareLink {
@@ -41,20 +29,19 @@ impl FirmwareLink {
         }
     }
 
-    pub fn system(ctx: egui::Context) -> Self {
+    pub fn system() -> Self {
         let mut link = Self::preview();
         link.preview = false;
         link.available = false;
         link.reason = "Checking firmware restart support…".into();
-        link.start(ctx, false);
+        link.start(false);
         link
     }
 
-    fn start(&mut self, ctx: egui::Context, reboot: bool) {
+    fn start(&mut self, reboot: bool) {
         let (tx, rx) = mpsc::channel();
         match thread::Builder::new().name("firmware-setup".into()).spawn(move || {
             let _ = tx.send(request(reboot));
-            ctx.request_repaint();
         }) {
             Ok(_) => self.pending = Some(rx),
             Err(error) => {
@@ -100,51 +87,7 @@ impl FirmwareLink {
         (enabled, hint)
     }
 
-    /// The label both windows give the control.
-    pub fn label() -> String {
-        format!("{}  UEFI setup", icon::CPU)
-    }
-
-    /// The restart confirmation. Returns what was chosen this frame, if anything.
-    pub fn confirmation(&self, ctx: &egui::Context, p: &Palette) -> Option<Choice> {
-        let mut choice = None;
-        let response = dialog(ctx, "firmware", p, 440.0, |ui| {
-            if dialog_head(ui, p, "Restart into UEFI setup?") {
-                choice = Some(Choice::Cancel);
-            }
-            ui.add_space(8.0);
-            ui.label(egui::RichText::new("The computer will restart into its firmware settings, where you can change Secure Boot. Return to the BOREA USB afterwards to continue installation.").size(size::BODY));
-            ui.label(caption("Your current choices are not saved across this restart.", p));
-            if let Some(error) = &self.error {
-                ui.add_space(8.0);
-                notice(ui, p, error);
-            }
-            ui.add_space(16.0);
-            ui.add_enabled_ui(!self.restarting, |ui| {
-                ui.horizontal(|ui| {
-                    if quiet(ui, p, "Cancel").clicked() {
-                        choice = Some(Choice::Cancel);
-                    }
-                    if primary(ui, p, "Restart into firmware", false).clicked() {
-                        choice = Some(Choice::Restart);
-                    }
-                });
-            });
-            if self.restarting {
-                ui.label(caption("Restarting into firmware setup…", p));
-            }
-        });
-        if response.should_close() && choice.is_none() {
-            choice = Some(Choice::Cancel);
-        }
-        // Nothing can be cancelled once the restart request is on its way.
-        if self.restarting && choice == Some(Choice::Cancel) {
-            return None;
-        }
-        choice
-    }
-
-    pub fn reboot(&mut self, ctx: egui::Context) {
+    pub fn reboot(&mut self) {
         if !self.available || self.restarting {
             return;
         }
@@ -154,7 +97,7 @@ impl FirmwareLink {
             return;
         }
         self.restarting = true;
-        self.start(ctx, true);
+        self.start(true);
     }
 }
 

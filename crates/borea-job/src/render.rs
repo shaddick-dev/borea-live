@@ -351,6 +351,10 @@ pub(crate) fn helper(job: &Job, action: &Action, out: &mut String) {
                 );
             }
         }
+        Action::CopyArchRepositories => note(
+            out,
+            "Copy approved Arch/CachyOS pacman configuration and mirrorlists from the verified tool root; initialize and populate the target archlinux and cachyos keyrings (borea-exec helper).",
+        ),
         Action::CopyNativeRepositories => note(
             out,
             "Copy native openSUSE repository definitions from the authenticated tool root into the target.",

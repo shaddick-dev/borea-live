@@ -78,3 +78,23 @@ journalctl -u borea-firstboot.service
 - Automated tests cover both storage plans, approval/confirmation, graphical configuration, Arc A770 package selection and queue recovery.
 - The VM workflow has a manual `desktop: noctalia` option with `layout: both`. Its boot check covers services and installed configuration, using serial access only for test instrumentation.
 - A real graphical login, wrong-password rejection, lock/unlock, suspend/resume and Arc A770 hardware test remain required. The strict latest-version gate currently blocks full installation testing.
+
+## Iced and CachyOS minimal
+
+The Iced installer connects **Arch or CachyOS → Minimal → Hyprland → Noctalia** to the same Rust disk/account/review worker.
+
+| Path | Source and behaviour |
+| --- | --- |
+| Arch | Signed Arch repositories and stock `linux` kernel |
+| CachyOS minimal | Signed CachyOS generic x86_64 repository, inherited Arch packages, `linux-cachyos`, CachyOS settings and branding hooks |
+| Omarchy | Verified upstream installation image and its own installer; Borea prepares the chosen whole-drive or Windows-alongside path |
+
+- CachyOS is an explicit reviewed derivative, not an Arch installation renamed by Borea.
+- Both native layouts use the selected account, language, keyboard, disk-unlock keymap and time zone.
+- Required desktop and driver packages install before reboot. Optional apps finish after graphical login.
+- Secure Boot off is supported. Owner-key signing requires firmware Setup Mode.
+- Other compositor/shell combinations and CachyOS desktop presets remain previews; they are not certified by this integration.
+
+**Upstream gate checked 31 October 2026:** latest stable Noctalia v5 is **5.4.1**; Arch's signed package is **5.4.0-1**. The native Noctalia path blocks before disk changes until the selected repository provides the approved version. Borea does not build an unofficial replacement or silently install an older release.
+
+The planner tests cover CachyOS whole-drive/alongside layouts, kernel paths, required packages, optional app deferral and Secure Boot presets. These checks do not certify a full CachyOS graphical installation, lockscreen, suspend or physical Intel Arc A770 hardware.

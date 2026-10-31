@@ -9,7 +9,6 @@
 //! times the calm speed, and never change brightness, so nothing flashes.
 //! "Pause wind" (or a window in the background) holds one still frame.
 
-use eframe::egui::{Color32, Painter, Rect, Stroke, pos2};
 use std::f64::consts::TAU;
 use std::sync::OnceLock;
 
@@ -175,51 +174,6 @@ impl Gusts {
 }
 
 /// Paint the wind into `rect`. `None` holds one still frame.
-pub fn paint(painter: &Painter, rect: Rect, color: Color32, air: Option<Air>) {
-    let seed = launch_seed();
-    let (t, energy) = air
-        .map_or_else(|| (busy(seed, 2.0 * LONGEST), 0.0), |a| (a.clock, a.energy.clamp(0.0, 1.0)));
-    let w = rect.width();
-    let h = rect.height();
-    // Small areas (the rail's mark) get gentler waves.
-    let scale = (h / 230.0).clamp(0.25, 1.0);
-    for (g, progress) in alive(seed, t) {
-        // Faster gusts stretch a little: speed lines, not brightness.
-        let length = w * g.length * (1.0 + 0.5 * energy);
-        // A slight push as it goes: it eases in and leaves quicker.
-        let travel = progress * (0.75 + 0.25 * progress);
-        // Right to left: the head enters at the right edge, the tail trails behind it.
-        let head = rect.right() + length - travel * (w + 2.0 * length);
-        // Fades in, holds, fades out: never pops.
-        let envelope = (progress * std::f32::consts::PI).sin().powf(0.6);
-        const STEPS: usize = 28;
-        let point = |i: usize| {
-            let along = i as f32 / STEPS as f32;
-            let x = head + (1.0 - along) * length;
-            let phase = (x - rect.left()) / w * g.waves * std::f32::consts::TAU
-                + (t as f32) * 0.8
-                + g.y * 9.0;
-            let y = rect.top() + h * (g.y + g.rise * travel) + g.swell * scale * phase.sin();
-            (pos2(x, y), along)
-        };
-        let mut previous = point(0);
-        for i in 1..=STEPS {
-            let next = point(i);
-            // Thin, faint tail; fuller head.
-            let along = next.1;
-            let a = g.alpha * envelope * along.powf(1.4);
-            if a > 0.01 && rect.expand(length).contains(next.0) {
-                let stroke = Stroke::new(
-                    g.width * scale.max(0.6) * (0.4 + 0.6 * along),
-                    color.gamma_multiply(a),
-                );
-                painter.line_segment([previous.0, next.0], stroke);
-            }
-            previous = next;
-        }
-    }
-}
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::panic)]
 mod tests {
