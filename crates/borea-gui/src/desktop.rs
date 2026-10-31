@@ -51,6 +51,10 @@ struct Bridge {
     pending_family: Option<(Family, Instant)>,
 }
 impl Bridge {
+    /// The family shown as picked: the one just clicked, else the one already chosen.
+    fn picked(&self) -> Option<Family> {
+        self.pending_family.map(|(f, _)| f).or(self.app.picked_family)
+    }
     fn busy(&self) -> bool {
         self.app.native.busy() || self.app.handoff.busy()
     }
@@ -333,8 +337,7 @@ impl Bridge {
                             .map(|d| d.name.as_str())
                             .collect::<Vec<_>>()
                             .join(" · "),
-                        self.pending_family.map(|(picked, _)| picked).or(a.picked_family)
-                            == Some(f),
+                        self.picked() == Some(f),
                     );
                     t.logo = family_id(f).into();
                     t.enabled = f == Family::Arch;
@@ -625,6 +628,10 @@ enum Message {
     Hidden(bool),
     HiddenSsid(String),
     HiddenSecurity(String),
+    /// The pointer entered (true) or left (false) a family card.
+    Hover(Family, bool),
+    /// Where the pointer is over the hovered family card, from its top-left corner.
+    Pointer(iced::Point),
 }
 impl std::fmt::Debug for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -646,11 +653,41 @@ impl std::fmt::Debug for Message {
             Self::Rescan => "Rescan",
             Self::Hidden(..) => "Hidden",
             Self::HiddenSecurity(..) => "HiddenSecurity",
+            Self::Hover(..) => "Hover",
+            Self::Pointer(..) => "Pointer",
         })
     }
 }
 const FONT: &[u8] = include_bytes!("../assets/NotoSans-Regular.ttf");
 const FACE: iced::Font = iced::Font::with_name("Noto Sans");
+/// Each family's own type, where it publishes a free one (all SIL OFL 1.1): Fedora's
+/// wordmark face and body text, and openSUSE's title face.
+const BRAND_FONTS: [&[u8]; 3] = [
+    include_bytes!("../assets/Comfortaa-Bold.ttf"),
+    include_bytes!("../assets/OpenSans-Regular.ttf"),
+    include_bytes!("../assets/SourceSans3-Semibold.ttf"),
+];
+/// The family's name on its card. Arch publishes no brand typeface, and Debian's
+/// wordmark face is proprietary, so both keep Borea's own.
+fn label_font(family: Family) -> iced::Font {
+    use iced::font::{Family as Face, Weight};
+    match family {
+        Family::Fedora => {
+            iced::Font { family: Face::Name("Comfortaa"), weight: Weight::Bold, ..FACE }
+        }
+        Family::Opensuse => {
+            iced::Font { family: Face::Name("Source Sans 3"), weight: Weight::Semibold, ..FACE }
+        }
+        Family::Arch | Family::Debian => FACE,
+    }
+}
+/// The family's quote on its card.
+fn quote_font(family: Family) -> iced::Font {
+    match family {
+        Family::Fedora | Family::Opensuse => iced::Font::with_name("Open Sans"),
+        Family::Arch | Family::Debian => FACE,
+    }
+}
 struct App {
     bridge: Bridge,
     wind: crate::frost_motion::FrostMotion,
@@ -658,6 +695,13 @@ struct App {
     view_key: String,
     elapsed: f32,
     pulse: f32,
+    /// The family card under the pointer, if it can be picked, and where on it.
+    hovered: Option<Family>,
+    pointer: Option<iced::Point>,
+    /// Per family (in `Family::ALL` order), eased 0 to 1: how far each card has
+    /// lifted under the pointer, and how far its picked colour has washed in.
+    lift: [f32; 4],
+    chosen: [f32; 4],
     password: zeroize::Zeroizing<String>,
     confirmation: zeroize::Zeroizing<String>,
     wifi_password: zeroize::Zeroizing<String>,
@@ -684,6 +728,10 @@ impl App {
             view_key: String::new(),
             elapsed: 0.,
             pulse: 1.,
+            hovered: None,
+            pointer: None,
+            lift: [0.; 4],
+            chosen: [0.; 4],
             password: Default::default(),
             confirmation: Default::default(),
             wifi_password: Default::default(),
@@ -694,6 +742,29 @@ impl App {
             apps_open: false,
             boot_smoke,
             ready: false,
+        }
+    }
+    /// Ease each family card's lift toward the pointer and its colour toward being
+    /// picked. Paused, both snap: the state still shows, without motion.
+    fn ease_family_cards(&mut self, dt: f64, paused: bool) {
+        if self.bridge.app.step != Step::System {
+            // A card that vanishes under the pointer never reports the pointer leaving.
+            self.hovered = None;
+            self.pointer = None;
+        }
+        let picked = self.bridge.picked();
+        for (i, family) in Family::ALL.into_iter().enumerate() {
+            let lift = if self.hovered == Some(family) { 1. } else { 0. };
+            let chosen = if picked == Some(family) { 1. } else { 0. };
+            for (value, target, settle) in
+                [(&mut self.lift[i], lift, 0.09), (&mut self.chosen[i], chosen, 0.1)]
+            {
+                *value = if paused {
+                    target
+                } else {
+                    *value + (target - *value) * (1. - (-dt / settle).exp()) as f32
+                };
+            }
         }
     }
     fn key(&self) -> String {
@@ -789,6 +860,7 @@ impl App {
                     self.elapsed += dt as f32;
                     self.pulse = (self.pulse - dt as f32 / 0.7).max(0.);
                 }
+                self.ease_family_cards(dt, paused);
                 if self.bridge.app.native.page != Page::Account {
                     use zeroize::Zeroize;
                     self.password.zeroize();
@@ -807,6 +879,15 @@ impl App {
                     self.bridge.app.apply(action);
                 }
             }
+            Message::Hover(family, inside) => {
+                if inside {
+                    self.hovered = Some(family);
+                } else if self.hovered == Some(family) {
+                    self.hovered = None;
+                    self.pointer = None;
+                }
+            }
+            Message::Pointer(at) => self.pointer = Some(at),
             Message::Back => self.bridge.back(),
             Message::Next => self.bridge.next(),
             Message::Choose(key) => {
@@ -1048,11 +1129,17 @@ impl App {
         ]
         .spacing(12);
         if !heroes.is_empty() {
-            let mut cards = row![].spacing(12);
-            for tile in heroes {
-                cards = cards.push(self.card(tile, true));
+            // Family cards sit two by two, so each has room for its words.
+            let across = if a.step == Step::System { 2 } else { heroes.len() };
+            let mut grid = column![].spacing(12);
+            for chunk in heroes.chunks(across) {
+                let mut cards = row![].spacing(12);
+                for tile in chunk {
+                    cards = cards.push(self.card(tile.clone(), true));
+                }
+                grid = grid.push(cards);
             }
-            body = body.push(cards);
+            body = body.push(grid);
         }
         if self.bridge.native() && a.native.page == Page::Account {
             body = body.push(self.account());
@@ -1149,7 +1236,145 @@ impl App {
             base
         }
     }
+    /// A family card: the family's own colour, type and words. Hovering lifts it and
+    /// the side under the pointer gives way; picking it washes it in the family colour.
+    /// A family that isn't ready yet is greyed out, still and says "Coming soon".
+    fn family_card(&self, tile: Tile, i: usize, family: Family) -> Element<'_, Message> {
+        let p = self.colors();
+        let a = &self.bridge.app;
+        let [r, g, b] = crate::model::family_colour(family);
+        let brand = Color::from_rgb8(r, g, b);
+        let ready = tile.enabled;
+        let lift = if ready { self.lift[i] } else { 0. };
+        let chosen = self.chosen[i];
+        let soft = |c: Color, alpha: f32| Color { a: alpha, ..c };
+        let (name, words, cite, release) = if ready {
+            (p.text, soft(p.text, 0.86), soft(p.muted, 0.75), mix(p.text, p.muted, 0.22))
+        } else {
+            (soft(p.muted, 0.6), soft(p.muted, 0.85), soft(p.muted, 0.6), soft(p.muted, 0.75))
+        };
+        let quote = crate::model::family_quote(family);
+        let mut body = column![].spacing(14).height(Length::Fill);
+        if let Some(mark) = faded_logo(&tile.logo, a.dark, if ready { 1. } else { 0.38 }) {
+            body = body.push(mark);
+        }
+        body = body
+            .push(text(tile.label).size(19).font(label_font(family)).color(name))
+            .push(
+                column![
+                    text(format!("\u{201c}{}\u{201d}", quote.text))
+                        .size(14)
+                        .line_height(1.45)
+                        .wrapping(text::Wrapping::Word)
+                        .font(quote_font(family))
+                        .color(words),
+                    text(format!("\u{2014} {}", quote.source))
+                        .size(11.5)
+                        .font(quote_font(family))
+                        .color(cite),
+                ]
+                .spacing(6),
+            )
+            .push(space().height(Length::Fill));
+        let mut foot = row![
+            text(crate::model::family_release(family))
+                .size(12.5)
+                .wrapping(text::Wrapping::None)
+                .color(release)
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center);
+        if !ready {
+            let badge = container(
+                text("Coming soon").size(11.5).wrapping(text::Wrapping::None).color(p.muted),
+            )
+            .height(22)
+            .padding([0, 8])
+            .align_y(Alignment::Center)
+            .style(move |_| container::Style {
+                background: Some(soft(p.muted, 0.16).into()),
+                border: Border { radius: 6.into(), ..Default::default() },
+                ..Default::default()
+            });
+            foot = foot.push(space().width(Length::Fill)).push(badge);
+        } else {
+            // The same height as the badge, so every card's release line sits level.
+            foot = foot.push(space().height(22));
+        }
+        body = body.push(foot);
+
+        let still = a.still;
+        let t = self.elapsed;
+        // Picked: the wash drifts slowly across the card and its glow breathes.
+        let angle =
+            if still { 167.5 } else { 167.5 + 37.5 * (t * std::f32::consts::TAU / 18.).sin() };
+        let breath =
+            if still { 0.41 } else { 0.41 + 0.09 * (t * std::f32::consts::TAU / 6.8).sin() };
+        let shade = if a.dark { Color::from_rgb8(8, 11, 18) } else { Color::from_rgb8(46, 52, 64) };
+        let depth = if a.dark { (0.2, 0.42) } else { (0.08, 0.2) };
+        // Three layers: the surface, the push and bloom drawn on it, and the words on
+        // top, so the shading never dims the logo or text.
+        let surface = container(space())
+            .width(Length::Fill)
+            .height(Length::Fixed(245.))
+            .style(move |_| family_surface(p, brand, shade, depth, ready, lift, chosen, angle));
+        let words = button(body)
+            .padding(22)
+            .width(Length::Fill)
+            .height(Length::Fixed(245.))
+            .on_press_maybe((ready && !self.bridge.busy()).then_some(Message::Choose(tile.key)))
+            .style(move |_, _| button::Style {
+                background: None,
+                text_color: p.text,
+                border: Border { radius: 16.into(), ..Default::default() },
+                ..Default::default()
+            });
+        let card: Element<'_, Message> = if ready {
+            let fx = widget::canvas(FamilyFx {
+                at: if self.hovered == Some(family) { self.pointer } else { None },
+                lift,
+                push: !still,
+                bloom: if tile.selected && !still { self.pulse } else { 0. },
+                brand,
+                shade,
+            })
+            .width(Length::Fill)
+            .height(Length::Fill);
+            widget::mouse_area(stack![surface, fx, words])
+                .on_enter(Message::Hover(family, true))
+                .on_move(Message::Pointer)
+                .on_exit(Message::Hover(family, false))
+                .into()
+        } else {
+            stack![surface, words].into()
+        };
+        // A soft glow in the family colour: under a hovered card, and breathing round a picked one.
+        let glow = (0.36 * lift).max(breath * chosen);
+        let card = container(card).style(move |_| container::Style {
+            border: Border { radius: 16.into(), ..Default::default() },
+            shadow: iced::Shadow {
+                color: Color { a: glow, ..brand },
+                offset: iced::Vector::new(0., 8. * lift * (1. - chosen)),
+                blur_radius: 32.,
+            },
+            ..Default::default()
+        });
+        // The lift itself: the card rises 4 px within its slot.
+        container(card)
+            .padding(iced::Padding {
+                top: 4. * (1. - lift),
+                bottom: 4. * lift,
+                ..Default::default()
+            })
+            .into()
+    }
     fn card(&self, tile: Tile, hero: bool) -> Element<'_, Message> {
+        if hero
+            && let Some(i) = tile.key.strip_prefix("family/").and_then(|i| i.parse::<usize>().ok())
+            && let Some(&family) = Family::ALL.get(i)
+        {
+            return self.family_card(tile, i, family);
+        }
         let p = self.colors();
         let selected = tile.selected;
         let mut title = column![].spacing(if hero { 14 } else { 6 });
@@ -1514,7 +1739,64 @@ fn tile_style(p: Colors, selected: bool, status: button::Status) -> button::Styl
         ..Default::default()
     }
 }
+/// `a` moved `t` (0 to 1) of the way to `b`.
+fn mix(a: Color, b: Color, t: f32) -> Color {
+    let t = t.clamp(0., 1.);
+    let at = |x: f32, y: f32| x + (y - x) * t;
+    Color { r: at(a.r, b.r), g: at(a.g, b.g), b: at(a.b, b.b), a: at(a.a, b.a) }
+}
+/// A family card's surface. `lift` and `chosen` are eased 0 to 1; `angle` is the
+/// picked wash's direction in degrees (CSS convention: 0 up, 90 right).
+#[allow(clippy::too_many_arguments)]
+fn family_surface(
+    p: Colors,
+    brand: Color,
+    shade: Color,
+    depth: (f32, f32),
+    ready: bool,
+    lift: f32,
+    chosen: f32,
+    angle: f32,
+) -> container::Style {
+    if !ready {
+        // Not ready yet: sunk toward the background, flat and still.
+        return container::Style {
+            background: Some(mix(p.surface, p.bg, 0.45).into()),
+            border: Border { color: mix(p.line, p.bg, 0.3), width: 1., radius: 16.into() },
+            ..Default::default()
+        };
+    }
+    let wash = |amount: f32| mix(p.surface, brand, amount * chosen);
+    let background = if chosen > 0.001 {
+        Background::Gradient(iced::Gradient::Linear(
+            iced::gradient::Linear::new(iced::Degrees(angle))
+                .add_stop(0., wash(0.34))
+                .add_stop(0.55, wash(0.12))
+                .add_stop(1., p.surface),
+        ))
+    } else {
+        Background::Color(p.surface)
+    };
+    container::Style {
+        background: Some(background),
+        border: Border {
+            color: mix(mix(p.line, brand, 0.6 * lift), brand, chosen),
+            width: 1. + chosen,
+            radius: 16.into(),
+        },
+        shadow: iced::Shadow {
+            color: Color { a: depth.0 + depth.1 * lift, ..shade },
+            offset: iced::Vector::new(0., 2. + 12. * lift),
+            blur_radius: 6. + 24. * lift,
+        },
+        ..Default::default()
+    }
+}
 fn logo(id: &str, dark: bool) -> Option<Element<'static, Message>> {
+    faded_logo(id, dark, 1.)
+}
+/// A logo at `opacity`, its artwork untouched.
+fn faded_logo(id: &str, dark: bool, opacity: f32) -> Option<Element<'static, Message>> {
     let bytes: &'static [u8] = match id {
         "arch" => include_bytes!("../ui/logos/arch.svg"),
         "debian" => include_bytes!("../ui/logos/debian.svg"),
@@ -1531,6 +1813,7 @@ fn logo(id: &str, dark: bool) -> Option<Element<'static, Message>> {
                 ))
                 .width(52)
                 .height(52)
+                .opacity(opacity)
                 .into(),
             );
         }
@@ -1538,7 +1821,8 @@ fn logo(id: &str, dark: bool) -> Option<Element<'static, Message>> {
     };
     let mark = svg(svg::Handle::from_memory(bytes))
         .width(if id == "omarchy" { 96 } else { 52 })
-        .height(52);
+        .height(52)
+        .opacity(opacity);
     let mark = if id == "omarchy" {
         mark.style(move |_, _| svg::Style {
             color: Some(if dark { Color::WHITE } else { Color::BLACK }),
@@ -1584,6 +1868,83 @@ impl widget::canvas::Program<Message> for AirCanvas {
                     Stroke::default().with_color(Color { a: alpha, ..p.ice }).with_width(1.3),
                 );
             }
+        }
+        vec![f.into_geometry()]
+    }
+}
+/// Drawn over a family card that can be picked. The side under the pointer gives
+/// way: it sinks into shade while the far side catches a little light, as far as the
+/// card has lifted. Just picked, a faint bloom of the family colour grows from the pointer.
+struct FamilyFx {
+    /// The pointer over this card, from its top-left corner. (The words drawn above
+    /// this layer take the live cursor, so it comes from the card's mouse area.)
+    at: Option<iced::Point>,
+    lift: f32,
+    push: bool,
+    bloom: f32,
+    brand: Color,
+    shade: Color,
+}
+impl widget::canvas::Program<Message> for FamilyFx {
+    type State = ();
+    fn draw(
+        &self,
+        _: &(),
+        renderer: &iced::Renderer,
+        _: &Theme,
+        bounds: iced::Rectangle,
+        _: iced::mouse::Cursor,
+    ) -> Vec<widget::canvas::Geometry> {
+        use iced::Point;
+        use widget::canvas::{Fill, Frame, Gradient, Path, Style, gradient::Linear};
+        let mut f = Frame::new(renderer, bounds.size());
+        let (w, h) = (bounds.width, bounds.height);
+        let card = Path::rounded_rectangle(Point::ORIGIN, bounds.size(), 16.into());
+        let at = self.at;
+        if self.push
+            && self.lift > 0.01
+            && let Some(at) = at
+        {
+            // -1 at the left or top edge, 1 at the right or bottom edge.
+            let across = (at.x / w * 2. - 1.).clamp(-1., 1.);
+            let down = (at.y / h * 2. - 1.).clamp(-1., 1.);
+            for (lean, start, end) in [
+                (
+                    across,
+                    Point::new(if across > 0. { w } else { 0. }, 0.),
+                    Point::new(if across > 0. { 0. } else { w }, 0.),
+                ),
+                (
+                    down,
+                    Point::new(0., if down > 0. { h } else { 0. }),
+                    Point::new(0., if down > 0. { 0. } else { h }),
+                ),
+            ] {
+                let give = lean.abs() * self.lift;
+                if give < 0.01 {
+                    continue;
+                }
+                let fall = Linear::new(start, end)
+                    .add_stop(0., Color { a: 0.34 * give, ..self.shade })
+                    .add_stop(0.55, Color { a: 0., ..self.shade })
+                    .add_stop(0.8, Color { a: 0., ..Color::WHITE })
+                    .add_stop(1., Color { a: 0.08 * give, ..Color::WHITE });
+                f.fill(
+                    &card,
+                    Fill { style: Style::Gradient(Gradient::Linear(fall)), ..Fill::default() },
+                );
+            }
+        }
+        if self.bloom > 0. {
+            let from = at.unwrap_or(Point::new(w / 2., h / 2.));
+            let grown = 1. - self.bloom.powi(3);
+            let reach = w.hypot(h) * (0.15 + 0.85 * grown);
+            f.with_clip(iced::Rectangle::with_size(bounds.size()), |f| {
+                for ring in 0..6 {
+                    let r = reach * (1. - ring as f32 / 6.);
+                    f.fill(&Path::circle(from, r), Color { a: 0.05 * self.bloom, ..self.brand });
+                }
+            });
         }
         vec![f.into_geometry()]
     }
@@ -1646,11 +2007,16 @@ pub fn run(live: bool) -> Result<(), Box<dyn std::error::Error>> {
     }
     let boot_smoke = args.iter().any(|a| a == "--boot-smoke");
     let windowed = args.iter().any(|a| a == "--window");
-    iced::application(move || App::new(live, boot_smoke), App::update, App::view)
-        .title(if live { "Borea Live" } else { "Windpad" })
-        .theme(App::theme)
-        .subscription(App::subscription)
-        .font(FONT)
+    let mut application =
+        iced::application(move || App::new(live, boot_smoke), App::update, App::view)
+            .title(if live { "Borea Live" } else { "Windpad" })
+            .theme(App::theme)
+            .subscription(App::subscription)
+            .font(FONT);
+    for font in BRAND_FONTS {
+        application = application.font(font);
+    }
+    application
         .default_font(FACE)
         .window(iced::window::Settings {
             size: iced::Size::new(1120., 753.),
@@ -1671,6 +2037,16 @@ fn capture(
     width: u32,
     height: u32,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    capture_at(app, path, width, height, iced::mouse::Cursor::Unavailable)
+}
+/// As `capture`, with the pointer at `cursor`.
+fn capture_at(
+    app: &App,
+    path: &std::path::Path,
+    width: u32,
+    height: u32,
+    cursor: iced::mouse::Cursor,
+) -> Result<(), Box<dyn std::error::Error>> {
     use iced_runtime::user_interface::{Cache, UserInterface};
     let mut renderer = iced_tiny_skia::Renderer::new(FACE, iced::Pixels(14.));
     let size = iced::Size::new(width as f32, height as f32);
@@ -1679,7 +2055,7 @@ fn capture(
         &mut renderer,
         &app.theme(),
         &iced::advanced::renderer::Style { text_color: app.colors().text },
-        iced::mouse::Cursor::Unavailable,
+        cursor,
     );
     let mut pixels =
         tiny_skia::Pixmap::new(width, height).ok_or("Invalid screenshot dimensions")?;
@@ -1727,10 +2103,14 @@ fn showcase_account(app: &mut App) {
 }
 fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::error::Error>> {
     use std::borrow::Cow;
-    iced_tiny_skia::graphics::text::font_system()
-        .write()
-        .map_err(|_| "Font system lock failed")?
-        .load_font(Cow::Borrowed(FONT));
+    {
+        let mut fonts = iced_tiny_skia::graphics::text::font_system()
+            .write()
+            .map_err(|_| "Font system lock failed")?;
+        for font in std::iter::once(FONT).chain(BRAND_FONTS) {
+            fonts.load_font(Cow::Borrowed(font));
+        }
+    }
     std::fs::create_dir_all(dir.join("motion"))?;
     let make = || {
         let wifi = WifiLink::simulated(
@@ -1773,7 +2153,30 @@ fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::err
         )?;
     }
     app.bridge.app.dark = true;
+    // Arch hovered, the pointer near its top-right corner, so that corner gives way.
+    // Motion on for this one capture: paused, cards don't give way.
+    let still = std::mem::replace(&mut app.bridge.app.still, false);
+    app.hovered = Some(Family::Arch);
+    app.pointer = Some(iced::Point::new(396., 18.));
+    app.lift[0] = 1.;
+    let corner = iced::mouse::Cursor::Available(iced::Point::new(640., 166.));
+    capture_at(&app, &dir.join("family-hover.png"), 1120, 753, corner)?;
+    app.hovered = None;
+    app.pointer = None;
+    app.lift[0] = 0.;
+    app.bridge.app.still = still;
     app.bridge.command("family/0");
+    // Back on the Family step with Arch picked: washed in Arch's colour.
+    app.bridge.app.go(Step::System);
+    app.chosen[0] = 1.;
+    for dark in [true, false] {
+        app.bridge.app.dark = dark;
+        let name = if dark { "family-picked-dark.png" } else { "family-picked-light.png" };
+        capture(&app, &dir.join(name), 1120, 753)?;
+    }
+    capture(&app, &dir.join("family-small.png"), 900, 600)?;
+    app.bridge.app.dark = true;
+    app.bridge.app.go(Step::Distribution);
     app.bridge.command("distro/0");
     app.bridge.command("edition/3");
     capture(&app, &dir.join("distribution.png"), 1120, 753)?;
@@ -2122,6 +2525,66 @@ mod iced_tests {
         let _ = a.update(Message::Tick(Instant::now() + Duration::from_secs(2)));
         assert_eq!(a.elapsed, elapsed);
         assert_eq!(a.pulse, pulse);
+    }
+    #[test]
+    fn family_cards_lift_under_the_pointer_and_settle_back() {
+        let mut a = app();
+        a.bridge.app.still = false;
+        a.bridge.app.go(Step::System);
+        let _ = a.update(Message::Hover(Family::Arch, true));
+        let _ = a.update(Message::Pointer(iced::Point::new(10., 10.)));
+        a.ease_family_cards(0.03, false);
+        let first = a.lift[0];
+        assert!(first > 0. && first < 0.5, "eases in, never jumps: {first}");
+        for _ in 0..20 {
+            a.ease_family_cards(0.03, false);
+        }
+        assert!(a.lift[0] > 0.99);
+        assert!(a.lift[1..].iter().all(|l| *l == 0.), "only the hovered card lifts");
+        let _ = a.update(Message::Hover(Family::Arch, false));
+        assert!(a.hovered.is_none() && a.pointer.is_none());
+        for _ in 0..20 {
+            a.ease_family_cards(0.03, false);
+        }
+        assert!(a.lift[0] < 0.01);
+    }
+    #[test]
+    fn a_picked_family_washes_in_before_the_page_moves_on() {
+        let mut a = app();
+        a.bridge.app.still = false;
+        a.bridge.app.go(Step::System);
+        let _ = a.update(Message::Choose("family/0".into()));
+        assert!(a.bridge.pending_family.is_some());
+        // The page moves on after 280 ms; by then the wash is nearly all in.
+        for _ in 0..9 {
+            a.ease_family_cards(0.03, false);
+        }
+        assert!(a.chosen[0] > 0.9, "{}", a.chosen[0]);
+        assert!(a.chosen[1..].iter().all(|c| *c == 0.));
+    }
+    #[test]
+    fn paused_family_cards_snap_and_leaving_the_step_drops_the_hover() {
+        let mut a = app();
+        a.bridge.app.go(Step::System);
+        let _ = a.update(Message::Hover(Family::Arch, true));
+        a.ease_family_cards(0., true);
+        assert_eq!(a.lift[0], 1., "paused, the state still shows, without motion");
+        a.bridge.app.go(Step::Distribution);
+        a.ease_family_cards(0.03, true);
+        assert!(a.hovered.is_none() && a.pointer.is_none());
+        assert_eq!(a.lift[0], 0.);
+    }
+    #[test]
+    fn every_family_has_its_own_words_colour_and_release() {
+        use crate::model::{family_colour, family_quote, family_release};
+        for f in Family::ALL {
+            let q = family_quote(f);
+            assert!(!q.text.is_empty() && !q.source.is_empty(), "{f}");
+            assert!(!family_release(f).is_empty(), "{f}");
+        }
+        let colours: std::collections::HashSet<_> =
+            Family::ALL.into_iter().map(family_colour).collect();
+        assert_eq!(colours.len(), Family::ALL.len());
     }
     #[test]
     fn blank_account_has_no_implicit_region_or_credentials() {

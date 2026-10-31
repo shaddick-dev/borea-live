@@ -399,13 +399,49 @@ pub fn capitalize(text: &str) -> String {
     chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default()
 }
 
-/// Each family's one line, the same on Windpad's cards and Borea Live's Family step.
-pub fn family_line(family: Family) -> &'static str {
+/// A family's own words for its card, and where they come from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Quote {
+    pub text: &'static str,
+    pub source: &'static str,
+}
+
+/// Each family's own words: its project's published line, or its founder's.
+pub fn family_quote(family: Family) -> Quote {
     match family {
-        Family::Arch => "A system shaped by you.",
-        Family::Fedora => "A fresh perspective.",
-        Family::Debian => "A foundation to settle into.",
-        Family::Opensuse => "Ready for your next adventure.",
+        Family::Arch => {
+            Quote { text: "A simple, lightweight distribution.", source: "archlinux.org" }
+        }
+        // A no-break space keeps "Features. First." together when it wraps.
+        Family::Fedora => Quote {
+            text: "Freedom. Friends. Features.\u{a0}First.",
+            source: "Fedora\u{2019}s four foundations",
+        },
+        Family::Debian => Quote {
+            text: "\u{2026}carefully and conscientiously put together.",
+            source: "Ian Murdock, Debian Manifesto, 1993",
+        },
+        Family::Opensuse => Quote { text: "Embrace the chameleon.", source: "opensuse.org" },
+    }
+}
+
+/// Each family's primary brand colour, as RGB.
+pub fn family_colour(family: Family) -> [u8; 3] {
+    match family {
+        Family::Arch => [0x17, 0x93, 0xD1],
+        Family::Fedora => [0x51, 0xA2, 0xDA],
+        // Debian's darker web red: the logo's red leans pink, which Borea's palette rules out.
+        Family::Debian => [0xA8, 0x00, 0x30],
+        Family::Opensuse => [0x73, 0xBA, 0x25],
+    }
+}
+
+/// How each family releases, as its card says it.
+pub fn family_release(family: Family) -> &'static str {
+    match family {
+        Family::Arch | Family::Opensuse => "Rolling",
+        Family::Fedora => "Fresh stable",
+        Family::Debian => "Trixie (v13.*)",
     }
 }
 
