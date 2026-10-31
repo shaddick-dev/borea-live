@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-31",
+  "scope": "CachyOS minimal preparation only; whole-drive fixture; Secure Boot off; no desktop",
+  "result": "passed",
+  "guest_binary_sha256": "20abdabbf67325e8a5e7fbbf3996489961c2fc3923778fbb74e822a79e9fe769",
+  "bootstrap_signature": {
+    "signer": "Pierre Schmitz <pierre@archlinux.org>",
+    "fingerprint": "3E80CA1A8B89F69CBA57D98A76A5EF9054449A5C"
+  },
+  "cachyos_trust": {
+    "upstream_commit": "4dd0b9d487fa3dc2975c0acd155a93c974176783",
+    "master_fingerprint": "882DCFE48E2051D48E2562ABF3B607488DB35A47"
+  },
+  "verified": [
+    "Authenticated Arch tool root",
+    "Arch and CachyOS keyrings populated",
+    "Native HTTPS repository synchronization with session CA trust",
+    "Required minimal packages resolved by pacman",
+    "Kernel target-disk write counters unchanged"
+  ],
+  "markers": [
+    "BOREA_PREFLIGHT_COMPLETE",
+    "BOREA_VM_INSTALL_EXIT_0",
+    "BOREA_VM_TEST_PASSED preflight"
+  ],
+  "command": "BOREA_TEST_DISTRO=cachyos BOREA_TEST_DESKTOP=none BOREA_TEST_LAYOUT=whole BOREA_TEST_SECURE_BOOT=0 borea-vm-runner preflight",
+  "not_certified": [
+    "Full CachyOS installation and installed-system boot",
+    "Noctalia graphical login, lock and suspend",
+    "Secure Boot enrollment",
+    "Physical Intel Arc A770"
+  ],
+  "noctalia_gate": {
+    "latest_stable_v5": "5.4.1",
+    "arch_package": "5.4.0-1",
+    "behavior": "Reject version mismatch before target disk writes"
+  }
+}

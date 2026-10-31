@@ -80,3 +80,10 @@
   remain required; key rotation needs a reviewed source update. No remote shell
   installer is piped into an interpreter. Arch-family applications retain the
   existing official-package/Flathub quiet-install policy.
+- Native pacman/pacstrap also use the temporary, hashed session CA directory.
+  libcurl does not consistently honour the command-line curl CA environment
+  variables. TLS verification stays enabled; session trust is a bind mount,
+  restored before finishing, and is separate from package signing trust.
+- Archive member lists are retained for path validation but are not forwarded
+  as thousands of progress events. Signature and extraction failures still
+  propagate normally.
