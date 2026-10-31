@@ -1600,7 +1600,7 @@ impl App {
     }
     /// The Account page: three titled form cards in the shared card language.
     /// Every field is a faint hint on a thin line; the only words added are errors,
-    /// the password's strength and whether the passwords match.
+    /// and whether the passwords match.
     fn account(&self) -> Element<'_, Message> {
         column![self.account_card(), self.region_card(), self.apps_card()].spacing(10).into()
     }
@@ -1729,40 +1729,11 @@ impl App {
         ]
         .spacing(16)
         .align_y(Alignment::End);
-        // A four-step guide to strength, once something is typed. Never a requirement.
-        let typed = !self.password.is_empty();
-        let score = crate::model::strength(&self.password);
-        let lit = if typed { score.max(1) } else { 0 };
-        let mut meter = row![].spacing(4);
-        for i in 0..4 {
-            let colour = if !typed {
-                Color::TRANSPARENT
-            } else if i < lit {
-                p.ice
-            } else {
-                Color { a: 0.5, ..p.line }
-            };
-            meter = meter.push(container(space()).width(Length::Fill).height(3).style(move |_| {
-                container::Style {
-                    background: Some(colour.into()),
-                    border: Border { radius: 2.into(), ..Default::default() },
-                    ..Default::default()
-                }
-            }));
-        }
-        let strength = if typed {
-            note(crate::model::strength_word(score).into(), if score > 0 { p.ice } else { p.muted })
-        } else {
-            space().into()
-        };
+        // Any password goes: no strength rating, only whether the two match.
         let password = column![
             password,
-            container(meter).padding(iced::Padding { top: 10., right: 46., bottom: 6., left: 0. }),
-            row![
-                strength,
-                space().width(Length::Fill),
-                match_note(p, &self.password, &self.confirmation)
-            ],
+            container(match_note(p, &self.password, &self.confirmation))
+                .padding(iced::Padding { top: 6., ..Default::default() }),
         ];
         // Options: a sunk band under the last divider.
         let option = |label: &'static str, on: bool, toggle: fn(bool) -> Message| {
@@ -1803,11 +1774,8 @@ impl App {
                         ),
                     ]
                     .spacing(16),
-                    container(row![
-                        space().width(Length::Fill),
-                        match_note(p, &self.admin, &self.admin_confirmation)
-                    ])
-                    .padding(iced::Padding { top: 6., ..Default::default() }),
+                    container(match_note(p, &self.admin, &self.admin_confirmation))
+                        .padding(iced::Padding { top: 6., ..Default::default() }),
                 ])
                 .padding(iced::Padding {
                     top: 2.,
@@ -2657,6 +2625,12 @@ fn card_surface(
         ..Default::default()
     }
 }
+/// Fedora's logo, Borea's one raster logo. One handle for the whole run: a new
+/// handle each frame has a new id, so the renderer decodes it again every frame
+/// and it flickers.
+static FEDORA: std::sync::LazyLock<image::Handle> = std::sync::LazyLock::new(|| {
+    image::Handle::from_bytes(include_bytes!("../ui/logos/fedora.png").as_slice())
+});
 /// A logo at `opacity`, its artwork untouched.
 fn faded_logo(id: &str, dark: bool, opacity: f32) -> Option<Element<'static, Message>> {
     let bytes: &'static [u8] = match id {
@@ -2669,15 +2643,7 @@ fn faded_logo(id: &str, dark: bool, opacity: f32) -> Option<Element<'static, Mes
         "nobara" => include_bytes!("../ui/logos/nobara.svg"),
         "pikaos" => include_bytes!("../ui/logos/pikaos.svg"),
         "fedora" => {
-            return Some(
-                image(image::Handle::from_bytes(
-                    include_bytes!("../ui/logos/fedora.png").as_slice(),
-                ))
-                .width(52)
-                .height(52)
-                .opacity(opacity)
-                .into(),
-            );
+            return Some(image(FEDORA.clone()).width(52).height(52).opacity(opacity).into());
         }
         _ => return None,
     };
@@ -2890,7 +2856,8 @@ fn capture_at(
         &iced::advanced::renderer::Style { text_color: app.colors().text },
         cursor,
     );
-    drop(ui);
+    // The tree stays alive until the pixels are drawn: tiny-skia keeps only weak
+    // references to its text, so dropping it first draws every label blank.
     let iced::Renderer::Secondary(renderer) = &mut renderer else {
         return Err("screenshots draw with tiny-skia".into());
     };
@@ -2904,6 +2871,7 @@ fn capture_at(
         &[iced::Rectangle::with_size(size)],
         app.colors().bg,
     );
+    drop(ui);
     // tiny-skia's window renderer writes BGRA for softbuffer. PNG expects RGBA.
     for pixel in pixels.data_mut().as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
@@ -2952,16 +2920,18 @@ fn showcase_apps(app: &mut App) {
     app.categories.insert(borea_catalog::Category::ChatEmail.label());
     app.categories.insert(borea_catalog::Category::Games.label());
 }
-fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::error::Error>> {
+/// Bundled fonts for captures, which draw without a window to load them.
+fn load_fonts() -> Result<(), Box<dyn std::error::Error>> {
     use std::borrow::Cow;
-    {
-        let mut fonts = iced_tiny_skia::graphics::text::font_system()
-            .write()
-            .map_err(|_| "Font system lock failed")?;
-        for font in [FONT, TITLE_FONT].into_iter().chain(BRAND_FONTS) {
-            fonts.load_font(Cow::Borrowed(font));
-        }
+    let mut fonts =
+        iced_tiny_skia::graphics::text::font_system().write().map_err(|_| "Font system lock failed")?;
+    for font in [FONT, TITLE_FONT].into_iter().chain(BRAND_FONTS) {
+        fonts.load_font(Cow::Borrowed(font));
     }
+    Ok(())
+}
+fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::error::Error>> {
+    load_fonts()?;
     std::fs::create_dir_all(dir.join("motion"))?;
     let make = |setup_mode: bool| {
         let wifi = WifiLink::simulated(
@@ -3398,6 +3368,22 @@ mod iced_tests {
             let _ = a.update(m);
         }
         assert_eq!(a.bridge.app.step, Step::Distribution);
+    }
+    #[test]
+    fn captures_draw_their_words() {
+        load_fonts().unwrap();
+        let a = app();
+        let path = std::env::temp_dir().join(format!("borea-words-{}.png", std::process::id()));
+        capture(&a, &path, 1120, 753).unwrap();
+        let shot = ::image::open(&path).unwrap().to_luma8();
+        let _ = std::fs::remove_file(&path);
+        // "Borea" at the top of the rail is light ice on a dark rail.
+        let brightest = (20..200)
+            .flat_map(|x| (20..60).map(move |y| (x, y)))
+            .map(|(x, y)| shot.get_pixel(x, y)[0])
+            .max()
+            .unwrap();
+        assert!(brightest > 120, "the rail's title was not drawn");
     }
     #[test]
     fn arch_and_cachyos_use_distinct_reviewed_targets() {

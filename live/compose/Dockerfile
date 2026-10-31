@@ -31,7 +31,7 @@ RUN --mount=type=secret,id=proxy_ca \
         usb-modeswitch usb-modeswitch-data \
         cage libegl-mesa0 libgl1-mesa-dri mesa-vulkan-drivers libvulkan1 libwayland-egl1 libxkbcommon0 xkb-data \
         libfontconfig1 fonts-dejavu-core fonts-noto-core polkitd libpam-modules udisks2 \
-        cryptsetup btrfs-progs ntfs-3g gnupg gpgv efibootmgr parted fdisk \
+        cryptsetup btrfs-progs ntfs-3g gnupg gpgv efibootmgr parted fdisk gdisk \
         dosfstools e2fsprogs util-linux kmod busybox-static kexec-tools \
         debootstrap debian-archive-keyring skopeo umoci \
         tar xz-utils zstd openssl erofs-utils xorriso mtools \
