@@ -84,10 +84,10 @@ fn run() -> Result<(), String> {
     let preflight = mode == "preflight";
     let distro = std::env::var("BOREA_TEST_DISTRO").unwrap_or_else(|_| "debian".into());
     let desktop = std::env::var("BOREA_TEST_DESKTOP").unwrap_or_else(|_| "none".into());
-    if !["none", "noctalia"].contains(&desktop.as_str())
-        || (desktop == "noctalia" && !["arch", "cachyos"].contains(&distro.as_str()))
+    if !["none", "noctalia", "noctalia-niri", "noctalia-mango"].contains(&desktop.as_str())
+        || (desktop != "none" && !["arch", "cachyos"].contains(&distro.as_str()))
     {
-        return Err("The Noctalia desktop scenario requires Arch.".into());
+        return Err("The Noctalia desktop scenario requires Arch or CachyOS.".into());
     }
     if !["arch", "cachyos", "debian", "fedora", "opensuse"].contains(&distro.as_str()) {
         return Err("Unknown VM test distro.".into());
@@ -158,7 +158,7 @@ fn run() -> Result<(), String> {
     }
     let kvm = fs::OpenOptions::new().read(true).write(true).open("/dev/kvm").is_ok();
     let mut command = Command::new("/usr/bin/qemu-system-x86_64");
-    if desktop == "noctalia" {
+    if desktop != "none" {
         command.args(["-vga", "none", "-device", "virtio-vga"]);
     }
     command.args([
@@ -281,7 +281,7 @@ fn run() -> Result<(), String> {
     let mut firmware_ok = !secure_boot;
     let mut selinux_ok = distro != "fedora";
     let mut install_exit_ok = false;
-    let mut greeter_ok = desktop != "noctalia";
+    let mut greeter_ok = desktop == "none";
     let expected_distro =
         if distro == "opensuse" { "opensuse-tumbleweed" } else { distro.as_str() };
     let firmware_check = if secure_boot {
@@ -294,10 +294,18 @@ fn run() -> Result<(), String> {
     } else {
         ""
     };
-    let graphical_check = if desktop == "noctalia" {
-        "systemctl is-active --quiet greetd && systemctl is-active --quiet accounts-daemon && test -f ~/.config/hypr/hyprland.lua && test -f ~/.config/noctalia/config.toml && echo BOREA_GREETER_OK; "
+    let compositor_config = match desktop.as_str() {
+        "noctalia" => "hypr/hyprland.lua",
+        "noctalia-niri" => "niri/config.kdl",
+        "noctalia-mango" => "mango/config.conf",
+        _ => "",
+    };
+    let graphical_check = if desktop != "none" {
+        format!(
+            "systemctl is-active --quiet greetd && systemctl is-active --quiet accounts-daemon && test -f ~/.config/{compositor_config} && test -f ~/.config/noctalia/config.toml && echo BOREA_GREETER_OK; "
+        )
     } else {
-        ""
+        String::new()
     };
     let checks = format!(
         "echo; . /etc/os-release; test \"$ID\" = {expected_distro} && echo BOREA_DISTRO_OK; test \"$(id -un)\" = boreatest && echo BOREA_USER_OK; test -b /dev/mapper/borea-root && echo BOREA_LUKS_OK; nm-online -q --timeout=60 && echo BOREA_NET_OK; {graphical_check}{firmware_check}{selinux_check}sudo -k; sudo -S -p '[BOREA_SUDO]' id -u && echo BOREA_SUDO_OK\n"

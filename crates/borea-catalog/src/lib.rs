@@ -34,3 +34,5 @@ pub use resolve::{Pick, Plan, Prefer, Resolution, Selection, candidates, plan, r
 pub use source::{Distro, REPOS, Repo, Source, SourceError, Sources, Trust, repos_for};
 
 pub mod export;
+
+pub mod noctalia;

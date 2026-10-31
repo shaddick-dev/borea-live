@@ -2,6 +2,9 @@
 use super::{Action, target, write};
 
 pub fn configure(plan: &borea_core::Plan) -> Vec<Action> {
+    let Some(recipe) = plan.desktop.and_then(borea_core::Desktop::noctalia) else {
+        return vec![];
+    };
     let keyboard = &plan.locale.keyboard;
     // Layout and variant are checked against the system's XKB catalog by installd.
     let layout = serde_json::to_string(&keyboard.layout).unwrap_or_default();
@@ -10,7 +13,7 @@ pub fn configure(plan: &borea_core::Plan) -> Vec<Action> {
     let hyprland = format!(
         "{HYPRLAND}\nhl.config({{ input = {{ kb_layout = {layout}, kb_variant = {variant} }} }})\n"
     );
-    vec![
+    let mut actions = vec![
         write("/etc/greetd/config.toml", "[terminal]\nvt = 1\nswitch = true\n\n[default_session]\ncommand = \"/usr/bin/noctalia-greeter-session\"\nuser = \"greeter\"\n".into(), 0o644),
         target("/usr/bin/systemd-tmpfiles", ["--create", "noctalia-greeter.conf"]),
         target("/usr/bin/noctalia-greeter-apply-appearance", ["--setup-system"]),
@@ -18,15 +21,40 @@ pub fn configure(plan: &borea_core::Plan) -> Vec<Action> {
         // cannot set its XKB layout. Apply the reviewed choices before login.
         write("/var/lib/noctalia-greeter/greeter.toml", format!("[keyboard]\nlayout = {layout}\nvariant = {variant}\n"), 0o644),
         target("/usr/bin/systemctl", ["mask", "getty@tty1.service"]),
-        write("/usr/share/wayland-sessions/borea-hyprland.desktop", "[Desktop Entry]\nName=Hyprland + Noctalia\nComment=Hyprland with Noctalia v5\nExec=/usr/bin/start-hyprland\nTryExec=/usr/bin/start-hyprland\nType=Application\nDesktopNames=Hyprland\n".into(), 0o644),
-        write("/etc/skel/.config/hypr/hyprland.lua", hyprland, 0o644),
         // Noctalia accepts POSIX locale names and handles translation fallback.
         // Omit [keybinds] so its in-shell navigation retains upstream defaults.
         write("/etc/skel/.config/noctalia/config.toml", format!("[shell]\nlang = {lang}\n\n[lockscreen]\nenabled = true\nlock_before_suspend = true\ngrace_period_seconds = 0\n\n[idle.behavior.lock]\ntimeout = 600\naction = \"lock\"\nenabled = true\n"), 0o644),
         write("/etc/systemd/system/borea-firstboot.service.d/login.conf", format!("[Service]\nExecStart=\nExecStart=/usr/bin/borea-firstboot --after-login {}\nNice=10\nIOSchedulingClass=best-effort\nIOSchedulingPriority=7\n", plan.user.username), 0o644),
         write("/etc/plymouth/plymouthd.conf", "[Daemon]\nTheme=spinner\nShowDelay=0\n".into(), 0o644),
-    ]
+    ];
+    let exec = match recipe.compositor {
+        "hyprland" | "niri" => recipe.session.to_owned(),
+        _ => format!(
+            "/usr/bin/env XDG_CURRENT_DESKTOP={} XDG_SESSION_DESKTOP={} XDG_SESSION_TYPE=wayland /usr/bin/dbus-run-session -- {}",
+            recipe.desktop_name, recipe.compositor, recipe.session
+        ),
+    };
+    actions.push(write(&format!("/usr/share/wayland-sessions/borea-{}.desktop",recipe.compositor),
+        format!("[Desktop Entry]\nName={} + Noctalia\nComment={} with Noctalia v5\nExec={exec}\nTryExec={}\nType=Application\nDesktopNames={}\n",recipe.name,recipe.name,recipe.session,recipe.desktop_name),0o644));
+    actions.push(write("/etc/skel/.config/xdg-desktop-portal/portals.conf",format!("[preferred]\ndefault={};gtk;\norg.freedesktop.impl.portal.FileChooser=gtk\norg.freedesktop.impl.portal.ScreenCast={}\n",recipe.portal,recipe.portal),0o644));
+    match recipe.compositor {
+        "hyprland" => actions.push(write("/etc/skel/.config/hypr/hyprland.lua", hyprland, 0o644)),
+        "niri" => actions.push(write(
+            "/etc/skel/.config/niri/config.kdl",
+            NIRI.replace("@@LAYOUT@@", &layout).replace("@@VARIANT@@", &variant),
+            0o644,
+        )),
+        "mango" => actions.push(write(
+            "/etc/skel/.config/mango/config.conf",
+            MANGO.replace("@@LAYOUT@@", &keyboard.layout).replace("@@VARIANT@@", &keyboard.variant),
+            0o644,
+        )),
+        _ => {}
+    }
+    actions
 }
+const NIRI: &str = include_str!("../data/noctalia/niri.kdl");
+const MANGO: &str = include_str!("../data/noctalia/mango.conf");
 
 // Hyprland 0.57 uses Lua. Noctalia handles logind's sleep-delay inhibitor itself,
 // waiting for lock surfaces before releasing it; do not add a competing locker.

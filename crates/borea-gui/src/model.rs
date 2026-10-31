@@ -519,7 +519,10 @@ mod tests {
         let s = on_arch_minimal(&catalog);
         assert!(s.composable(&catalog, Family::Arch));
         assert!(!s.path_complete(&catalog, Family::Arch), "no preview until confirmed");
-        assert_eq!(s.title(&catalog, Family::Arch), "Arch Linux · Minimal · Hyprland + Noctalia");
+        assert_eq!(
+            s.title(&catalog, Family::Arch),
+            "Arch Linux · Minimal · Hyprland + Noctalia v5"
+        );
     }
 
     #[test]

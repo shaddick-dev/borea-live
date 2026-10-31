@@ -40,6 +40,7 @@ struct Message {
 pub struct NativeInstall {
     pub page: Page,
     derivative: Option<borea_core::ArchDerivative>,
+    desktop: Desktop,
     pub disks: Vec<Disk>,
     pub pick: Option<Where>,
     pub user: Identity,
@@ -71,6 +72,12 @@ impl NativeInstall {
     #[cfg(test)]
     pub(crate) fn derivative_for_test(&self) -> Option<borea_core::ArchDerivative> {
         self.derivative
+    }
+    pub(crate) fn composition(&mut self, desktop: Desktop) {
+        if self.desktop != desktop && !self.busy() && self.page != Page::Finished {
+            self.reset_storage();
+            self.desktop = desktop;
+        }
     }
     pub(crate) fn target(&mut self, cachyos: bool) {
         let derivative = cachyos.then_some(borea_core::ArchDerivative::Cachyos);
@@ -166,6 +173,7 @@ impl NativeInstall {
         Self {
             page: Page::Storage,
             derivative: None,
+            desktop: Desktop::HyprlandNoctalia,
             disks: vec![],
             pick: None,
             user: Identity {
@@ -294,7 +302,7 @@ impl NativeInstall {
             distro: borea_core::Distribution::Arch,
             derivative: self.derivative,
             release: "rolling".into(),
-            desktop: Some(Desktop::HyprlandNoctalia),
+            desktop: Some(self.desktop),
             env: "composed".into(),
             secure_boot: Some(self.secure_boot),
             boot_arguments: vec![],

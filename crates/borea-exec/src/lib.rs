@@ -1300,7 +1300,7 @@ impl Session {
                     vec!["-Sy".into(), "--noconfirm".into()],
                     emit,
                 )?;
-                if self.job.plan.desktop == Some(borea_core::Desktop::HyprlandNoctalia) {
+                if self.job.plan.desktop.is_some_and(borea_core::Desktop::is_noctalia) {
                     let approved = self.job.external.noctalia.clone().ok_or_else(|| {
                         err("Review the latest stable Noctalia v5 release before installing.")
                     })?;

@@ -49,3 +49,11 @@ Native metadata preflight, approval checks and disk guards are enforced in code.
 - Noctalia upstream is 5.4.1; Arch currently provides 5.4.0-1. Latest-v5 installation is blocked before storage writes until the signed package catches up.
 - New unit/integration tests cover both storage plans, the GUI approval/start contract and first-login queue behaviour. No claim of successful real graphical login, lock/unlock, suspend/resume or Arc A770 hardware testing.
 - The live Rust `--check-noctalia` request received HTTP 503 in this cloud environment. The version comparison is covered by automated tests; upstream release and mirror versions were independently read with the environment's HTTP client. Full online approval is not claimed as verified here.
+
+
+## Noctalia compositor paths — 31 October 2026
+
+- Hyprland, niri and MangoWC now have separate native recipes on Arch and CachyOS Minimal. Tests cover all six combinations × both storage layouts, region propagation, graphical greeter, desktop serialization and quiet optional-app deferral.
+- Generated configs passed the real signed Arch compositor binaries: Hyprland 0.57.0 `--verify-config`, niri 26.04 `validate`, MangoWC 0.18.4 `-p`, as UID 65534 in a disposable authenticated Arch bootstrap. CI repeats native parser checks. [Package and validation record](verification/noctalia-compositors-2026-10-31.json).
+- Native parsing caught and fixed a missing KDL terminator. Parsing is not session startup certification. MangoWC's headless launch stopped at renderer creation because scenefx requires a DRM FD.
+- Noctalia 5.4.1 remains ahead of the signed 5.4.0-1 package. The existing version gate covers all three recipes and blocks before target writes. Full installed graphical login, lock/unlock, suspend and Arc A770 testing remain outstanding. CachyOS branded preset integration is still a preview.

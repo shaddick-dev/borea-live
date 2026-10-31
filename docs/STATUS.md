@@ -24,7 +24,7 @@ One Cargo workspace (`Cargo.toml`, one `Cargo.lock`), every crate under `crates/
 
 | Area | State |
 | --- | --- |
-| Arch + Hyprland + Noctalia | Native GUI storage/account/review path added, with Noctalia Greeter and first-login app queue. Latest stable v5 is required; Arch currently lags upstream. Full graphical installation and Arc hardware verification remain pending. [Details](arch-noctalia.md). |
+| Arch/CachyOS + Hyprland, niri or MangoWC + Noctalia v5 | Native Iced storage/account/review path, Noctalia Greeter and first-login app queue. Generated configs pass all three native compositor parsers. Latest stable v5 is required; Arch currently lags upstream. Full graphical installation and Arc hardware verification remain pending. [Details](arch-noctalia.md). |
 | Installer backend | Arch rolling, Debian 13, Fedora stable, Tumbleweed. UEFI only, LUKS2 + Btrfs, whole disk or alongside Windows, optional Secure Boot. Review pins sources and returns an approval digest; install re-checks it and the disk before writing. Verified in disposable VMs (`backend/docs/VERIFIED.md`). |
 | Borea Live GUI | Connect → Machine → System → Desktop → Review, as a preview. Firmware-setup restart goes through `borea-installd`, which refuses while an install runs. |
 | Borea Live ISO | Built with Bootlin's prebuilt glibc toolchain and per-package directories (packages build in parallel); Borea's Rust is cached between builds. Ships `borea-installd` (enabled service), `borea-cli`, the static `borea-firstboot` helper, the pinned Arch/Fedora/openSUSE keyrings, and cryptsetup, btrfs-progs, ntfsprogs, gnupg, efibootmgr, parted, openssl. |

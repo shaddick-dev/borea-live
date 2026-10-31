@@ -65,15 +65,31 @@ pub struct Keyboard {
 #[serde(rename_all = "kebab-case")]
 pub enum Desktop {
     HyprlandNoctalia,
+    NiriNoctalia,
+    MangoNoctalia,
     Plasma,
     Gnome,
     Cosmic,
     Budgie,
 }
 impl Desktop {
+    pub fn noctalia(self) -> Option<&'static catalog::noctalia::Recipe> {
+        catalog::noctalia::recipe(self.key())
+    }
+    pub fn is_noctalia(self) -> bool {
+        self.noctalia().is_some()
+    }
+    pub fn for_noctalia(compositor: &str) -> Option<Self> {
+        [Self::HyprlandNoctalia, Self::NiriNoctalia, Self::MangoNoctalia]
+            .into_iter()
+            .find(|d| d.noctalia().is_some_and(|r| r.compositor == compositor))
+    }
+
     pub fn key(self) -> &'static str {
         match self {
             Self::HyprlandNoctalia => "hyprland-noctalia",
+            Self::NiriNoctalia => "niri-noctalia",
+            Self::MangoNoctalia => "mango-noctalia",
             Self::Plasma => "plasma",
             Self::Gnome => "gnome",
             Self::Cosmic => "cosmic",
@@ -333,12 +349,9 @@ impl Plan {
         }
 
         if !self.extras.is_empty()
-            && (self.distro != Distro::Arch || self.desktop != Some(Desktop::HyprlandNoctalia))
+            && (self.distro != Distro::Arch || !self.desktop.is_some_and(Desktop::is_noctalia))
         {
-            return Err(hint(
-                "extras",
-                "These extras require the Arch Hyprland and Noctalia pathway.",
-            ));
+            return Err(hint("extras", "These extras require an Arch-family Noctalia pathway."));
         }
         for id in &self.extras {
             if catalog::groups::arch_extra(id).is_none() {
@@ -436,11 +449,8 @@ impl From<&Plan> for SystemChoice {
 }
 impl SystemChoice {
     pub fn validate(&self) -> Result<(), Hint> {
-        if self.desktop == Some(Desktop::HyprlandNoctalia) && self.distro != Distro::Arch {
-            return Err(hint(
-                "desktop",
-                "Hyprland with Noctalia is currently supported on Arch only.",
-            ));
+        if self.desktop.is_some_and(Desktop::is_noctalia) && self.distro != Distro::Arch {
+            return Err(hint("desktop", "Native Noctalia recipes require the Arch source family."));
         }
         let env = catalog::group(&self.env)
             .filter(|g| g.kind == catalog::Kind::Environment)
@@ -588,7 +598,12 @@ pub fn review(plan: &Plan, hw: &catalog::Hardware) -> Result<Review, Hint> {
         packages.insert((base.id.into(), desktop.into()));
         packages.insert((base.id.into(), manager.into()));
     }
-    if plan.desktop == Some(Desktop::HyprlandNoctalia) {
+    if plan.desktop.is_some_and(Desktop::is_noctalia) {
+        if let Some(recipe) = plan.desktop.and_then(Desktop::noctalia) {
+            for name in recipe.packages {
+                packages.insert((base.id.into(), (*name).into()));
+            }
+        }
         for name in catalog::groups::ARCH_NOCTALIA_PACKAGES {
             packages.insert((base.id.into(), (*name).into()));
         }
@@ -622,7 +637,7 @@ pub fn review(plan: &Plan, hw: &catalog::Hardware) -> Result<Review, Hint> {
     }
     let mut services = driver.services.iter().map(|s| (*s).to_owned()).collect::<BTreeSet<_>>();
     services.insert("NetworkManager.service".into());
-    if plan.desktop == Some(Desktop::HyprlandNoctalia) {
+    if plan.desktop.is_some_and(Desktop::is_noctalia) {
         services.insert("accounts-daemon.service".into());
     }
     if let Some((_, manager)) = groups.desktop {
@@ -648,7 +663,7 @@ pub fn review(plan: &Plan, hw: &catalog::Hardware) -> Result<Review, Hint> {
             .iter()
             .map(|s| (*s).into())
             .chain(
-                (plan.desktop == Some(Desktop::HyprlandNoctalia))
+                (plan.desktop.is_some_and(Desktop::is_noctalia))
                     .then_some(["quiet", "splash"])
                     .into_iter()
                     .flatten()

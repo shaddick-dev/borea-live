@@ -60,12 +60,19 @@ fn run() -> Result<(), Hint> {
         "opensuse" => Distribution::OpenSuse,
         _ => return Err(hint("vm", "Unknown test distribution.")),
     };
-    let noctalia = fs::read_to_string("/sys/firmware/qemu_fw_cfg/by_name/opt/borea/desktop/raw")
-        .ok()
-        .as_deref()
-        == Some("noctalia");
-    if noctalia && distro != Distribution::Arch {
-        return Err(hint("vm", "The Noctalia scenario requires Arch."));
+    let desktop =
+        match fs::read_to_string("/sys/firmware/qemu_fw_cfg/by_name/opt/borea/desktop/raw")
+            .unwrap_or_else(|_| "none".into())
+            .as_str()
+        {
+            "none" => None,
+            "noctalia" => Some(borea_core::Desktop::HyprlandNoctalia),
+            "noctalia-niri" => Some(borea_core::Desktop::NiriNoctalia),
+            "noctalia-mango" => Some(borea_core::Desktop::MangoNoctalia),
+            _ => return Err(hint("vm", "Unknown desktop scenario.")),
+        };
+    if desktop.is_some() && distro != Distribution::Arch {
+        return Err(hint("vm", "The Noctalia scenario requires Arch or CachyOS."));
     }
     let plan = Plan {
         extras: BTreeSet::new(),
@@ -91,8 +98,8 @@ fn run() -> Result<(), Hint> {
         }
         .into(),
         boot_arguments: vec!["console=ttyS0,115200".into()],
-        desktop: noctalia.then_some(borea_core::Desktop::HyprlandNoctalia),
-        env: if noctalia { "composed" } else { "minimal" }.into(),
+        desktop,
+        env: if desktop.is_some() { "composed" } else { "minimal" }.into(),
         addons: BTreeSet::new(),
         picks: Vec::new(),
         apps: BTreeSet::new(),
