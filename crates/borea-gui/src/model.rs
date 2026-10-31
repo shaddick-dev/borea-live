@@ -436,6 +436,45 @@ pub fn family_colour(family: Family) -> [u8; 3] {
     }
 }
 
+/// A distribution's own colour: its brand colour where it has one, its family's
+/// where none has been reviewed yet, and `None` where its mark is monochrome (the
+/// card then wears Borea's neutral grey).
+pub fn distro_colour(id: &str, family: Family) -> Option<[u8; 3]> {
+    match id {
+        "arch" => Some([0x17, 0x93, 0xD1]),
+        // The green of CachyOS's own mark.
+        "cachyos" => Some([0x00, 0xAA, 0x88]),
+        // Omarchy's mark is black and white, and it publishes no accent colour.
+        "omarchy" => None,
+        _ => Some(family_colour(family)),
+    }
+}
+
+/// A distribution's own words, from its homepage. `None` until reviewed: the card
+/// then shows the catalog's summary, unquoted.
+pub fn distro_quote(id: &str) -> Option<Quote> {
+    match id {
+        "arch" => Some(Quote { text: "\u{2026}tries to Keep It Simple.", source: "archlinux.org" }),
+        "cachyos" => {
+            Some(Quote { text: "Performance-First Linux, Built on Arch", source: "cachyos.org" })
+        }
+        "omarchy" => Some(Quote { text: "Beautiful, fun & agentic Linux", source: "omarchy.org" }),
+        _ => None,
+    }
+}
+
+/// How a distribution releases, in the words the family cards use.
+pub fn release_label(channel: borea_live_core::ReleaseChannel) -> &'static str {
+    use borea_live_core::ReleaseChannel;
+    match channel {
+        ReleaseChannel::Rolling => "Rolling",
+        ReleaseChannel::Snapshot => "Rolling snapshots",
+        ReleaseChannel::Stable => "Stable",
+        ReleaseChannel::ImageStream => "Image stream",
+        ReleaseChannel::Unverified => "Unverified",
+    }
+}
+
 /// How each family releases, as its card says it.
 pub fn family_release(family: Family) -> &'static str {
     match family {
