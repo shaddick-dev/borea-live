@@ -15,6 +15,8 @@ pub struct Plan {
     pub net: NetChoice,
     pub locale: LocaleChoice,
     pub distro: Distro,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derivative: Option<ArchDerivative>,
     pub release: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secure_boot: Option<bool>,
@@ -31,6 +33,12 @@ pub struct Plan {
     pub sources: BTreeMap<String, bool>,
     pub disk: DiskPlan,
     pub user: Identity,
+}
+/// A derivative is part of the approved plan; it never changes the base source family.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ArchDerivative {
+    Cachyos,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
@@ -320,6 +328,10 @@ impl Plan {
         Ok(())
     }
     pub fn validate_intent(&self) -> Result<(), Hint> {
+        if self.derivative.is_some() && self.distro != Distro::Arch {
+            return Err(hint("distro", "CachyOS requires the Arch source family."));
+        }
+
         if !self.extras.is_empty()
             && (self.distro != Distro::Arch || self.desktop != Some(Desktop::HyprlandNoctalia))
         {
@@ -500,6 +512,8 @@ pub struct Package {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Review {
     pub distro: Distro,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derivative: Option<ArchDerivative>,
     pub release: String,
     pub environment: String,
     pub desktop: Option<Desktop>,
@@ -620,6 +634,7 @@ pub fn review(plan: &Plan, hw: &catalog::Hardware) -> Result<Review, Hint> {
 
     Ok(Review {
         distro: plan.distro,
+        derivative: plan.derivative,
         release: plan.release.clone(),
         environment: plan.env.clone(),
         desktop: plan.desktop,

@@ -9,13 +9,13 @@ on:
   workflow_dispatch:
     inputs:
       desktop:
-        description: 'Noctalia selects Arch; requires the latest stable v5 in signed Arch packages'
+        description: 'Noctalia on Arch/CachyOS; requires the latest stable v5 in signed native packages'
         type: choice
         options: [none, noctalia]
         default: none
       distro:
         type: choice
-        options: [all, arch, debian, fedora, opensuse, rpm]
+        options: [all, arch, cachyos, debian, fedora, opensuse, rpm]
         default: all
       layout:
         type: choice
@@ -71,11 +71,13 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix:
-        distro: ${{ fromJSON(inputs.desktop == 'noctalia' && '["arch"]' || github.event_name == 'pull_request' && '["arch"]' || inputs.distro == 'arch' && '["arch"]' || inputs.distro == 'debian' && '["debian"]' || inputs.distro == 'fedora' && '["fedora"]' || inputs.distro == 'opensuse' && '["opensuse"]' || inputs.distro == 'rpm' && '["fedora","opensuse"]' || '["arch","debian","fedora","opensuse"]') }}
+        distro: ${{ fromJSON(inputs.desktop == 'noctalia' && inputs.distro == 'cachyos' && '["cachyos"]' || inputs.desktop == 'noctalia' && '["arch"]' || github.event_name == 'pull_request' && '["arch"]' || inputs.distro == 'cachyos' && '["cachyos"]' || inputs.distro == 'arch' && '["arch"]' || inputs.distro == 'debian' && '["debian"]' || inputs.distro == 'fedora' && '["fedora"]' || inputs.distro == 'opensuse' && '["opensuse"]' || inputs.distro == 'rpm' && '["fedora","opensuse"]' || '["arch","debian","fedora","opensuse"]') }}
         layout: ${{ fromJSON(inputs.layout == 'both' && '["whole","alongside"]' || inputs.layout == 'alongside' && '["alongside"]' || '["whole"]') }}
         secure_boot: ${{ fromJSON(inputs.secure_boot == 'both' && '["0","1"]' || inputs.secure_boot == '1' && '["1"]' || '["0"]') }}
         exclude:
           - distro: arch
+            secure_boot: '1'
+          - distro: cachyos
             secure_boot: '1'
     env:
       BOREA_TEST_DISTRO: ${{ matrix.distro }}

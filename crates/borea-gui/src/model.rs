@@ -1,6 +1,6 @@
 //! What the user has chosen on each family card, and what follows from it.
 //!
-//! Pure state over the catalog: no egui, no I/O. The window renders it; tests
+//! Pure state over the catalog: no GUI types, no I/O. The window renders it; tests
 //! drive it directly.
 
 use std::collections::BTreeMap;

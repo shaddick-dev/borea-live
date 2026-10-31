@@ -11,7 +11,6 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::Duration;
 
-use eframe::egui;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -128,19 +127,16 @@ pub struct HandoffLink {
     service: Service,
     tx: Sender<Msg>,
     rx: Receiver<Msg>,
-    ctx: Option<egui::Context>,
 }
 
 impl HandoffLink {
     /// The real service: borea-installd over its socket.
-    pub fn system(target: &'static str, ctx: egui::Context) -> Self {
+    pub fn system(target: &'static str) -> Self {
         let service: Service = Arc::new(|method, params| {
             borea_protocol::call::<_, Value>(method, params, Duration::from_secs(120))
                 .map_err(|e| e.to_string())
         });
-        let mut link = Self::with_service(target, service);
-        link.ctx = Some(ctx);
-        link
+        Self::with_service(target, service)
     }
 
     pub fn with_service(target: &'static str, service: Service) -> Self {
@@ -155,17 +151,13 @@ impl HandoffLink {
             service,
             tx,
             rx,
-            ctx: None,
         }
     }
 
     fn ask(&self, method: &'static str, params: Value, wrap: fn(Result<Value, String>) -> Msg) {
-        let (service, tx, ctx) = (Arc::clone(&self.service), self.tx.clone(), self.ctx.clone());
+        let (service, tx) = (Arc::clone(&self.service), self.tx.clone());
         let _ = thread::Builder::new().name("handoff".into()).spawn(move || {
             let _ = tx.send(wrap(service(method, &params)));
-            if let Some(ctx) = ctx {
-                ctx.request_repaint();
-            }
         });
     }
 
@@ -175,16 +167,13 @@ impl HandoffLink {
             return;
         }
         self.phase = Phase::Loading;
-        let (service, tx, ctx) = (Arc::clone(&self.service), self.tx.clone(), self.ctx.clone());
+        let (service, tx) = (Arc::clone(&self.service), self.tx.clone());
         let _ = thread::Builder::new().name("handoff-disks".into()).spawn(move || {
             let disks = service("disks.list", &Value::Null).and_then(|facts| {
                 serde_json::from_value::<Vec<Disk>>(facts["disks"].clone())
                     .map_err(|e| format!("The disk list could not be read: {e}"))
             });
             let _ = tx.send(Msg::Disks(disks));
-            if let Some(ctx) = ctx {
-                ctx.request_repaint();
-            }
         });
     }
 
@@ -259,7 +248,7 @@ impl HandoffLink {
 
     /// Follow the hand-off's events until it finishes or fails.
     fn follow(&self, after: u64) {
-        let (service, tx, ctx) = (Arc::clone(&self.service), self.tx.clone(), self.ctx.clone());
+        let (service, tx) = (Arc::clone(&self.service), self.tx.clone());
         let _ = thread::Builder::new().name("handoff-events".into()).spawn(move || {
             let mut cursor = after;
             loop {
@@ -275,9 +264,6 @@ impl HandoffLink {
                 }
                 let more = batch.as_ref().is_ok_and(|b| b["more"].as_bool() == Some(true));
                 let _ = tx.send(Msg::Events(batch));
-                if let Some(ctx) = &ctx {
-                    ctx.request_repaint();
-                }
                 if done {
                     break;
                 }

@@ -42,12 +42,12 @@ borea/
 
 | Area | Proposed choice | Reason and qualification |
 | --- | --- | --- |
-| GUI | Slint over the existing Rust workflow | Shared Windpad/live-ISO screens, embedded official logos and accessible controls; legacy egui views remain regression fixtures |
-| Graphics | Slint software renderer, Winit on Wayland/X11 | Native startup tested in the Debian runtime under cage without GPU access; Fontconfig and fonts are included |
+| GUI | Iced over a render-independent Rust workflow | Shared Windpad/live-ISO screens, embedded official logos, channel-based workers |
+| Graphics | Iced tiny-skia software renderer, Winit on Wayland/X11 | Native startup tested in the Debian runtime under cage without GPU access; Fontconfig and fonts are included |
 | TUI | Ratatui + Crossterm | Terminal layout, keyboard input, progress display |
 | Hardware | Rust sysfs/udev access and bounded native queries | Progressive local read-only facts, hotplug invalidation |
 | Wi-Fi | NetworkManager D-Bus via zbus | Shared TUI/GUI connections and scoped secret handling |
-| Wind motion | A subtle embedded airflow image with a Slint timer | Pause control stops its motion; no decorative logo frames |
+| Wind motion | Rust Canvas currents, frost motes and selected-card effects | Right-to-left motion eases faster on page changes; pause freezes effects |
 | Async and HTTP | Tokio + Reqwest with Rustls | Streaming downloads, cancellation, TLS without assuming host OpenSSL |
 | Serialization | Serde; TOML for authored profiles; JSON for IPC and exported plans | Explicit schemas and easy inspection |
 | Domain errors | thiserror | Typed failures with user-facing recovery guidance |

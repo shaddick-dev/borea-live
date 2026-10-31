@@ -9,7 +9,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   # Installer backend crates keep Rust 1.85 (Debian 13's compiler). The live GUI
-  # crates need newer (eframe/egui 0.37 require 1.95), so only stable builds them.
+  # crates use the workspace Rust baseline, so only stable builds them.
   BACKEND: >-
     -p borea-core -p borea-catalog -p borea-locale -p borea-net -p borea-disk
     -p borea-backend -p borea-job -p borea-exec -p borea-http -p borea-platform
@@ -42,7 +42,7 @@ jobs:
             cage -d -s -- target/debug/borea-live --window --boot-smoke \
             2>&1 | tee borea-boot-smoke.log
           grep -qx BOREA_GUI_READY borea-boot-smoke.log
-      - name: Render Slint walkthrough without graphics hardware
+      - name: Render Iced walkthrough without graphics hardware
         run: cargo run --locked -p borea-gui --bin borea-live -- --showcase "$RUNNER_TEMP/borea-showcase"
       - name: VM harness unit tests
         run: python3 -m unittest discover -s tests/vm -v

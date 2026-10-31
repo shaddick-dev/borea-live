@@ -51,11 +51,10 @@ fn run() -> Result<(), Hint> {
     } else {
         (None, DiskPlan::Whole { disk: disk.id.clone() })
     };
-    let distro = match fs::read_to_string("/sys/firmware/qemu_fw_cfg/by_name/opt/borea/distro/raw")
-        .unwrap_or_else(|_| "debian".into())
-        .as_str()
-    {
-        "arch" => Distribution::Arch,
+    let target = fs::read_to_string("/sys/firmware/qemu_fw_cfg/by_name/opt/borea/distro/raw")
+        .unwrap_or_else(|_| "debian".into());
+    let distro = match target.as_str() {
+        "arch" | "cachyos" => Distribution::Arch,
         "debian" => Distribution::Debian,
         "fedora" => Distribution::Fedora,
         "opensuse" => Distribution::OpenSuse,
@@ -82,6 +81,7 @@ fn run() -> Result<(), Hint> {
             timezone: "Europe/London".into(),
         },
         distro,
+        derivative: (target == "cachyos").then_some(borea_core::ArchDerivative::Cachyos),
         secure_boot: None,
         release: match distro {
             Distribution::Arch => "rolling",

@@ -160,3 +160,26 @@ fn all_bases_accept_explicit_unsigned_installation_without_setup_mode() {
         assert!(plan.validate_firmware(&hw).is_ok());
     }
 }
+
+#[test]
+fn derivative_is_explicit_round_trips_and_cannot_cross_source_families() {
+    let mut plan = common::plan(Distribution::Arch, true);
+    let original = serde_json::to_value(&plan).unwrap();
+    assert!(original.get("derivative").is_none());
+    plan.derivative = Some(ArchDerivative::Cachyos);
+    assert!(plan.validate_intent().is_ok());
+    let data = serde_json::to_value(&plan).unwrap();
+    assert_eq!(data["derivative"], "cachyos");
+    assert_eq!(serde_json::from_value::<Plan>(data).unwrap(), plan);
+    for distro in [Distribution::Debian, Distribution::Fedora, Distribution::OpenSuse] {
+        let mut invalid = common::plan(distro, true);
+        invalid.derivative = plan.derivative;
+        assert!(invalid.validate_intent().is_err());
+    }
+    let mut unknown = original;
+    unknown["derivative"] = "omarchy".into();
+    assert!(
+        serde_json::from_value::<Plan>(unknown).is_err(),
+        "Omarchy uses its actual upstream installer"
+    );
+}

@@ -85,11 +85,11 @@ fn run() -> Result<(), String> {
     let distro = std::env::var("BOREA_TEST_DISTRO").unwrap_or_else(|_| "debian".into());
     let desktop = std::env::var("BOREA_TEST_DESKTOP").unwrap_or_else(|_| "none".into());
     if !["none", "noctalia"].contains(&desktop.as_str())
-        || (desktop == "noctalia" && distro != "arch")
+        || (desktop == "noctalia" && !["arch", "cachyos"].contains(&distro.as_str()))
     {
         return Err("The Noctalia desktop scenario requires Arch.".into());
     }
-    if !["arch", "debian", "fedora", "opensuse"].contains(&distro.as_str()) {
+    if !["arch", "cachyos", "debian", "fedora", "opensuse"].contains(&distro.as_str()) {
         return Err("Unknown VM test distro.".into());
     }
     let layout = std::env::var("BOREA_TEST_LAYOUT").unwrap_or_else(|_| "whole".into());
@@ -101,7 +101,7 @@ fn run() -> Result<(), String> {
         Ok("0") | Err(_) => false,
         _ => return Err("BOREA_TEST_SECURE_BOOT must be 0 or 1.".into()),
     };
-    if secure_boot && distro == "arch" {
+    if secure_boot && ["arch", "cachyos"].contains(&distro.as_str()) {
         return Err("Arch uses owner-key enrollment from Setup Mode; the Microsoft-enrolled fixture cannot certify that separate pathway.".into());
     }
     if repair && (distro != "debian" || layout != "whole" || secure_boot) {
