@@ -35,7 +35,7 @@ The migration removes Slint, egui and their rendering bridges. The backend remai
 
 [Logo sources](../crates/borea-gui/ui/logos/README.md) · [Design rules](design.md) · [Installation status](arch-noctalia.md)
 
-The README poster opens the MP4 player on GitHub Pages. Rebuild the video after
+The README GIF preview opens the MP4 player on GitHub Pages. The player keeps a static poster. Rebuild the video after
 changing installer screens:
 
 ```sh
