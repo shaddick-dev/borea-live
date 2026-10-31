@@ -7,6 +7,7 @@ use iced::widget::{
     slider, space, stack, svg, text, text_input,
 };
 use iced::{Alignment, Background, Border, Color, Element, Length, Subscription, Task, Theme};
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 #[derive(Clone, PartialEq)]
 struct Tile {
@@ -17,6 +18,10 @@ struct Tile {
     logo: String,
     selected: bool,
     enabled: bool,
+    /// A quiet tag at the card's bottom right: why it can't be picked, or its status.
+    badge: Option<String>,
+    /// Facts to read rather than a choice: a flat card with no hover and no greying.
+    info: bool,
 }
 impl Tile {
     fn new(
@@ -33,6 +38,8 @@ impl Tile {
             logo: String::new(),
             selected,
             enabled: true,
+            badge: None,
+            info: false,
         }
     }
 }
@@ -321,6 +328,7 @@ impl Bridge {
                                 let mut t =
                                     Tile::new("", name, format!("{value}\n{detail}"), false);
                                 t.enabled = false;
+                                t.info = true;
                                 t
                             })
                             .collect(),
@@ -350,6 +358,7 @@ impl Bridge {
                     .into();
                     if !t.enabled {
                         t.meta = "Not available yet".into();
+                        t.badge = Some("Coming soon".into());
                     }
                     heroes.push(t);
                 }
@@ -357,20 +366,26 @@ impl Bridge {
             Step::Distribution => {
                 for (i, d) in a.catalog.family(f).enumerate() {
                     let status = if d.id.as_str() == "omarchy" {
-                        "Official installer, via Borea".into()
+                        "Official installer".into()
                     } else if matches!(d.id.as_str(), "arch" | "cachyos") {
-                        "Minimal · Noctalia v5 desktops".into()
+                        "Noctalia v5".into()
                     } else {
                         format!("{} integration", crate::model::capitalize(&d.status.to_string()))
                     };
                     let mut t = Tile::new(
                         format!("distro/{i}"),
                         &d.name,
-                        format!("{}\n\n{status}", d.summary),
+                        &d.summary,
                         a.picked_distro && c.distro == i,
                     );
+                    t.badge = Some(status);
                     t.logo = d.id.to_string();
-                    t.meta = crate::model::capitalize(&d.channel.to_string());
+                    // The family's flagship says what its family card says.
+                    t.meta = if i == 0 {
+                        crate::model::family_release(f).into()
+                    } else {
+                        crate::model::release_label(d.channel).into()
+                    };
                     heroes.push(t);
                 }
                 if a.picked_distro {
@@ -448,6 +463,9 @@ impl Bridge {
                                             && c.compositor.as_deref() == Some(&o.item.id),
                                     );
                                     t.enabled = o.available();
+                                    if !t.enabled {
+                                        t.badge = Some("Not available".into());
+                                    }
                                     t
                                 })
                                 .collect(),
@@ -467,6 +485,9 @@ impl Bridge {
                                             && c.shell == Some(ShellPick::Shell(o.item.id.clone())),
                                     );
                                     t.enabled = o.available();
+                                    if !t.enabled {
+                                        t.badge = Some("Not available".into());
+                                    }
                                     if o.item.id.starts_with("cachyos-noctalia-") {
                                         t.description.push_str("\nPreview: CachyOS preset integration is pending. Choose Noctalia v5 for the native installer.");
                                     }
@@ -486,12 +507,16 @@ impl Bridge {
                 } else {
                     groups.push(section(
                         "Included desktop",
-                        vec![Tile::new(
-                            "",
-                            &a.edition().name,
-                            "The upstream desktop is included",
-                            true,
-                        )],
+                        vec![{
+                            let mut t = Tile::new(
+                                "",
+                                &a.edition().name,
+                                "The upstream desktop is included",
+                                true,
+                            );
+                            t.badge = Some("Included".into());
+                            t
+                        }],
                     ));
                     if a.selection.compose_target(&a.catalog, f).is_some() {
                         groups.push(section(
@@ -518,6 +543,9 @@ impl Bridge {
                                 a.selection.extra(&a.catalog, f, &o.extra.id),
                             );
                             t.enabled = !o.provision.built_in;
+                            if !t.enabled {
+                                t.badge = Some("Included".into());
+                            }
                             t
                         })
                         .collect(),
@@ -550,6 +578,9 @@ impl Bridge {
                                         ..
                                     }
                                 );
+                                if !t.enabled {
+                                    t.badge = Some("Not available".into());
+                                }
                                 t
                             })
                             .collect(),
@@ -628,9 +659,9 @@ enum Message {
     Hidden(bool),
     HiddenSsid(String),
     HiddenSecurity(String),
-    /// The pointer entered (true) or left (false) a family card.
-    Hover(Family, bool),
-    /// Where the pointer is over the hovered family card, from its top-left corner.
+    /// The pointer entered (true) or left (false) the card with this key.
+    Hover(String, bool),
+    /// Where the pointer is over the hovered card, from its top-left corner.
     Pointer(iced::Point),
 }
 impl std::fmt::Debug for Message {
@@ -695,13 +726,15 @@ struct App {
     view_key: String,
     elapsed: f32,
     pulse: f32,
-    /// The family card under the pointer, if it can be picked, and where on it.
-    hovered: Option<Family>,
+    /// The card under the pointer, if it can be picked, and where on it.
+    hovered: Option<String>,
     pointer: Option<iced::Point>,
-    /// Per family (in `Family::ALL` order), eased 0 to 1: how far each card has
-    /// lifted under the pointer, and how far its picked colour has washed in.
-    lift: [f32; 4],
-    chosen: [f32; 4],
+    /// Per card key, eased 0 to 1: how far each card has lifted under the pointer,
+    /// and how far its picked wash has come in. Settled cards drop out.
+    lift: BTreeMap<String, f32>,
+    chosen: BTreeMap<String, f32>,
+    /// The card just picked, which alone blooms while `pulse` fades.
+    bloom: Option<String>,
     password: zeroize::Zeroizing<String>,
     confirmation: zeroize::Zeroizing<String>,
     wifi_password: zeroize::Zeroizing<String>,
@@ -730,8 +763,9 @@ impl App {
             pulse: 1.,
             hovered: None,
             pointer: None,
-            lift: [0.; 4],
-            chosen: [0.; 4],
+            lift: BTreeMap::new(),
+            chosen: BTreeMap::new(),
+            bloom: None,
             password: Default::default(),
             confirmation: Default::default(),
             wifi_password: Default::default(),
@@ -744,28 +778,39 @@ impl App {
             ready: false,
         }
     }
-    /// Ease each family card's lift toward the pointer and its colour toward being
-    /// picked. Paused, both snap: the state still shows, without motion.
-    fn ease_family_cards(&mut self, dt: f64, paused: bool) {
-        if self.bridge.app.step != Step::System {
-            // A card that vanishes under the pointer never reports the pointer leaving.
-            self.hovered = None;
-            self.pointer = None;
+    /// Ease every card's lift toward the pointer and its wash toward being picked,
+    /// including the step rail's. Paused, both snap: the state still shows, without motion.
+    fn ease_cards(&mut self, dt: f64, paused: bool) {
+        let (heroes, groups) = self.bridge.tiles();
+        let mut picked: BTreeSet<String> = heroes
+            .iter()
+            .chain(groups.iter().flat_map(|g| g.choices.iter()))
+            .filter(|t| t.selected && !t.key.is_empty())
+            .map(|t| t.key.clone())
+            .collect();
+        picked.insert(step_key(self.bridge.app.step));
+        let hovered = self.hovered.clone();
+        let settle = |value: &mut f32, target: f32, time: f64| {
+            *value = if paused {
+                target
+            } else {
+                *value + (target - *value) * (1. - (-dt / time).exp()) as f32
+            };
+        };
+        for key in hovered.iter() {
+            self.lift.entry(key.clone()).or_insert(0.);
         }
-        let picked = self.bridge.picked();
-        for (i, family) in Family::ALL.into_iter().enumerate() {
-            let lift = if self.hovered == Some(family) { 1. } else { 0. };
-            let chosen = if picked == Some(family) { 1. } else { 0. };
-            for (value, target, settle) in
-                [(&mut self.lift[i], lift, 0.09), (&mut self.chosen[i], chosen, 0.1)]
-            {
-                *value = if paused {
-                    target
-                } else {
-                    *value + (target - *value) * (1. - (-dt / settle).exp()) as f32
-                };
-            }
+        for (key, value) in self.lift.iter_mut() {
+            settle(value, if hovered.as_ref() == Some(key) { 1. } else { 0. }, 0.09);
         }
+        self.lift.retain(|key, value| *value > 0.001 || hovered.as_ref() == Some(key));
+        for key in &picked {
+            self.chosen.entry(key.clone()).or_insert(0.);
+        }
+        for (key, value) in self.chosen.iter_mut() {
+            settle(value, if picked.contains(key) { 1. } else { 0. }, 0.1);
+        }
+        self.chosen.retain(|key, value| *value > 0.001 || picked.contains(key));
     }
     fn key(&self) -> String {
         format!(
@@ -813,6 +858,7 @@ impl App {
                             {
                                 self.bridge.command(&tile.key);
                                 self.pulse = 1.;
+                                self.bloom = Some(tile.key.clone());
                             }
                         }
                     }
@@ -860,7 +906,12 @@ impl App {
                     self.elapsed += dt as f32;
                     self.pulse = (self.pulse - dt as f32 / 0.7).max(0.);
                 }
-                self.ease_family_cards(dt, paused);
+                if changed {
+                    // A card that vanishes under the pointer never reports it leaving.
+                    self.hovered = None;
+                    self.pointer = None;
+                }
+                self.ease_cards(dt, paused);
                 if self.bridge.app.native.page != Page::Account {
                     use zeroize::Zeroize;
                     self.password.zeroize();
@@ -879,10 +930,10 @@ impl App {
                     self.bridge.app.apply(action);
                 }
             }
-            Message::Hover(family, inside) => {
+            Message::Hover(key, inside) => {
                 if inside {
-                    self.hovered = Some(family);
-                } else if self.hovered == Some(family) {
+                    self.hovered = Some(key);
+                } else if self.hovered.as_ref() == Some(&key) {
                     self.hovered = None;
                     self.pointer = None;
                 }
@@ -892,6 +943,7 @@ impl App {
             Message::Next => self.bridge.next(),
             Message::Choose(key) => {
                 let prior = self.bridge.network;
+                self.bloom = Some(key.clone());
                 self.bridge.command(&key);
                 if prior != self.bridge.network {
                     use zeroize::Zeroize;
@@ -1074,20 +1126,26 @@ impl App {
         .spacing(9);
         for step in Step::ALL {
             let active = step == a.step;
-            let mut content =
-                column![text(format!("{:02}  {}", step.number(), step.name())).size(14)].spacing(5);
+            let mut content = column![
+                text(format!("{:02}  {}", step.number(), step.name()))
+                    .size(14)
+                    .color(if step <= a.reached { p.text } else { p.muted })
+            ]
+            .spacing(5);
             if let Some(summary) = a.summary(step) {
                 content = content.push(text(summary).size(11).color(p.muted));
             }
             let enabled =
                 step <= a.reached && !self.bridge.busy() && a.native.page != Page::Finished;
-            rail = rail.push(
-                button(content)
-                    .padding(12)
-                    .width(Length::Fill)
-                    .on_press_maybe(enabled.then_some(Message::Action(Action::Go(step))))
-                    .style(move |_, status| tile_style(p, active, status)),
-            );
+            rail = rail.push(self.card_shell(
+                &step_key(step),
+                content.into(),
+                p.ice,
+                Size::Rail,
+                Look::Ready,
+                active,
+                enabled.then_some(Message::Action(Action::Go(step))),
+            ));
         }
         rail = rail
             .push(space().height(Length::Fill))
@@ -1123,19 +1181,22 @@ impl App {
         });
         let (heroes, groups) = self.bridge.tiles();
         let mut body = column![
-            text(format!("STEP {:02} / 06", a.step.number())).size(11).color(p.ice),
+            text(format!("Step {} of 6", a.step.number())).size(12).color(p.ice),
             text(self.heading()).size(31),
             text(a.step.lead()).size(13).color(p.muted)
         ]
         .spacing(12);
         if !heroes.is_empty() {
-            // Family cards sit two by two, so each has room for its words.
-            let across = if a.step == Step::System { 2 } else { heroes.len() };
+            // Hero cards sit two across, so each has room for its words; a last card
+            // on its own keeps the same width.
             let mut grid = column![].spacing(12);
-            for chunk in heroes.chunks(across) {
+            for chunk in heroes.chunks(2) {
                 let mut cards = row![].spacing(12);
                 for tile in chunk {
                     cards = cards.push(self.card(tile.clone(), true));
+                }
+                if chunk.len() < 2 {
+                    cards = cards.push(space().width(Length::Fill));
                 }
                 grid = grid.push(cards);
             }
@@ -1154,13 +1215,14 @@ impl App {
             }
             body = body.push(text(group.title).size(12).color(p.ice));
             // Compact rows keep long shell/app catalogs readable at laptop resolutions.
-            for chunk in group
-                .choices
-                .chunks(if a.step == Step::Connect || a.step == Step::Review { 1 } else { 2 })
-            {
+            let across = if a.step == Step::Connect || a.step == Step::Review { 1 } else { 2 };
+            for chunk in group.choices.chunks(across) {
                 let mut choices = row![].spacing(10);
                 for tile in chunk {
                     choices = choices.push(self.card(tile.clone(), false));
+                }
+                if chunk.len() < across {
+                    choices = choices.push(space().width(Length::Fill));
                 }
                 body = body.push(choices);
             }
@@ -1200,7 +1262,8 @@ impl App {
         .spacing(12)
         .align_y(Alignment::Center);
         let main =
-            column![scrollable(body.padding([8, 4])).height(Length::Fill), footer].spacing(18);
+            column![scrollable(body.padding([8, 4])).spacing(10).height(Length::Fill), footer]
+                .spacing(18);
         let content = container(
             row![rail, container(main).padding(28).width(Length::Fill)].height(Length::Fill),
         )
@@ -1222,7 +1285,7 @@ impl App {
             let modal = container(container(dialog).padding(28).max_width(520).style(move |_| {
                 container::Style {
                     background: Some(p.surface.into()),
-                    border: Border { color: p.ice, width: 1., radius: 20.into() },
+                    border: Border { color: p.ice, width: 1., radius: 16.into() },
                     ..Default::default()
                 }
             }))
@@ -1236,193 +1299,258 @@ impl App {
             base
         }
     }
-    /// A family card: the family's own colour, type and words. Hovering lifts it and
-    /// the side under the pointer gives way; picking it washes it in the family colour.
-    /// A family that isn't ready yet is greyed out, still and says "Coming soon".
-    fn family_card(&self, tile: Tile, i: usize, family: Family) -> Element<'_, Message> {
+    /// The colours a card's words take: its name, its words, a credit or detail,
+    /// and its release line. A card that can't be picked yet is muted throughout.
+    fn ink(&self, waiting: bool) -> (Color, Color, Color, Color) {
         let p = self.colors();
-        let a = &self.bridge.app;
-        let [r, g, b] = crate::model::family_colour(family);
-        let brand = Color::from_rgb8(r, g, b);
-        let ready = tile.enabled;
-        let lift = if ready { self.lift[i] } else { 0. };
-        let chosen = self.chosen[i];
         let soft = |c: Color, alpha: f32| Color { a: alpha, ..c };
-        let (name, words, cite, release) = if ready {
-            (p.text, soft(p.text, 0.86), soft(p.muted, 0.75), mix(p.text, p.muted, 0.22))
-        } else {
+        if waiting {
             (soft(p.muted, 0.6), soft(p.muted, 0.85), soft(p.muted, 0.6), soft(p.muted, 0.75))
+        } else {
+            (p.text, soft(p.text, 0.86), soft(p.muted, 0.75), mix(p.text, p.muted, 0.22))
+        }
+    }
+    /// A hero card's bottom line: its release on the left and, at the bottom right,
+    /// its quiet tag. Every hero card's release line sits level.
+    fn foot<'a>(
+        &self,
+        release: String,
+        badge: Option<String>,
+        waiting: bool,
+    ) -> Element<'a, Message> {
+        let (_, _, _, ink) = self.ink(waiting);
+        let mut foot = row![text(release).size(12.5).wrapping(text::Wrapping::None).color(ink)]
+            .spacing(8)
+            .align_y(Alignment::Center);
+        foot = match badge {
+            Some(label) => foot.push(space().width(Length::Fill)).push(tag(self.colors(), label)),
+            None => foot.push(space().height(22)),
         };
-        let quote = crate::model::family_quote(family);
+        foot.into()
+    }
+    /// A quote, and who said it, beneath.
+    fn quote<'a>(
+        &self,
+        quote: crate::model::Quote,
+        font: iced::Font,
+        waiting: bool,
+    ) -> Element<'a, Message> {
+        let (_, words, cite, _) = self.ink(waiting);
+        column![
+            text(format!("\u{201c}{}\u{201d}", quote.text))
+                .size(14)
+                .line_height(1.45)
+                .wrapping(text::Wrapping::Word)
+                .font(font)
+                .color(words),
+            text(format!("\u{2014} {}", quote.source)).size(11.5).font(font).color(cite),
+        ]
+        .spacing(6)
+        .into()
+    }
+    /// A family's words: its logo, its name in its own type, its own words, and its release.
+    fn family_body<'a>(&self, tile: &Tile, family: Family) -> Element<'a, Message> {
+        let waiting = !tile.enabled;
+        let (name, ..) = self.ink(waiting);
         let mut body = column![].spacing(14).height(Length::Fill);
-        if let Some(mark) = faded_logo(&tile.logo, a.dark, if ready { 1. } else { 0.38 }) {
+        if let Some(mark) =
+            faded_logo(&tile.logo, self.bridge.app.dark, if waiting { 0.38 } else { 1. })
+        {
             body = body.push(mark);
         }
-        body = body
-            .push(text(tile.label).size(19).font(label_font(family)).color(name))
-            .push(
-                column![
-                    text(format!("\u{201c}{}\u{201d}", quote.text))
-                        .size(14)
-                        .line_height(1.45)
-                        .wrapping(text::Wrapping::Word)
-                        .font(quote_font(family))
-                        .color(words),
-                    text(format!("\u{2014} {}", quote.source))
-                        .size(11.5)
-                        .font(quote_font(family))
-                        .color(cite),
-                ]
-                .spacing(6),
-            )
-            .push(space().height(Length::Fill));
-        let mut foot = row![
-            text(crate::model::family_release(family))
-                .size(12.5)
-                .wrapping(text::Wrapping::None)
-                .color(release)
-        ]
-        .spacing(8)
-        .align_y(Alignment::Center);
-        if !ready {
-            let badge = container(
-                text("Coming soon").size(11.5).wrapping(text::Wrapping::None).color(p.muted),
-            )
-            .height(22)
-            .padding([0, 8])
-            .align_y(Alignment::Center)
-            .style(move |_| container::Style {
-                background: Some(soft(p.muted, 0.16).into()),
-                border: Border { radius: 6.into(), ..Default::default() },
-                ..Default::default()
-            });
-            foot = foot.push(space().width(Length::Fill)).push(badge);
-        } else {
-            // The same height as the badge, so every card's release line sits level.
-            foot = foot.push(space().height(22));
+        body.push(text(tile.label.clone()).size(19).font(label_font(family)).color(name))
+            .push(self.quote(crate::model::family_quote(family), quote_font(family), waiting))
+            .push(space().height(Length::Fill))
+            .push(self.foot(
+                crate::model::family_release(family).into(),
+                tile.badge.clone(),
+                waiting,
+            ))
+            .into()
+    }
+    /// A distribution's words: as a family's, with its status tag at the bottom right.
+    fn distro_body<'a>(&self, tile: &Tile) -> Element<'a, Message> {
+        let waiting = !tile.enabled;
+        let (name, words, ..) = self.ink(waiting);
+        let mut body = column![].spacing(14).height(Length::Fill);
+        if let Some(mark) =
+            faded_logo(&tile.logo, self.bridge.app.dark, if waiting { 0.38 } else { 1. })
+        {
+            body = body.push(mark);
         }
-        body = body.push(foot);
-
+        body = body.push(text(tile.label.clone()).size(19).color(name));
+        body = match crate::model::distro_quote(&tile.logo) {
+            Some(quote) => body.push(self.quote(quote, FACE, waiting)),
+            None => {
+                body.push(text(tile.description.clone()).size(14).line_height(1.45).color(words))
+            }
+        };
+        body.push(space().height(Length::Fill))
+            .push(self.foot(tile.meta.clone(), tile.badge.clone(), waiting))
+            .into()
+    }
+    /// Any other choice's words: its name, its detail, and its tag at the bottom right.
+    fn compact_body<'a>(&self, tile: &Tile) -> Element<'a, Message> {
+        let waiting = !tile.enabled && !tile.info && !tile.selected;
+        let (name, words, ..) = self.ink(waiting);
+        let mut body = column![text(tile.label.clone()).size(15).color(name)].spacing(5);
+        if !tile.description.is_empty() {
+            body = body.push(text(tile.description.clone()).size(13).line_height(1.4).color(words));
+        }
+        if let Some(label) = &tile.badge {
+            body = body.push(row![space().width(Length::Fill), tag(self.colors(), label.clone())]);
+        }
+        body.into()
+    }
+    /// One card in Borea's card language, whatever it holds. Hovering lifts it with
+    /// a deeper shadow and a glow of its accent, and the side under the pointer gives
+    /// way into shade. Picked, a wash of its accent fades in and drifts slowly, with
+    /// a 2 px rim and a gently breathing glow; just picked, a faint bloom grows from
+    /// the pointer. A card that can't be picked yet is greyed and still, and a card
+    /// of facts is flat. Three layers: the surface, the shading drawn on it, and the
+    /// words on top, so the shading never dims a logo or text.
+    #[allow(clippy::too_many_arguments)]
+    fn card_shell<'a>(
+        &'a self,
+        key: &str,
+        words: Element<'a, Message>,
+        accent: Color,
+        size: Size,
+        look: Look,
+        picked: bool,
+        press: Option<Message>,
+    ) -> Element<'a, Message> {
+        let p = self.colors();
+        let a = &self.bridge.app;
         let still = a.still;
+        let live = press.is_some() && !key.is_empty();
+        let lift = if live { self.lift.get(key).copied().unwrap_or(0.) } else { 0. };
+        // Paused, a pick shows at once; otherwise it eases in from the next tick.
+        let settled = if picked && (still || key.is_empty()) { 1. } else { 0. };
+        let chosen = self.chosen.get(key).copied().unwrap_or(settled);
         let t = self.elapsed;
-        // Picked: the wash drifts slowly across the card and its glow breathes.
         let angle =
             if still { 167.5 } else { 167.5 + 37.5 * (t * std::f32::consts::TAU / 18.).sin() };
         let breath =
             if still { 0.41 } else { 0.41 + 0.09 * (t * std::f32::consts::TAU / 6.8).sin() };
         let shade = if a.dark { Color::from_rgb8(8, 11, 18) } else { Color::from_rgb8(46, 52, 64) };
         let depth = if a.dark { (0.2, 0.42) } else { (0.08, 0.2) };
-        // Three layers: the surface, the push and bloom drawn on it, and the words on
-        // top, so the shading never dims the logo or text.
-        let surface = container(space())
+        let words = button(words)
+            .padding(size.padding())
             .width(Length::Fill)
-            .height(Length::Fixed(245.))
-            .style(move |_| family_surface(p, brand, shade, depth, ready, lift, chosen, angle));
-        let words = button(body)
-            .padding(22)
-            .width(Length::Fill)
-            .height(Length::Fixed(245.))
-            .on_press_maybe((ready && !self.bridge.busy()).then_some(Message::Choose(tile.key)))
+            .height(size.height())
+            .on_press_maybe(press)
             .style(move |_, _| button::Style {
                 background: None,
                 text_color: p.text,
                 border: Border { radius: 16.into(), ..Default::default() },
                 ..Default::default()
             });
-        let card: Element<'_, Message> = if ready {
-            let fx = widget::canvas(FamilyFx {
-                at: if self.hovered == Some(family) { self.pointer } else { None },
-                lift,
-                push: !still,
-                bloom: if tile.selected && !still { self.pulse } else { 0. },
-                brand,
-                shade,
-            })
-            .width(Length::Fill)
-            .height(Length::Fill);
-            widget::mouse_area(stack![surface, fx, words])
-                .on_enter(Message::Hover(family, true))
+        let mut layers = stack![words];
+        if live {
+            layers = layers.push_under(
+                widget::canvas(CardFx {
+                    at: if self.hovered.as_deref() == Some(key) { self.pointer } else { None },
+                    lift,
+                    push: !still,
+                    bloom: if picked && !still && self.bloom.as_deref() == Some(key) {
+                        self.pulse
+                    } else {
+                        0.
+                    },
+                    brand: accent,
+                    shade,
+                })
+                .width(Length::Fill)
+                .height(Length::Fill),
+            );
+        }
+        let layers = layers.push_under(
+            container(space())
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(move |_| card_surface(p, accent, shade, depth, look, lift, chosen, angle)),
+        );
+        let card: Element<'a, Message> = if live {
+            widget::mouse_area(layers)
+                .on_enter(Message::Hover(key.to_string(), true))
                 .on_move(Message::Pointer)
-                .on_exit(Message::Hover(family, false))
+                .on_exit(Message::Hover(key.to_string(), false))
                 .into()
         } else {
-            stack![surface, words].into()
+            layers.into()
         };
-        // A soft glow in the family colour: under a hovered card, and breathing round a picked one.
         let glow = (0.36 * lift).max(breath * chosen);
+        let blur = size.glow();
         let card = container(card).style(move |_| container::Style {
             border: Border { radius: 16.into(), ..Default::default() },
             shadow: iced::Shadow {
-                color: Color { a: glow, ..brand },
-                offset: iced::Vector::new(0., 8. * lift * (1. - chosen)),
-                blur_radius: 32.,
+                color: Color { a: glow, ..accent },
+                offset: iced::Vector::new(0., 2. * size.rise() * lift * (1. - chosen)),
+                blur_radius: blur,
             },
             ..Default::default()
         });
-        // The lift itself: the card rises 4 px within its slot.
+        let rise = size.rise();
         container(card)
             .padding(iced::Padding {
-                top: 4. * (1. - lift),
-                bottom: 4. * lift,
+                top: rise * (1. - lift),
+                bottom: rise * lift,
                 ..Default::default()
             })
             .into()
     }
+    /// Facts to read, on a card of facts: flat, like the machine's.
+    fn facts<'a>(&'a self, words: String) -> Element<'a, Message> {
+        let p = self.colors();
+        let words = text(words).size(14).line_height(1.45).color(Color { a: 0.86, ..p.text });
+        self.card_shell("", words.into(), p.ice, Size::Compact, Look::Info, false, None)
+    }
     fn card(&self, tile: Tile, hero: bool) -> Element<'_, Message> {
+        let p = self.colors();
+        let a = &self.bridge.app;
+        let press = (tile.enabled && !tile.key.is_empty() && !self.bridge.busy())
+            .then(|| Message::Choose(tile.key.clone()));
+        let look = if tile.info {
+            Look::Info
+        } else if !tile.enabled && !tile.selected {
+            Look::Waiting
+        } else {
+            Look::Ready
+        };
+        let rgb = |[r, g, b]: [u8; 3]| Color::from_rgb8(r, g, b);
         if hero
             && let Some(i) = tile.key.strip_prefix("family/").and_then(|i| i.parse::<usize>().ok())
             && let Some(&family) = Family::ALL.get(i)
         {
-            return self.family_card(tile, i, family);
+            let accent = rgb(crate::model::family_colour(family));
+            let words = self.family_body(&tile, family);
+            return self.card_shell(
+                &tile.key,
+                words,
+                accent,
+                Size::Hero,
+                look,
+                tile.selected,
+                press,
+            );
         }
-        let p = self.colors();
-        let selected = tile.selected;
-        let mut title = column![].spacing(if hero { 14 } else { 6 });
-        if hero {
-            if let Some(logo) = logo(&tile.logo, self.bridge.app.dark) {
-                title = title.push(logo);
-            }
-            title = title.push(text(tile.meta).size(10).color(if tile.enabled {
-                p.ice
-            } else {
-                p.muted
-            }));
+        if hero && tile.key.starts_with("distro/") {
+            let accent =
+                crate::model::distro_colour(&tile.logo, a.family()).map(rgb).unwrap_or(p.muted);
+            let words = self.distro_body(&tile);
+            return self.card_shell(
+                &tile.key,
+                words,
+                accent,
+                Size::Hero,
+                look,
+                tile.selected,
+                press,
+            );
         }
-        title = title
-            .push(text(tile.label).size(if hero { 19 } else { 15 }))
-            .push(text(tile.description).size(12).color(p.muted));
-        if selected {
-            title = title.push(text("SELECTED").size(9).color(p.ice));
-        }
-        let enabled = tile.enabled && !tile.key.is_empty() && !self.bridge.busy();
-        let pick = Message::Choose(tile.key);
-        let card: Element<'_, Message> = button(title)
-            .padding(if hero { 22 } else { 14 })
-            .width(Length::Fill)
-            .height(if hero { Length::Fixed(255.) } else { Length::Shrink })
-            .on_press_maybe(enabled.then_some(pick))
-            .style(move |_, status| tile_style(p, selected, status))
-            .into();
-        if !tile.enabled && hero {
-            let shade =
-                container(space()).width(Length::Fill).height(Length::Fill).style(move |_| {
-                    container::Style {
-                        background: Some(Color { a: 0.55, ..p.bg }.into()),
-                        border: Border { radius: 16.into(), ..Default::default() },
-                        ..Default::default()
-                    }
-                });
-            return stack![card, shade].into();
-        }
-        if selected {
-            let energy =
-                widget::canvas(SelectionFx { t: self.elapsed, pulse: self.pulse, color: p.ice })
-                    .width(Length::Fill)
-                    .height(Length::Fill);
-            stack![card, energy].into()
-        } else {
-            card
-        }
+        let words = self.compact_body(&tile);
+        self.card_shell(&tile.key, words, p.ice, Size::Compact, look, tile.selected, press)
     }
     fn account(&self) -> Element<'_, Message> {
         let n = &self.bridge.app.native;
@@ -1602,7 +1730,7 @@ impl App {
                     body = body.push(text("Looking for available drives…").size(14))
                 }
                 Page::Review => {
-                    body = body.push(text(n.review_details().unwrap_or_default()).size(14)).push(
+                    body = body.push(self.facts(n.review_details().unwrap_or_default())).push(
                         checkbox(n.confirmed)
                             .label("Apply these disk changes. I have backed up anything important.")
                             .on_toggle(Message::Confirm),
@@ -1620,7 +1748,7 @@ impl App {
         } else if a.handoff_target().is_some() {
             match &a.handoff.phase {
                 Phase::Reviewed(review) => {
-                    body=body.push(text(format!("{}\n\n{}",review.steps.join("\n"),review.choose)))
+                    body=body.push(self.facts(format!("{}\n\n{}",review.steps.join("\n"),review.choose)))
                         .push(checkbox(a.handoff.confirmed).label("Apply these disk changes. I have backed up anything important.").on_toggle(Message::Confirm));
                 }
                 Phase::Running { stage, fraction, .. } => {
@@ -1676,7 +1804,6 @@ fn region_options(kind: &str) -> Vec<String> {
 struct Colors {
     bg: Color,
     surface: Color,
-    raised: Color,
     text: Color,
     muted: Color,
     ice: Color,
@@ -1690,7 +1817,6 @@ impl Colors {
             Self {
                 bg: rgb(35, 42, 54),
                 surface: rgb(46, 52, 64),
-                raised: rgb(59, 66, 82),
                 text: rgb(236, 239, 244),
                 muted: rgb(180, 193, 209),
                 ice: rgb(136, 192, 208),
@@ -1701,7 +1827,6 @@ impl Colors {
             Self {
                 bg: rgb(236, 239, 244),
                 surface: rgb(229, 233, 240),
-                raised: rgb(216, 222, 233),
                 text: rgb(46, 52, 64),
                 muted: rgb(76, 86, 106),
                 ice: rgb(46, 99, 126),
@@ -1711,60 +1836,108 @@ impl Colors {
         }
     }
 }
-fn tile_style(p: Colors, selected: bool, status: button::Status) -> button::Style {
-    let hovered = matches!(status, button::Status::Hovered | button::Status::Pressed);
-    button::Style {
-        background: Some(Background::Color(if selected {
-            p.selected
-        } else if hovered {
-            p.raised
-        } else {
-            p.surface
-        })),
-        text_color: if matches!(status, button::Status::Disabled) && !selected {
-            p.muted
-        } else {
-            p.text
-        },
-        border: Border {
-            color: if selected || hovered { p.ice } else { p.line },
-            width: if selected { 2. } else { 1. },
-            radius: 16.into(),
-        },
-        shadow: iced::Shadow {
-            color: Color { a: if selected { 0.17 } else { 0. }, ..p.ice },
-            offset: iced::Vector::ZERO,
-            blur_radius: 18.,
-        },
-        ..Default::default()
-    }
-}
 /// `a` moved `t` (0 to 1) of the way to `b`.
 fn mix(a: Color, b: Color, t: f32) -> Color {
     let t = t.clamp(0., 1.);
     let at = |x: f32, y: f32| x + (y - x) * t;
     Color { r: at(a.r, b.r), g: at(a.g, b.g), b: at(a.b, b.b), a: at(a.a, b.a) }
 }
-/// A family card's surface. `lift` and `chosen` are eased 0 to 1; `angle` is the
-/// picked wash's direction in degrees (CSS convention: 0 up, 90 right).
+/// The three card sizes, in one language.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Size {
+    /// Family and distribution cards: logo, name, own words and release.
+    Hero,
+    /// Every other choice: name, detail and tag.
+    Compact,
+    /// The step rail.
+    Rail,
+}
+impl Size {
+    fn padding(self) -> f32 {
+        match self {
+            Size::Hero => 22.,
+            Size::Compact => 14.,
+            Size::Rail => 12.,
+        }
+    }
+    fn height(self) -> Length {
+        match self {
+            Size::Hero => Length::Fixed(245.),
+            Size::Compact | Size::Rail => Length::Shrink,
+        }
+    }
+    /// How far it rises under the pointer, in points.
+    fn rise(self) -> f32 {
+        match self {
+            Size::Hero => 4.,
+            Size::Compact | Size::Rail => 2.,
+        }
+    }
+    /// How far its glow spreads, in points.
+    fn glow(self) -> f32 {
+        match self {
+            Size::Hero => 32.,
+            Size::Compact => 22.,
+            Size::Rail => 18.,
+        }
+    }
+}
+/// What a card is, beyond its words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Look {
+    /// A choice: it lifts under the pointer and washes in its accent once picked.
+    Ready,
+    /// Not ready to pick: sunk toward the background, flat and still.
+    Waiting,
+    /// Facts to read: a plain card, no hover and no greying.
+    Info,
+}
+/// The rail key for a step, so it eases like any other card.
+fn step_key(step: Step) -> String {
+    format!("step/{}", step.number())
+}
+/// A quiet tag: "Coming soon", "Not available", "Included", or a status.
+fn tag<'a>(p: Colors, label: String) -> Element<'a, Message> {
+    container(text(label).size(11.5).wrapping(text::Wrapping::None).color(p.muted))
+        .height(22)
+        .padding([0, 8])
+        .align_y(Alignment::Center)
+        .style(move |_| container::Style {
+            background: Some(Color { a: 0.16, ..p.muted }.into()),
+            border: Border { radius: 6.into(), ..Default::default() },
+            ..Default::default()
+        })
+        .into()
+}
+/// A card's surface. `lift` and `chosen` are eased 0 to 1; `angle` is the picked
+/// wash's direction in degrees (CSS convention: 0 up, 90 right).
 #[allow(clippy::too_many_arguments)]
-fn family_surface(
+fn card_surface(
     p: Colors,
     brand: Color,
     shade: Color,
     depth: (f32, f32),
-    ready: bool,
+    look: Look,
     lift: f32,
     chosen: f32,
     angle: f32,
 ) -> container::Style {
-    if !ready {
-        // Not ready yet: sunk toward the background, flat and still.
-        return container::Style {
-            background: Some(mix(p.surface, p.bg, 0.45).into()),
-            border: Border { color: mix(p.line, p.bg, 0.3), width: 1., radius: 16.into() },
-            ..Default::default()
-        };
+    match look {
+        Look::Waiting => {
+            return container::Style {
+                background: Some(mix(p.surface, p.bg, 0.45).into()),
+                border: Border { color: mix(p.line, p.bg, 0.3), width: 1., radius: 16.into() },
+                ..Default::default()
+            };
+        }
+        Look::Info => {
+            return container::Style {
+                background: Some(p.surface.into()),
+                border: Border { color: p.line, width: 1., radius: 16.into() },
+                ..Default::default()
+            };
+        }
+        Look::Ready => {}
     }
     let wash = |amount: f32| mix(p.surface, brand, amount * chosen);
     let background = if chosen > 0.001 {
@@ -1791,9 +1964,6 @@ fn family_surface(
         },
         ..Default::default()
     }
-}
-fn logo(id: &str, dark: bool) -> Option<Element<'static, Message>> {
-    faded_logo(id, dark, 1.)
 }
 /// A logo at `opacity`, its artwork untouched.
 fn faded_logo(id: &str, dark: bool, opacity: f32) -> Option<Element<'static, Message>> {
@@ -1872,10 +2042,10 @@ impl widget::canvas::Program<Message> for AirCanvas {
         vec![f.into_geometry()]
     }
 }
-/// Drawn over a family card that can be picked. The side under the pointer gives
+/// Drawn on a card that can be picked, beneath its words. The side under the pointer gives
 /// way: it sinks into shade while the far side catches a little light, as far as the
 /// card has lifted. Just picked, a faint bloom of the family colour grows from the pointer.
-struct FamilyFx {
+struct CardFx {
     /// The pointer over this card, from its top-left corner. (The words drawn above
     /// this layer take the live cursor, so it comes from the card's mouse area.)
     at: Option<iced::Point>,
@@ -1885,7 +2055,7 @@ struct FamilyFx {
     brand: Color,
     shade: Color,
 }
-impl widget::canvas::Program<Message> for FamilyFx {
+impl widget::canvas::Program<Message> for CardFx {
     type State = ();
     fn draw(
         &self,
@@ -1945,56 +2115,6 @@ impl widget::canvas::Program<Message> for FamilyFx {
                     f.fill(&Path::circle(from, r), Color { a: 0.05 * self.bloom, ..self.brand });
                 }
             });
-        }
-        vec![f.into_geometry()]
-    }
-}
-struct SelectionFx {
-    t: f32,
-    pulse: f32,
-    color: Color,
-}
-impl widget::canvas::Program<Message> for SelectionFx {
-    type State = ();
-    fn draw(
-        &self,
-        _: &(),
-        renderer: &iced::Renderer,
-        _: &Theme,
-        bounds: iced::Rectangle,
-        _: iced::mouse::Cursor,
-    ) -> Vec<widget::canvas::Geometry> {
-        use widget::canvas::{Frame, Path, Stroke};
-        let mut f = Frame::new(renderer, bounds.size());
-        let w = bounds.width;
-        let h = bounds.height;
-        // Organic icy veins hug the selected edge; they never frame the logo.
-        for edge in 0..2 {
-            let y = if edge == 0 { 4. } else { h - 4. };
-            let path = Path::new(|b| {
-                b.move_to(iced::Point::new(18., y));
-                for i in 1..=32 {
-                    let x = 18. + (w - 36.) * i as f32 / 32.;
-                    let wave = (i as f32 * 0.7 + self.t * 1.1).sin() * 1.4;
-                    b.line_to(iced::Point::new(x, y + wave));
-                }
-            });
-            f.stroke(
-                &path,
-                Stroke::default()
-                    .with_width(0.7)
-                    .with_color(Color { a: 0.25 + self.pulse * 0.4, ..self.color }),
-            );
-        }
-        if self.pulse > 0. {
-            let x = (1. - self.pulse) * (w + 80.) - 40.;
-            for i in 0..12 {
-                f.fill_rectangle(
-                    iced::Point::new(x - i as f32 * 3., 6.),
-                    iced::Size::new(3., (h - 12.).max(0.)),
-                    Color { a: self.pulse * (1. - i as f32 / 12.) * 0.025, ..self.color },
-                );
-            }
         }
         vec![f.into_geometry()]
     }
@@ -2156,19 +2276,19 @@ fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::err
     // Arch hovered, the pointer near its top-right corner, so that corner gives way.
     // Motion on for this one capture: paused, cards don't give way.
     let still = std::mem::replace(&mut app.bridge.app.still, false);
-    app.hovered = Some(Family::Arch);
+    app.hovered = Some("family/0".into());
     app.pointer = Some(iced::Point::new(396., 18.));
-    app.lift[0] = 1.;
+    app.lift.insert("family/0".into(), 1.);
     let corner = iced::mouse::Cursor::Available(iced::Point::new(640., 166.));
     capture_at(&app, &dir.join("family-hover.png"), 1120, 753, corner)?;
     app.hovered = None;
     app.pointer = None;
-    app.lift[0] = 0.;
+    app.lift.clear();
     app.bridge.app.still = still;
     app.bridge.command("family/0");
     // Back on the Family step with Arch picked: washed in Arch's colour.
     app.bridge.app.go(Step::System);
-    app.chosen[0] = 1.;
+    app.chosen.insert("family/0".into(), 1.);
     for dark in [true, false] {
         app.bridge.app.dark = dark;
         let name = if dark { "family-picked-dark.png" } else { "family-picked-light.png" };
@@ -2216,12 +2336,13 @@ fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::err
                 20 => app.bridge.app.go(Step::Machine),
                 36 => app.bridge.app.go(Step::System),
                 44 => {
-                    app.hovered = Some(Family::Arch);
+                    app.hovered = Some("family/0".into());
                     app.pointer = Some(iced::Point::new(396., 18.));
                 }
                 88 => {
                     app.bridge.pending_family = Some((Family::Arch, Instant::now()));
                     app.pulse = 1.;
+                    app.bloom = Some("family/0".into());
                 }
                 92 => {
                     app.bridge.pending_family = None;
@@ -2230,6 +2351,7 @@ fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::err
                 102 => {
                     app.bridge.command("distro/0");
                     app.pulse = 1.;
+                    app.bloom = Some("distro/0".into());
                 }
                 116 => app.bridge.command("edition/3"),
                 128 => app.bridge.next(),
@@ -2238,6 +2360,7 @@ fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::err
                 162 => {
                     app.bridge.command("shell/noctalia");
                     app.pulse = 1.;
+                    app.bloom = Some("shell/noctalia".into());
                 }
                 178 => app.bridge.command("extra/gaming"),
                 190 => {
@@ -2256,13 +2379,18 @@ fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::err
         if frame >= 464 {
             app.bridge.app.native.poll();
         }
-        app.ease_family_cards(1. / 24., false);
         let next = app.key();
+        if next != previous {
+            // The hovered card left with its page.
+            app.hovered = None;
+            app.pointer = None;
+        }
+        app.ease_cards(1. / 24., false);
         app.wind.advance(1. / 24., next != previous, false, None);
         previous = next;
         app.elapsed += 1. / 24.;
         app.pulse = (app.pulse - 1. / 24. / 0.7).max(0.);
-        let cursor = if app.hovered == Some(Family::Arch) {
+        let cursor = if app.hovered.as_deref() == Some("family/0") {
             iced::mouse::Cursor::Available(iced::Point::new(640., 166.))
         } else {
             iced::mouse::Cursor::Unavailable
@@ -2541,22 +2669,22 @@ mod iced_tests {
         let mut a = app();
         a.bridge.app.still = false;
         a.bridge.app.go(Step::System);
-        let _ = a.update(Message::Hover(Family::Arch, true));
+        let _ = a.update(Message::Hover("family/0".into(), true));
         let _ = a.update(Message::Pointer(iced::Point::new(10., 10.)));
-        a.ease_family_cards(0.03, false);
-        let first = a.lift[0];
+        a.ease_cards(0.03, false);
+        let first = a.lift["family/0"];
         assert!(first > 0. && first < 0.5, "eases in, never jumps: {first}");
         for _ in 0..20 {
-            a.ease_family_cards(0.03, false);
+            a.ease_cards(0.03, false);
         }
-        assert!(a.lift[0] > 0.99);
-        assert!(a.lift[1..].iter().all(|l| *l == 0.), "only the hovered card lifts");
-        let _ = a.update(Message::Hover(Family::Arch, false));
+        assert!(a.lift["family/0"] > 0.99);
+        assert_eq!(a.lift.len(), 1, "only the hovered card lifts");
+        let _ = a.update(Message::Hover("family/0".into(), false));
         assert!(a.hovered.is_none() && a.pointer.is_none());
-        for _ in 0..20 {
-            a.ease_family_cards(0.03, false);
+        for _ in 0..40 {
+            a.ease_cards(0.03, false);
         }
-        assert!(a.lift[0] < 0.01);
+        assert!(a.lift.is_empty(), "settled cards drop out");
     }
     #[test]
     fn a_picked_family_washes_in_before_the_page_moves_on() {
@@ -2567,22 +2695,46 @@ mod iced_tests {
         assert!(a.bridge.pending_family.is_some());
         // The page moves on after 280 ms; by then the wash is nearly all in.
         for _ in 0..9 {
-            a.ease_family_cards(0.03, false);
+            a.ease_cards(0.03, false);
         }
-        assert!(a.chosen[0] > 0.9, "{}", a.chosen[0]);
-        assert!(a.chosen[1..].iter().all(|c| *c == 0.));
+        assert!(a.chosen["family/0"] > 0.9, "{}", a.chosen["family/0"]);
+        assert!(a.chosen.keys().all(|k| k == "family/0" || k.starts_with("step/")));
     }
     #[test]
     fn paused_family_cards_snap_and_leaving_the_step_drops_the_hover() {
         let mut a = app();
         a.bridge.app.go(Step::System);
-        let _ = a.update(Message::Hover(Family::Arch, true));
-        a.ease_family_cards(0., true);
-        assert_eq!(a.lift[0], 1., "paused, the state still shows, without motion");
+        let _ = a.update(Message::Hover("family/0".into(), true));
+        a.ease_cards(0., true);
+        assert_eq!(a.lift["family/0"], 1., "paused, the state still shows, without motion");
         a.bridge.app.go(Step::Distribution);
-        a.ease_family_cards(0.03, true);
+        let _ = a.update(Message::Tick(Instant::now()));
         assert!(a.hovered.is_none() && a.pointer.is_none());
-        assert_eq!(a.lift[0], 0.);
+        assert!(a.lift.is_empty());
+    }
+    #[test]
+    fn distribution_cards_speak_like_family_cards() {
+        let mut a = app();
+        a.bridge.app.apply(Action::Family(Family::Arch));
+        let (heroes, _) = a.bridge.tiles();
+        assert!(!heroes.is_empty());
+        for t in &heroes {
+            assert!(crate::model::distro_quote(&t.logo).is_some(), "{}: its own words", t.logo);
+            assert!(t.badge.is_some(), "{}: a status tag", t.logo);
+        }
+        assert_eq!(
+            heroes[0].meta,
+            crate::model::family_release(Family::Arch),
+            "the flagship says what its family card says"
+        );
+    }
+    #[test]
+    fn the_rail_eases_like_any_other_card() {
+        let mut a = app();
+        a.bridge.app.still = false;
+        a.ease_cards(0.03, false);
+        let key = step_key(a.bridge.app.step);
+        assert!(a.chosen.get(&key).is_some_and(|c| *c > 0. && *c < 1.), "{:?}", a.chosen);
     }
     #[test]
     fn every_family_has_its_own_words_colour_and_release() {
