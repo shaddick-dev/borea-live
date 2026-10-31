@@ -28,7 +28,12 @@ jobs:
           key: compose-rust-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
           restore-keys: compose-rust-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
       - name: Compose from prebuilt Linux packages and current Rust apps
-        run: cargo run --locked --profile app -p borea-build -- compose
+        # A failure is repeated as annotations, readable without the full log.
+        run: |
+          set -o pipefail
+          cargo run --locked --profile app -p borea-build -- compose 2>&1 | tee compose.log \
+            || { sed 's/\x1b\[[0-9;]*m//g' compose.log | grep -v '^\s*$' | tail -10 \
+                   | sed 's/^/::error::/'; exit 1; }
       - name: Verify the completed image checksum
         working-directory: target/live/out
         run: sha256sum --check borea-live-compose.iso.sha256

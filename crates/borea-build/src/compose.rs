@@ -135,6 +135,29 @@ fn check_usb_network(root: &Path, kernel: &str) -> Result {
     ))
 }
 
+/// Mesa's Vulkan drivers for Intel (ANV) and AMD (RADV): without them the
+/// installer draws on the CPU even on a real GPU. Debian has named the files
+/// differently across releases, so any file for each driver counts.
+fn check_vulkan(root: &Path) -> Result {
+    let dir = root.join("usr/share/vulkan/icd.d");
+    let names: Vec<String> = fs::read_dir(&dir)
+        .map(|d| d.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+        .unwrap_or_default();
+    let missing: Vec<&str> = ["intel_icd", "radeon_icd"]
+        .into_iter()
+        .filter(|driver| !names.iter().any(|n| n.starts_with(driver)))
+        .collect();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "Mesa's Vulkan drivers are missing ({}); {} has: {}",
+        missing.join(", "),
+        dir.display(),
+        if names.is_empty() { "nothing".to_owned() } else { names.join(", ") }
+    ))
+}
+
 struct Container(String, signal_hook::iterator::Handle);
 impl Container {
     fn new(name: String) -> Result<Self> {
@@ -617,6 +640,7 @@ pub fn root() -> Result {
     }
     write(root.join("etc/borea-early-modules"), format!("{kernel}\n{}\n", modules.join("\n")))?;
     check_usb_network(root, kernel)?;
+    check_vulkan(root)?;
     fs::create_dir_all("/out").map_err(|e| e.to_string())?;
     copy(&root.join(format!("boot/vmlinuz-{kernel}")), Path::new("/out/bzImage"))?;
     write(root.join("etc/borea-compose-packages"), output("dpkg-query", &["-W"])?)?;
