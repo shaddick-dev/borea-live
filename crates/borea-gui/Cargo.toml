@@ -22,6 +22,7 @@ borea-distro.workspace = true
 borea-hardware.workspace = true
 borea-host.workspace = true
 borea-network.workspace = true
+borea-net.workspace = true
 zbus.workspace = true
 borea-protocol.workspace = true
 borea-core.workspace = true

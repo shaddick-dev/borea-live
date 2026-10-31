@@ -144,6 +144,16 @@ pub struct LiveInstaller {
     /// Omarchy installs through its own installer, started from this stick.
     handoff: HandoffLink,
     native: crate::install::NativeInstall,
+    region: RegionLookup,
+}
+
+/// The region from the connection: asked once, when the real installer first comes
+/// online. Previews and captures never ask.
+enum RegionLookup {
+    Off,
+    Waiting,
+    Asking(Receiver<Option<borea_net::GeoSuggestion>>),
+    Done,
 }
 
 impl LiveInstaller {
@@ -161,6 +171,7 @@ impl LiveInstaller {
         installer.handoff = HandoffLink::system(HANDOFF_TARGET);
         installer.native = crate::install::NativeInstall::system();
         installer.firmware = FirmwareLink::system();
+        installer.region = RegionLookup::Waiting;
         installer
     }
     pub fn with_hardware(hardware: HardwareSnapshot, dark: bool) -> Self {
@@ -180,6 +191,7 @@ impl LiveInstaller {
             native: crate::install::NativeInstall::with_service(std::sync::Arc::new(|_, _| {
                 Err("borea-installd is not running in this preview".into())
             })),
+            region: RegionLookup::Off,
             catalog,
             selection,
             dark,
@@ -286,6 +298,34 @@ impl LiveInstaller {
         self.firmware.poll();
         self.handoff.poll();
         self.native.poll();
+        let next = match &self.region {
+            RegionLookup::Waiting if self.wifi.connected() => {
+                let (tx, rx) = mpsc::channel();
+                let asked = thread::Builder::new()
+                    .name("region-lookup".into())
+                    .spawn(move || {
+                        let _ = tx.send(borea_net::geo_suggest());
+                    })
+                    .is_ok();
+                Some(if asked { RegionLookup::Asking(rx) } else { RegionLookup::Done })
+            }
+            RegionLookup::Asking(rx) => match rx.try_recv() {
+                Ok(answer) => {
+                    if let Some(guess) = answer
+                        .and_then(|g| borea_locale::guess(&g.country_code, g.time_zone.as_deref()))
+                    {
+                        self.native.suggest_region(guess);
+                    }
+                    Some(RegionLookup::Done)
+                }
+                Err(mpsc::TryRecvError::Empty) => None,
+                Err(mpsc::TryRecvError::Disconnected) => Some(RegionLookup::Done),
+            },
+            _ => None,
+        };
+        if let Some(next) = next {
+            self.region = next;
+        }
         if self.step == Step::Review && self.native_target() {
             let extras = self
                 .selection

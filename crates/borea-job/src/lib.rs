@@ -62,6 +62,7 @@ pub enum Action {
     RestoreNetwork,
     RestoreTransportTrust,
     BuildAur { packages: Vec<String> },
+    DeferAur { packages: Vec<String> },
     InstallAppImages { releases: Vec<String> },
     Note { message: String },
 }
@@ -274,10 +275,10 @@ pub fn compile(
     let composed = plan.desktop.is_some_and(borea_core::Desktop::is_noctalia);
     let mut deferred_native = BTreeSet::new();
     if composed {
-        if review.packages.iter().any(|p| p.source == "aur" || p.source == "appimage") {
+        if review.packages.iter().any(|p| p.source == "appimage") {
             return Err(hint(
                 "apps",
-                "This quiet install supports signed Arch packages and Flathub apps. Choose a packaged source for each app.",
+                "This quiet install supports Arch packages, AUR recipes and Flatpak fallback. Choose one of these packaged sources for each app.",
             ));
         }
         let mut required = plan.clone();
@@ -965,6 +966,10 @@ pub fn compile(
                 (["-Syu", "--needed", "--noconfirm", "--"].into_iter().map(str::to_owned)
                     .chain(deferred_native.iter().cloned()).collect::<Vec<_>>()) }));
         }
+        if let Some(packages) = sources.get("aur") {
+            apps.push(Action::DeferAur { packages: packages.clone() });
+            queue.push(serde_json::json!({"program":"/usr/bin/borea-firstboot", "args":["--aur"]}));
+        }
         if deferred_native.contains("cups") {
             queue.push(serde_json::json!({"program":"/usr/bin/systemctl", "args":["enable", "--now", "cups.service"]}));
         }
@@ -986,7 +991,7 @@ pub fn compile(
                 .into(),
         });
     }
-    if let Some(pkgs) = sources.get("aur") {
+    if let Some(pkgs) = sources.get("aur").filter(|_| !composed) {
         apps.push(Action::BuildAur { packages: pkgs.clone() });
     }
     if let Some(pkgs) = sources.get("flathub").filter(|_| !composed) {

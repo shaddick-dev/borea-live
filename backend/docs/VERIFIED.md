@@ -67,3 +67,10 @@ Native metadata preflight, approval checks and disk guards are enforced in code.
 
 - All six Arch/CachyOS × Hyprland/niri/MangoWC whole-drive, Secure Boot-off installs and subsequent boots pass without repair at `c37b14f`. Assertions cover OS identity, LUKS, account, network, sudo, active greeter/account services and the chosen configs. [Results](verification/noctalia-installed-2026-10-31.json). This does not certify interactive graphical login, lock/suspend, first-login app downloads or physical Arc hardware.
 - Updated ISO composition and both USB boot fixtures pass; workspace tests, Rust 1.85, native compositor/Noctalia config validation and static Ratatui checks also pass. The 18-second H.264 walkthrough decodes successfully; its poster and Pages player reference the MP4.
+
+## Account step sources — 31 October 2026
+
+- Vesktop replaces Discord. A fresh AUR check succeeds: `vesktop-bin` 1.6.8-1 is maintained by Vendicated and packages Vencord's prebuilt release. Its pinned PKGBUILD and `.SRCINFO` were inspected; upstream checksums are declared, with no source compilation or make/check dependencies. Flathub's `dev.vencord.Vesktop` remains a fallback.
+- All nine catalog AUR app names resolve to maintained recipes in the public RPC. Spotify now maps to `spotify`; Flatseal is verified in Arch extra as `flatseal` 2.4.1-1. Arch/CachyOS default app resolution has no Flatpak-only entry. [Metadata, URLs and hashes](verification/aur-app-sources-2026-10-31.json).
+- Unit and plan checks cover AUR/native/Flatpak ordering, explicit source opt-out, unprivileged builds, archive mismatch refusal, failed-build checkpoints and all twelve Arch/CachyOS × Noctalia compositor × storage-layout app queues. The separate native AUR integration installs Vesktop in a disposable Arch container and replays its checkpoint; consult the PR's CI result for the executed run. It does not certify interactive login or physical hardware.
+- The region lookup's endpoint, `https://geoip.fedoraproject.org/city` (already `borea_net::GEO_ENDPOINT`), returns `country_code` and `time_zone`; `borea_locale::guess` maps them through the 247 validated country defaults.

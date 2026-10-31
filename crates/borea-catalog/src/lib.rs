@@ -8,7 +8,7 @@
 //! * One app list for every distro ([`catalog::APPS`]), grouped into categories.
 //! * Sources are **only the chosen distro's repos**, the AUR when that distro is Arch, and Flathub
 //!   ([`source::Sources`]). Another distro's repos can never be switched on.
-//! * One "install from" preference ([`resolve::Prefer`]): distro packages first, or Flathub first.
+//! * One "install from" preference ([`resolve::Prefer`]): AUR first on Arch by default, with native-first and Flathub-first overrides.
 //! * Every ticked app resolves to exactly one source; ticking an app whose only source is off
 //!   switches that source on ([`resolve::Selection::toggle`]).
 //! * [`resolve::plan`] groups the result into batches per source for the installer to run.

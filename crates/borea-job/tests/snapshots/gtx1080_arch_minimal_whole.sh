@@ -141,10 +141,13 @@ chroot /run/borea/target '/usr/bin/systemctl' 'enable' 'fstrim.timer'
 chroot /run/borea/target '/usr/bin/systemctl' 'set-default' 'multi-user.target'
 
 # Adding your apps.
-chroot '/run/borea/target' '/usr/bin/pacman' '-S' '--needed' '--noconfirm' 'base-devel' 'git'
-chroot '/run/borea/target' '/usr/bin/useradd' '--system' '--user-group' '--create-home' '--home-dir' '/var/lib/borea-build' 'borea-build'
+# Verify every recipe archive against its approved SHA-256 before any command. Reuse only Borea's dedicated system build account on retry. Create root-only /var/lib/borea/aur-pacman.conf from the real config, changing only LocalFileSigLevel to Optional for local package files; preserve signed remote repositories.
+chroot '/run/borea/target' '/usr/bin/pacman' '-S' '--needed' '--noconfirm' '--' 'base-devel' 'git'
+chroot '/run/borea/target' '/usr/bin/useradd' '--system' '--user-group' '--create-home' '--home-dir' '/var/lib/borea-build' '--shell' '/usr/bin/nologin' 'borea-build'
+# After a successful package install, checkpoint its base and recipe SHA-256. When the builder has a .gnupg directory, stop its agents before removing the account:
 chroot '/run/borea/target' '/usr/sbin/runuser' '-u' 'borea-build' '--' '/usr/bin/gpgconf' '--homedir' '/var/lib/borea-build/.gnupg' '--kill' 'all'
 chroot '/run/borea/target' '/usr/bin/userdel' '--remove' 'borea-build'
+# Remove the temporary local-package pacman config after success. Keep the pinned manifests and recipe progress until the outer first-boot queue is complete.
 
 # Finishing up.
 # write target:/etc/kernel/cmdline mode 644

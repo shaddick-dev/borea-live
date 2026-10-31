@@ -241,22 +241,26 @@ impl Bridge {
             "language" => {
                 if let Some(v) = borea_locale::LOCALES.get(i) {
                     n.locale.lang = v.id.into();
+                    n.touch("language");
                 }
             }
             "keyboard" => {
                 if let Some(v) = borea_locale::KEYBOARDS.get(i) {
                     n.locale.keyboard.layout = v.layout.into();
                     n.locale.keyboard.variant = v.variant.into();
+                    n.touch("keyboard");
                 }
             }
             "console" => {
                 if let Some(v) = borea_locale::console_keymaps().nth(i) {
                     n.locale.keyboard.console = v.into();
+                    n.touch("console");
                 }
             }
             "timezone" => {
                 if let Some(v) = borea_locale::TIMEZONES.get(i) {
                     n.locale.timezone = (*v).into();
+                    n.touch("timezone");
                 }
             }
             _ => {}
@@ -570,17 +574,37 @@ impl Bridge {
                                     borea_catalog::resolve(
                                         app,
                                         &sources,
-                                        borea_catalog::Prefer::Native
+                                        borea_catalog::Prefer::Aur
                                     ),
                                     borea_catalog::Resolution::From {
                                         source: borea_catalog::Source::Repo(_)
+                                            | borea_catalog::Source::Aur
                                             | borea_catalog::Source::Flathub,
                                         ..
                                     }
                                 );
-                                if !t.enabled {
-                                    t.badge = Some("Not available".into());
-                                }
+                                t.badge = Some(
+                                    match borea_catalog::resolve(
+                                        app,
+                                        &sources,
+                                        borea_catalog::Prefer::Aur,
+                                    ) {
+                                        borea_catalog::Resolution::From {
+                                            source: borea_catalog::Source::Aur,
+                                            ..
+                                        } => "AUR",
+                                        borea_catalog::Resolution::From {
+                                            source: borea_catalog::Source::Repo(_),
+                                            ..
+                                        } => "Native",
+                                        borea_catalog::Resolution::From {
+                                            source: borea_catalog::Source::Flathub,
+                                            ..
+                                        } => "Flatpak",
+                                        _ => "Not available",
+                                    }
+                                    .into(),
+                                );
                                 t
                             })
                             .collect(),
@@ -1261,9 +1285,11 @@ impl App {
         ]
         .spacing(12)
         .align_y(Alignment::Center);
-        let main =
-            column![scrollable(body.padding([8, 4])).spacing(10).height(Length::Fill), footer]
-                .spacing(18);
+        let main = column![
+            scrollable(body.padding([8, 4])).id("installer-body").spacing(10).height(Length::Fill),
+            footer
+        ]
+        .spacing(18);
         let content = container(
             row![rail, container(main).padding(28).width(Length::Fill)].height(Length::Fill),
         )
@@ -2171,6 +2197,24 @@ fn capture_at(
     let mut renderer = iced_tiny_skia::Renderer::new(FACE, iced::Pixels(14.));
     let size = iced::Size::new(width as f32, height as f32);
     let mut ui = UserInterface::build(app.view(), size, Cache::new(), &mut renderer);
+    if app.bridge.native() && app.bridge.app.native.page == Page::Account && app.apps_open {
+        // Scroll the real account view to its application cards, as a user does.
+        let y = if app.elapsed > 0. {
+            700. + 420. * ((app.elapsed - 18.) / 4.).clamp(0., 1.)
+        } else {
+            1120.
+        };
+        ui.operate(
+            &renderer,
+            &mut iced::advanced::widget::operation::scrollable::scroll_to::<()>(
+                iced::advanced::widget::Id::new("installer-body"),
+                iced::advanced::widget::operation::scrollable::AbsoluteOffset {
+                    x: None,
+                    y: Some(y),
+                },
+            ),
+        );
+    }
     ui.draw(
         &mut renderer,
         &app.theme(),
@@ -2220,6 +2264,8 @@ fn showcase_account(app: &mut App) {
         },
     };
     app.bridge.app.native.locale = locale;
+    app.bridge.command("app/vesktop");
+    app.apps_open = true;
 }
 fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::error::Error>> {
     use std::borrow::Cow;
@@ -2251,7 +2297,7 @@ fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::err
         let mut workflow = LiveInstaller::with_link(showcase_fixture::machine(), wifi, true);
         // Capture fixtures cannot start installation, reboot or contact any service.
         workflow.set_install_service(std::sync::Arc::new(|method,_|match method {
-            "plan.review"=>Ok(serde_json::json!({"approval":"showcase-only","review":{"packages":[{"name":"hyprland"},{"name":"noctalia"},{"name":"noctalia-greeter"}],"warnings":["Example plan. This capture does not install a system."]}})),
+            "plan.review"=>Ok(serde_json::json!({"approval":"showcase-only","review":{"packages":[{"name":"hyprland","source":"arch.core-extra"},{"name":"noctalia","source":"arch.core-extra"},{"name":"noctalia-greeter","source":"arch.core-extra"},{"name":"vesktop-bin","source":"aur"}],"warnings":["Example plan. This capture does not install a system."]}})),
             _=>Err("Unavailable in showcase mode".into()),
         }));
         let mut app = App::from_workflow(workflow, false);
@@ -2313,6 +2359,8 @@ fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::err
     capture(&app, &dir.join("account.png"), 1120, 753)?;
     capture(&app, &dir.join("account-small.png"), 900, 600)?;
     showcase_account(&mut app);
+    capture(&app, &dir.join("account-apps.png"), 1120, 753)?;
+    capture(&app, &dir.join("account-apps-small.png"), 900, 600)?;
     app.bridge.app.native.review();
     for _ in 0..100 {
         app.bridge.app.native.poll();
@@ -2329,7 +2377,7 @@ fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::err
     app = make();
     app.bridge.app.still = false;
     let mut previous = String::new();
-    for frame in 0..504 {
+    for frame in 0..600 {
         if frame % 2 == 0 {
             match frame / 2 {
                 8 => *app.wifi_password = "showcase-only-password".into(),
@@ -2372,11 +2420,11 @@ fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::err
                     app.bridge.next();
                 }
                 216 => showcase_account(&mut app),
-                232 => app.bridge.app.native.review(),
+                280 => app.bridge.app.native.review(),
                 _ => {}
             }
         }
-        if frame >= 464 {
+        if frame >= 560 {
             app.bridge.app.native.poll();
         }
         let next = app.key();
@@ -2503,6 +2551,12 @@ mod tests {
         assert_eq!(plan.locale.keyboard.console, "de-latin1");
         assert_eq!(plan.locale.timezone, "Asia/Tokyo");
         assert!(plan.apps.contains("firefox"));
+        assert_eq!(plan.prefer, borea_core::SourcePreference::Aur);
+        let (_, groups) = b.tiles();
+        let vesktop =
+            groups.iter().flat_map(|g| &g.choices).find(|t| t.key == "app/vesktop").unwrap();
+        assert!(vesktop.enabled);
+        assert_eq!(vesktop.badge.as_deref(), Some("AUR"));
         assert!(!b.app.native.ready());
         b.next();
         assert_eq!(

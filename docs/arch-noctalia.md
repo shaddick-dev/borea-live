@@ -22,7 +22,7 @@ CachyOS's separate themed Noctalia presets remain previews.
 - Linux storage uses LUKS2 and Btrfs. Alongside keeps Windows and its EFI files.
 - Secure Boot is optional. Graphical login requires a password; no TTY setup or autologin.
 - The desktop, drivers, audio, portals and greeter install before reboot.
-- Selected extra packages and Flatpaks finish quietly after the account's first active Wayland login. Transactions are checkpointed and retried.
+- Selected extra apps finish quietly after the account's first active Wayland login: AUR first, official packages next, Flatpak as fallback. Transactions are checkpointed and retried.
 
 ## Shortcuts and region
 

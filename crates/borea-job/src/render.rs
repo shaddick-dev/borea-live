@@ -416,13 +416,23 @@ pub(crate) fn helper(job: &Job, action: &Action, out: &mut String) {
             out,
             "Copy only the active NetworkManager profile identified by its UUID, root-owned mode 0600; preserve credentials verbatim. Copy DNS configuration for the native chroot.",
         ),
-        Action::BuildAur { .. } => {
+        Action::BuildAur { .. } | Action::DeferAur { .. } => {
+            if matches!(action, Action::DeferAur { .. }) {
+                note(
+                    out,
+                    "Stage root-owned /var/lib/borea/aur.json and SHA-256 pinned archives in /var/lib/borea/aur (0700). The commands below run through borea-firstboot --aur only after the first active graphical login; completed recipes are checkpointed.",
+                );
+            }
+            note(
+                out,
+                "Verify every recipe archive against its approved SHA-256 before any command. Reuse only Borea's dedicated system build account on retry. Create root-only /var/lib/borea/aur-pacman.conf from the real config, changing only LocalFileSigLevel to Optional for local package files; preserve signed remote repositories.",
+            );
             command(
                 out,
                 job,
                 Root::Target,
                 "/usr/bin/pacman",
-                args(&["-S", "--needed", "--noconfirm", "base-devel", "git"]),
+                args(&["-S", "--needed", "--noconfirm", "--", "base-devel", "git"]),
             );
             command(
                 out,
@@ -435,18 +445,27 @@ pub(crate) fn helper(job: &Job, action: &Action, out: &mut String) {
                     "--create-home",
                     "--home-dir",
                     "/var/lib/borea-build",
+                    "--shell",
+                    "/usr/bin/nologin",
                     "borea-build",
                 ]),
             );
             for recipe in &job.external.aur {
                 let directory = format!("/var/lib/borea-build/{}", recipe.base);
+                note(
+                    out,
+                    &format!(
+                        "AUR {}: {} SHA-256 {}. Recreate its build directory and copy the verified recipe archive.",
+                        recipe.base, recipe.url, recipe.sha256
+                    ),
+                );
                 if !recipe.dependencies.is_empty() {
                     command(
                         out,
                         job,
                         Root::Target,
                         "/usr/bin/pacman",
-                        args(&["-S", "--needed", "--noconfirm"])
+                        args(&["-S", "--needed", "--noconfirm", "--"])
                             .into_iter()
                             .chain(recipe.dependencies.clone())
                             .collect(),
@@ -485,6 +504,24 @@ pub(crate) fn helper(job: &Job, action: &Action, out: &mut String) {
                         .chain([
                             format!("--chdir={directory}"),
                             "/usr/bin/makepkg".into(),
+                            "--printsrcinfo".into(),
+                        ])
+                        .collect(),
+                );
+                note(
+                    out,
+                    "For each complete validpgpkeys fingerprint in the pinned recipe metadata, run unprivileged gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys <fingerprint>. Never skip upstream integrity or signature checks.",
+                );
+                command(
+                    out,
+                    job,
+                    Root::Target,
+                    "/usr/sbin/runuser",
+                    args(&["-u", "borea-build", "--", "/usr/bin/env"])
+                        .into_iter()
+                        .chain([
+                            format!("--chdir={directory}"),
+                            "/usr/bin/makepkg".into(),
                             "--cleanbuild".into(),
                             "--noconfirm".into(),
                         ])
@@ -495,7 +532,12 @@ pub(crate) fn helper(job: &Job, action: &Action, out: &mut String) {
                     job,
                     Root::Target,
                     "/usr/bin/pacman",
-                    args(&["-Qp", "<built-package-artifact>"]),
+                    args(&[
+                        "-Qp",
+                        "--config",
+                        "/var/lib/borea/aur-pacman.conf",
+                        "<built-package-artifact>",
+                    ]),
                 );
                 command(
                     out,
@@ -506,10 +548,17 @@ pub(crate) fn helper(job: &Job, action: &Action, out: &mut String) {
                         "-U",
                         "--needed",
                         "--noconfirm",
+                        "--config",
+                        "/var/lib/borea/aur-pacman.conf",
+                        "--",
                         "<artifacts-matching-reviewed-package-names>",
                     ]),
                 );
             }
+            note(
+                out,
+                "After a successful package install, checkpoint its base and recipe SHA-256. When the builder has a .gnupg directory, stop its agents before removing the account:",
+            );
             command(
                 out,
                 job,
@@ -527,6 +576,10 @@ pub(crate) fn helper(job: &Job, action: &Action, out: &mut String) {
                 ]),
             );
             command(out, job, Root::Target, "/usr/bin/userdel", args(&["--remove", "borea-build"]));
+            note(
+                out,
+                "Remove the temporary local-package pacman config after success. Keep the pinned manifests and recipe progress until the outer first-boot queue is complete.",
+            );
         }
         Action::InstallAppImages { releases } => {
             for image in

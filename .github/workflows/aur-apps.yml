@@ -1,0 +1,32 @@
+name: Pinned AUR app install
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - crates/borea-catalog/**
+      - crates/borea-backend/src/external.rs
+      - crates/borea-job/**
+      - crates/borea-exec/**
+      - crates/borea-gui/src/install.rs
+      - .github/workflows/aur-apps.yml
+permissions:
+  contents: read
+jobs:
+  aur-firstboot:
+    name: Reviewed AUR binary package and first-login retry
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    container: archlinux:base-devel
+    steps:
+      - name: Native build tools
+        run: pacman -Syu --needed --noconfirm rust gcc git pkgconf base-devel
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+      - name: Pin, build as an unprivileged account, install and replay
+        run: |
+          set -eu
+          mkdir -p /fixtures
+          printf '%s\n' BOREA_TEST_AUR > /fixtures/.borea-aur-fixture
+          cargo test --locked -p borea-exec --test aur_native -- --ignored --nocapture

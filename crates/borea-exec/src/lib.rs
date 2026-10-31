@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 //! Privileged execution. Only a freshly validated, approved Job may reach Session::start.
+mod aur;
 pub mod runtime;
 use borea_core::{Hint, Secrets, hint};
 use borea_job::{Action, CommandSpec, Job, Root, SecretRef, TARGET};
@@ -1034,6 +1035,7 @@ impl Session {
             Action::RestoreNetwork => self.restore_network()?,
             Action::RestoreTransportTrust => self.restore_transport_ca(emit)?,
             Action::BuildAur { packages } => self.aur(packages, emit)?,
+            Action::DeferAur { .. } => self.defer_aur()?,
             Action::InstallAppImages { releases } => self.appimages(releases, emit)?,
             Action::Note { message } => emit(Event::Line { stderr: false, text: message.clone() }),
         }
@@ -1712,7 +1714,7 @@ impl Session {
         for stage in &self.job.stages {
             for action in &stage.actions {
                 match action {
-                    Action::BuildAur { packages } => {
+                    Action::BuildAur { packages } | Action::DeferAur { packages } => {
                         for pkg in packages {
                             if !self.job.external.aur.iter().any(|r| r.packages.contains(pkg)) {
                                 return Err(err("An AUR package has not been pinned for Review."));
@@ -1734,157 +1736,40 @@ impl Session {
         }
         Ok(())
     }
-    fn aur(&mut self, packages: &[String], emit: &mut impl FnMut(Event)) -> Result<(), Hint> {
+    fn aur(&mut self, _packages: &[String], emit: &mut impl FnMut(Event)) -> Result<(), Hint> {
         if self.job.plan.distro != borea_core::Distribution::Arch {
             return Err(err("AUR packages can only be built for Arch."));
         }
-        let _ = packages; // Dependency recipes were topologically resolved and pinned before Review.
-        self.command(
-            Root::Target,
-            "/usr/bin/pacman",
-            vec![
-                "-S".into(),
-                "--needed".into(),
-                "--noconfirm".into(),
-                "base-devel".into(),
-                "git".into(),
-            ],
-            emit,
-        )?;
-        self.command(
-            Root::Target,
-            "/usr/bin/useradd",
-            vec![
-                "--system".into(),
-                "--user-group".into(),
-                "--create-home".into(),
-                "--home-dir".into(),
-                "/var/lib/borea-build".into(),
-                "borea-build".into(),
-            ],
-            emit,
-        )?;
         let recipes = self.job.external.aur.clone();
-        for recipe in recipes {
-            if !recipe.dependencies.is_empty() {
-                self.command(
-                    Root::Target,
-                    "/usr/bin/pacman",
-                    vec!["-S".into(), "--needed".into(), "--noconfirm".into()]
-                        .into_iter()
-                        .chain(recipe.dependencies)
-                        .collect(),
-                    emit,
-                )?;
-            }
-            let destination = self.target_path(&format!("/var/lib/borea-build/{}", recipe.base))?;
-            io(fs::create_dir_all(&destination))?;
-            let copied = destination.join("recipe.tar.gz");
-            io(fs::copy(format!("/run/borea/external/{}.tar.gz", recipe.base), &copied))?;
-            self.command(
-                Root::Target,
-                "/usr/bin/chown",
-                vec![
-                    "-R".into(),
-                    "borea-build:borea-build".into(),
-                    format!("/var/lib/borea-build/{}", recipe.base),
-                ],
-                emit,
-            )?;
-            self.command(
-                Root::Target,
-                "/usr/sbin/runuser",
-                vec![
-                    "-u".into(),
-                    "borea-build".into(),
-                    "--".into(),
-                    "/usr/bin/tar".into(),
-                    "-xzf".into(),
-                    format!("/var/lib/borea-build/{}/recipe.tar.gz", recipe.base),
-                    "--strip-components=1".into(),
-                    "-C".into(),
-                    format!("/var/lib/borea-build/{}", recipe.base),
-                    "--no-same-owner".into(),
-                ],
-                emit,
-            )?;
-            self.command(
-                Root::Target,
-                "/usr/sbin/runuser",
-                vec![
-                    "-u".into(),
-                    "borea-build".into(),
-                    "--".into(),
-                    "/usr/bin/env".into(),
-                    format!("--chdir=/var/lib/borea-build/{}", recipe.base),
-                    "/usr/bin/makepkg".into(),
-                    "--cleanbuild".into(),
-                    "--noconfirm".into(),
-                ],
-                emit,
-            )?;
-            let mut artifacts = Vec::new();
-            for entry in io(fs::read_dir(&destination))? {
-                let entry = io(entry)?;
-                let name = entry.file_name().to_string_lossy().to_string();
-                if name.ends_with(".pkg.tar.zst") || name.ends_with(".pkg.tar.xz") {
-                    if !io(entry.file_type())?.is_file() {
-                        return Err(err("A built AUR artifact is not a regular file."));
-                    }
-                    let artifact = format!("/var/lib/borea-build/{}/{name}", recipe.base);
-                    let metadata = self.command(
-                        Root::Target,
-                        "/usr/bin/pacman",
-                        vec!["-Qp".into(), artifact.clone()],
-                        emit,
-                    )?;
-                    if metadata
-                        .split_whitespace()
-                        .next()
-                        .is_some_and(|name| recipe.packages.iter().any(|p| p == name))
-                    {
-                        artifacts.push(artifact);
-                    }
-                }
-            }
-            if artifacts.is_empty() {
-                return Err(err("The AUR build did not produce an installable package."));
-            }
-            self.command(
-                Root::Target,
-                "/usr/bin/pacman",
-                vec!["-U".into(), "--needed".into(), "--noconfirm".into()]
-                    .into_iter()
-                    .chain(artifacts)
-                    .collect(),
-                emit,
-            )?;
-        }
-        self.command(
-            Root::Target,
-            "/usr/sbin/runuser",
-            [
-                "-u",
-                "borea-build",
-                "--",
-                "/usr/bin/gpgconf",
-                "--homedir",
-                "/var/lib/borea-build/.gnupg",
-                "--kill",
-                "all",
-            ]
-            .map(String::from)
-            .to_vec(),
-            emit,
-        )?;
-        self.command(
-            Root::Target,
-            "/usr/bin/userdel",
-            vec!["--remove".into(), "borea-build".into()],
-            emit,
-        )?;
-        Ok(())
+        aur::install(
+            Path::new(TARGET),
+            Path::new("/run/borea/external"),
+            &recipes,
+            |program, args| self.command(Root::Target, program, args, emit),
+            |_| Ok(()),
+        )
     }
+
+    fn defer_aur(&mut self) -> Result<(), Hint> {
+        let recipes = self.job.external.aur.clone();
+        let cache = self.target_path("/var/lib/borea/aur")?;
+        io(fs::create_dir_all(&cache))?;
+        io(fs::set_permissions(&cache, fs::Permissions::from_mode(0o700)))?;
+        for recipe in &recipes {
+            if !aur::valid_recipe(recipe) {
+                return Err(err("The reviewed AUR recipe is invalid."));
+            }
+            let destination = cache.join(format!("{}.tar.gz", recipe.base));
+            io(fs::copy(format!("/run/borea/external/{}.tar.gz", recipe.base), &destination))?;
+            io(fs::set_permissions(destination, fs::Permissions::from_mode(0o600)))?;
+        }
+        self.write(
+            "/var/lib/borea/aur.json",
+            &serde_json::to_string(&recipes).map_err(|e| err(e.to_string()))?,
+            0o600,
+        )
+    }
+
     fn appimages(&mut self, releases: &[String], emit: &mut impl FnMut(Event)) -> Result<(), Hint> {
         let images = self.job.external.appimages.clone();
         for image in images.iter().filter(|i| releases.contains(&i.repository)) {

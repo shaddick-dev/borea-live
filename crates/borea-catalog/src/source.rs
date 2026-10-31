@@ -268,10 +268,17 @@ pub struct Sources {
 }
 
 impl Sources {
-    /// Borea's defaults: the distro's usual repos on, AUR off, Flathub and AppImage on.
+    /// Borea's defaults: native repos on, AUR on for Arch only, Flathub and AppImage on.
     pub fn defaults(distro: Distro) -> Self {
         let on = repos_for(distro).filter(|r| r.default_on).map(|r| r.id).collect();
-        Sources { distro, on, aur: false, flathub: true, appimage: true, required: BTreeSet::new() }
+        Sources {
+            distro,
+            on,
+            aur: distro == Distro::Arch,
+            flathub: true,
+            appimage: true,
+            required: BTreeSet::new(),
+        }
     }
 
     pub fn distro(&self) -> Distro {

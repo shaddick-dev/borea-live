@@ -33,7 +33,7 @@ fn trusted(path: &Path) -> Result<(), Hint> {
     }
     Ok(())
 }
-fn persist(path: &Path, bytes: &[u8], mode: u32) -> Result<(), Hint> {
+pub(crate) fn persist(path: &Path, bytes: &[u8], mode: u32) -> Result<(), Hint> {
     let temporary = path.with_extension(format!("{}.pending", std::process::id()));
     let mut file = OpenOptions::new()
         .create_new(true)
@@ -73,6 +73,9 @@ fn allowed(action: &Deferred) -> bool {
             && args.len() <= 512
             && args.iter().all(|s| borea_backend::external::identifier(s))
     };
+    if action.program == "/usr/bin/borea-firstboot" {
+        return action.args == ["--aur"];
+    }
     if action.program == "/usr/bin/pacman" {
         return action.args.starts_with(&[
             "-Syu".into(),
@@ -177,6 +180,73 @@ pub fn extract_image(directory: &str, filename: &str) -> Result<(), Hint> {
         .map_err(|e| err(e.to_string()))?;
     if status.success() { Ok(()) } else { Err(err("The AppImage could not be extracted.")) }
 }
+/// Execute only the root-owned, Review-pinned AUR manifest on the installed system.
+pub fn aur_apps() -> Result<(), Hint> {
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .mode(0o600)
+        .custom_flags(nix::libc::O_NOFOLLOW)
+        .open("/var/lib/borea/aur.lock")
+        .map_err(|e| err(e.to_string()))?;
+    let _lock = nix::fcntl::Flock::lock(lock, nix::fcntl::FlockArg::LockExclusiveNonblock)
+        .map_err(|_| err("Another AUR installation is already running; retrying later."))?;
+    let manifest = Path::new("/var/lib/borea/aur.json");
+    trusted(manifest)?;
+    let recipes: Vec<borea_backend::external::AurRecipe> =
+        serde_json::from_slice(&fs::read(manifest).map_err(|e| err(e.to_string()))?)
+            .map_err(|_| err("The pinned AUR manifest is invalid."))?;
+    if recipes.len() > 128 || !recipes.iter().all(crate::aur::valid_recipe) {
+        return Err(err("The pinned AUR manifest contains an invalid recipe."));
+    }
+    let progress = Path::new("/var/lib/borea/aur-progress.json");
+    let mut done: std::collections::BTreeSet<String> = if progress.exists() {
+        trusted(progress)?;
+        serde_json::from_slice(&fs::read(progress).map_err(|e| err(e.to_string()))?)
+            .map_err(|_| err("The AUR progress record is invalid."))?
+    } else {
+        Default::default()
+    };
+    let key = |r: &borea_backend::external::AurRecipe| format!("{}:{}", r.base, r.sha256);
+    let pending = recipes.iter().filter(|r| !done.contains(&key(r))).cloned().collect::<Vec<_>>();
+    crate::aur::install(
+        Path::new("/"),
+        Path::new("/var/lib/borea/aur"),
+        &pending,
+        aur_command,
+        |recipe| {
+            done.insert(key(recipe));
+            persist(progress, &serde_json::to_vec(&done).map_err(|e| err(e.to_string()))?, 0o600)
+        },
+    )
+}
+fn aur_command(program: &str, args: Vec<String>) -> Result<String, Hint> {
+    if program == "/usr/bin/pacman"
+        && args.first().is_some_and(|v| v == "-S" || v == "-U")
+        && Path::new("/var/lib/pacman/db.lck").exists()
+    {
+        return Err(err("Another package transaction is running; Borea will retry later."));
+    }
+    if (program == "/usr/bin/pacman" && args.first().is_some_and(|v| v == "-Qp"))
+        || (program == "/usr/sbin/runuser" && args.last().is_some_and(|v| v == "--printsrcinfo"))
+    {
+        let output = Command::new(program)
+            .args(&args)
+            .env("LC_ALL", "C")
+            .output()
+            .map_err(|e| err(e.to_string()))?;
+        if !output.status.success() {
+            return Err(err("Cannot inspect the built AUR package."));
+        }
+        String::from_utf8(output.stdout).map_err(|_| err("The AUR package metadata is invalid."))
+    } else {
+        command(program, &args)?;
+        Ok(String::new())
+    }
+}
+
 pub fn firstboot() -> Result<(), Hint> {
     let path = Path::new("/var/lib/borea/firstboot.json");
     trusted(path)?;
@@ -186,6 +256,20 @@ pub fn firstboot() -> Result<(), Hint> {
         }
         command(&action.program, &action.args)
     })?;
+    // Keep manifests until the whole queue is checkpointed, so a reboot between
+    // a successful AUR install and its queue checkpoint remains safe to retry.
+    for path in [
+        "/var/lib/borea/aur.json",
+        "/var/lib/borea/aur-progress.json",
+        "/var/lib/borea/aur-pacman.conf",
+    ] {
+        if Path::new(path).exists() {
+            fs::remove_file(path).map_err(|e| err(e.to_string()))?;
+        }
+    }
+    if Path::new("/var/lib/borea/aur").exists() {
+        fs::remove_dir_all("/var/lib/borea/aur").map_err(|e| err(e.to_string()))?;
+    }
     if Path::new("/usr/bin/fwupdmgr").is_file() {
         let _ = command("/usr/bin/fwupdmgr", &["refresh".into()]);
     }
@@ -392,6 +476,23 @@ mod tests {
         }
     }
 
+    #[test]
+    fn aur_queue_allows_only_the_fixed_pinned_manifest_helper() {
+        assert!(allowed(&Deferred {
+            program: "/usr/bin/borea-firstboot".into(),
+            args: vec!["--aur".into()]
+        }));
+        for args in [
+            vec!["--aur", "/tmp/user-manifest"],
+            vec!["--extract-appimage", "/tmp", "image"],
+            vec!["--appimages"],
+        ] {
+            assert!(!allowed(&Deferred {
+                program: "/usr/bin/borea-firstboot".into(),
+                args: args.into_iter().map(str::to_owned).collect()
+            }));
+        }
+    }
     #[test]
     fn failed_download_resumes_without_repeating_completed_setup() {
         let queue = Queue::new();

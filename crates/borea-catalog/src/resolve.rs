@@ -10,11 +10,13 @@ use crate::source::{Distro, Source, Sources};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Prefer {
-    /// Distro packages first, then Flathub, then an upstream AppImage.
-    #[default]
+    /// Distro packages, then AUR on Arch, Flathub, and an upstream AppImage.
     Native,
     /// Flathub first, then distro packages, then an upstream AppImage.
     Flatpak,
+    /// Default: AUR on Arch first, then native packages, Flathub, and an upstream AppImage.
+    #[default]
+    Aur,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,6 +47,11 @@ pub fn candidates(a: &App, distro: Distro, prefer: Prefer) -> Vec<(Source, &'sta
         Prefer::Native => {
             out.extend(native);
             out.extend(aur);
+            out.extend(flat);
+        }
+        Prefer::Aur => {
+            out.extend(aur);
+            out.extend(native);
             out.extend(flat);
         }
         Prefer::Flatpak => {
