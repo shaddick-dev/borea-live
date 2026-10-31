@@ -1,0 +1,87 @@
+{
+  "date": "2026-10-31",
+  "code_commit": "c37b14f11ceaf491db86d62dfb98921a9c009927",
+  "workflow_run": "https://github.com/shaddick-dev/borea-live/actions/runs/41211439220",
+  "cases": [
+    {
+      "distro": "arch",
+      "compositor": "mango",
+      "noctalia_package": "5.4.1-1",
+      "layout": "whole",
+      "secure_boot": false,
+      "install": "passed",
+      "boot": "passed",
+      "greeter_services_and_config": "passed",
+      "job_url": "https://github.com/shaddick-dev/borea-live/actions/runs/41211439220/job/124567498546"
+    },
+    {
+      "distro": "arch",
+      "compositor": "hyprland",
+      "noctalia_package": "5.4.1-1",
+      "layout": "whole",
+      "secure_boot": false,
+      "install": "passed",
+      "boot": "passed",
+      "greeter_services_and_config": "passed",
+      "job_url": "https://github.com/shaddick-dev/borea-live/actions/runs/41211439220/job/124567498557"
+    },
+    {
+      "distro": "arch",
+      "compositor": "niri",
+      "noctalia_package": "5.4.1-1",
+      "layout": "whole",
+      "secure_boot": false,
+      "install": "passed",
+      "boot": "passed",
+      "greeter_services_and_config": "passed",
+      "job_url": "https://github.com/shaddick-dev/borea-live/actions/runs/41211439220/job/124567498566"
+    },
+    {
+      "distro": "cachyos",
+      "compositor": "niri",
+      "noctalia_package": "5.4.1-1",
+      "layout": "whole",
+      "secure_boot": false,
+      "install": "passed",
+      "boot": "passed",
+      "greeter_services_and_config": "passed",
+      "job_url": "https://github.com/shaddick-dev/borea-live/actions/runs/41211439220/job/124567498586"
+    },
+    {
+      "distro": "cachyos",
+      "compositor": "mango",
+      "noctalia_package": "5.4.1-1",
+      "layout": "whole",
+      "secure_boot": false,
+      "install": "passed",
+      "boot": "passed",
+      "greeter_services_and_config": "passed",
+      "job_url": "https://github.com/shaddick-dev/borea-live/actions/runs/41211439220/job/124567498589"
+    },
+    {
+      "distro": "cachyos",
+      "compositor": "hyprland",
+      "noctalia_package": "5.4.1-1",
+      "layout": "whole",
+      "secure_boot": false,
+      "install": "passed",
+      "boot": "passed",
+      "greeter_services_and_config": "passed",
+      "job_url": "https://github.com/shaddick-dev/borea-live/actions/runs/41211439220/job/124567498620"
+    }
+  ],
+  "native_config_validation": "https://github.com/shaddick-dev/borea-live/actions/runs/41211440328/job/124567106314",
+  "iso_boot_validation": "https://github.com/shaddick-dev/borea-live/actions/runs/41211440303",
+  "assertions": [
+    "approved native online install completes without repair",
+    "installed OS identity, LUKS unlock, user, networking and sudo",
+    "active greetd and accounts-daemon services",
+    "chosen compositor and Noctalia config files present in the created account"
+  ],
+  "limits": [
+    "whole-drive, Secure Boot-off fixtures only in this run",
+    "serial instrumentation checks services and files; it does not drive interactive graphical login or prove compositor rendering",
+    "interactive Noctalia Greeter login, lock/unlock, suspend/resume and physical Intel Arc A770 remain unverified",
+    "optional native app downloads after active Wayland login are covered by unit/planner tests, not by these serial login scenarios"
+  ]
+}
