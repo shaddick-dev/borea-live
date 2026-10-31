@@ -52,6 +52,9 @@ pub struct NativeInstall {
     pub progress: f32,
     password: Zeroizing<String>,
     confirmation: Zeroizing<String>,
+    /// The separate sudo password, used when `user.same_passphrase` is off.
+    admin: Zeroizing<String>,
+    admin_confirmation: Zeroizing<String>,
     extras: BTreeSet<String>,
     secure_boot: bool,
     network: NetChoice,
@@ -93,8 +96,27 @@ impl NativeInstall {
         self.invalidate();
         self.pick = None;
         self.page = Page::Storage;
+        self.forget_secrets();
+    }
+    fn forget_secrets(&mut self) {
         self.password.zeroize();
         self.confirmation.zeroize();
+        self.admin.zeroize();
+        self.admin_confirmation.zeroize();
+    }
+    /// Whether the account password is also the sudo password. Turning it back on
+    /// forgets the separate one. The Account page's switch calls this.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn same_sudo(&mut self, same: bool) {
+        if self.page != Page::Account || self.busy() {
+            return;
+        }
+        self.invalidate();
+        self.user.same_passphrase = same;
+        if same {
+            self.admin.zeroize();
+            self.admin_confirmation.zeroize();
+        }
     }
     pub(crate) fn edit_account(&mut self, field: &str, value: String) {
         if self.page != Page::Account || self.busy() {
@@ -107,6 +129,8 @@ impl NativeInstall {
             "hostname" => self.user.hostname = value,
             "password" => *self.password = value,
             "confirmation" => *self.confirmation = value,
+            "admin" => *self.admin = value,
+            "admin-confirmation" => *self.admin_confirmation = value,
             _ => {}
         }
     }
@@ -198,6 +222,8 @@ impl NativeInstall {
             progress: 0.0,
             password: Zeroizing::new(String::new()),
             confirmation: Zeroizing::new(String::new()),
+            admin: Zeroizing::new(String::new()),
+            admin_confirmation: Zeroizing::new(String::new()),
             extras: BTreeSet::new(),
             secure_boot: false,
             network: NetChoice::Ethernet,
@@ -326,10 +352,14 @@ impl NativeInstall {
         if *self.password != *self.confirmation {
             return Err("The passwords do not match.".into());
         }
+        let separate = !self.user.same_passphrase;
+        if separate && *self.admin != *self.admin_confirmation {
+            return Err("The sudo passwords do not match.".into());
+        }
         borea_core::Secrets {
             wifi: None,
             passphrase: borea_core::Secret::new(self.password.to_string()),
-            admin: None,
+            admin: separate.then(|| borea_core::Secret::new(self.admin.to_string())),
         }
         .validate(&self.user)
         .map_err(|e| e.to_string())
@@ -359,13 +389,13 @@ impl NativeInstall {
         let Some((plan, approval, _)) = &self.approval else {
             return;
         };
-        let params = json!({"plan":plan,"approval":approval,"secrets":{"wifi":null,"passphrase":self.password.as_str(),"admin":null}});
+        let admin = (!self.user.same_passphrase).then(|| self.admin.as_str());
+        let params = json!({"plan":plan,"approval":approval,"secrets":{"wifi":null,"passphrase":self.password.as_str(),"admin":admin}});
         self.page = Page::Running;
         self.stage = "Checking sources before writing…".into();
         self.error = None;
         self.ask("install.start", params, Answer::Start);
-        self.password.zeroize();
-        self.confirmation.zeroize();
+        self.forget_secrets();
     }
     fn follow(&self) {
         let (service, tx, revision, mut cursor) =
@@ -536,6 +566,26 @@ mod tests {
                 _ => Value::Null,
             })
         })
+    }
+    #[test]
+    fn any_length_password_and_a_separate_sudo_password_are_accepted() {
+        let mut link = NativeInstall::with_service(service(Arc::default()));
+        link.page = Page::Account;
+        account(&mut link);
+        link.edit_account("password", "a".into());
+        link.edit_account("confirmation", "a".into());
+        assert!(link.credentials_valid().is_ok(), "no minimum length");
+        link.same_sudo(false);
+        assert!(!link.user.same_passphrase);
+        link.edit_account("admin", "sudo-only".into());
+        assert_eq!(link.credentials_valid().unwrap_err(), "The sudo passwords do not match.");
+        link.edit_account("admin-confirmation", "sudo-only".into());
+        assert!(link.credentials_valid().is_ok());
+        link.same_sudo(true);
+        assert!(
+            link.admin.is_empty() && link.admin_confirmation.is_empty(),
+            "forgotten when turned back on"
+        );
     }
     #[test]
     fn whole_and_alongside_require_review_and_confirmation_before_start() {
