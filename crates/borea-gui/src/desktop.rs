@@ -448,7 +448,7 @@ impl Bridge {
                             Tile::new(
                                 "mode/bare",
                                 "No desktop",
-                                "Console login and your selected extras",
+                                "Console login only",
                                 a.picked_mode && c.mode == DesktopMode::Bare,
                             ),
                         ],
@@ -535,26 +535,6 @@ impl Bridge {
                         ));
                     }
                 }
-                groups.push(section(
-                    "Extras",
-                    a.catalog
-                        .extras
-                        .on(&a.distro().id)
-                        .map(|o| {
-                            let mut t = Tile::new(
-                                format!("extra/{}", o.extra.id),
-                                &o.extra.name,
-                                o.describe(),
-                                a.selection.extra(&a.catalog, f, &o.extra.id),
-                            );
-                            t.enabled = !o.provision.built_in;
-                            if !t.enabled {
-                                t.badge = Some("Included".into());
-                            }
-                            t
-                        })
-                        .collect(),
-                ));
             }
             Step::Review if self.native() && a.native.page == Page::Storage => {
                 groups.extend(storage_tiles(&a.native.disks, &a.native.pick, 40))
@@ -566,12 +546,34 @@ impl Bridge {
                     Phase::Choosing | Phase::Reviewing | Phase::Reviewed(_)
                 ) {
                     groups.extend(storage_tiles(&a.handoff.disks, &a.handoff.pick, 32));
+                    // Extras are chosen here, on the review, and nowhere else.
+                    groups.push(section("Extras", extra_tiles(a, f)));
                 }
             }
             _ => {}
         }
         (heroes, groups)
     }
+}
+/// The extras offered for this card, picked or not: chosen only on the review.
+fn extra_tiles(a: &crate::live::LiveInstaller, f: Family) -> Vec<Tile> {
+    a.catalog
+        .extras
+        .on(&a.distro().id)
+        .map(|o| {
+            let mut t = Tile::new(
+                format!("extra/{}", o.extra.id),
+                &o.extra.name,
+                o.describe(),
+                a.selection.extra(&a.catalog, f, &o.extra.id),
+            );
+            t.enabled = !o.provision.built_in;
+            if !t.enabled {
+                t.badge = Some("Included".into());
+            }
+            t
+        })
+        .collect()
 }
 fn family_id(f: Family) -> &'static str {
     match f {
@@ -1965,10 +1967,21 @@ impl App {
     fn apps_card(&self) -> Element<'_, Message> {
         let n = &self.bridge.app.native;
         let p = self.colors();
-        let picked: Vec<&str> = borea_catalog::APPS
-            .iter()
-            .filter(|app| n.apps.contains(app.id))
-            .map(|app| app.name)
+        let a = &self.bridge.app;
+        let extras = a
+            .selection
+            .ticked(&a.catalog, a.family())
+            .into_iter()
+            .map(|o| o.extra.name.as_str())
+            .collect::<Vec<_>>();
+        let picked: Vec<&str> = extras
+            .into_iter()
+            .chain(
+                borea_catalog::APPS
+                    .iter()
+                    .filter(|app| n.apps.contains(app.id) && self.included_by(app).is_none())
+                    .map(|app| app.name),
+            )
             .collect();
         let count = match picked.len() {
             0 => "None".to_string(),
@@ -2001,6 +2014,46 @@ impl App {
             .padding([13, 16])
         ];
         if self.apps_open {
+            // System extras first: chosen here and nowhere else in the installer.
+            let offered: Vec<_> = a.catalog.extras.on(&a.distro().id).collect();
+            if !offered.is_empty() {
+                let mut list = column![].spacing(0);
+                for pair in offered.chunks(2) {
+                    let mut line = row![].spacing(40);
+                    for o in pair {
+                        let on = o.provision.built_in
+                            || a.selection.extra(&a.catalog, a.family(), &o.extra.id);
+                        let press = (!o.provision.built_in && !self.bridge.busy())
+                            .then(|| Message::Choose(format!("extra/{}", o.extra.id)));
+                        let note = if o.provision.built_in {
+                            "included".to_owned()
+                        } else {
+                            o.summary().to_owned()
+                        };
+                        line = line.push(self.pick_row(&o.extra.name, Some(note), on, press));
+                    }
+                    if pair.len() < 2 {
+                        line = line.push(space().width(Length::Fill));
+                    }
+                    list = list.push(line);
+                }
+                words = words
+                    .push(divider(p, 0.65))
+                    .push(
+                        container(text("System extras").size(14).font(TITLE).color(p.text))
+                            .padding([10, 16]),
+                    )
+                    .push(divider(p, 0.45))
+                    .push(
+                        container(list)
+                            .width(Length::Fill)
+                            .padding(iced::Padding { top: 8., right: 16., bottom: 12., left: 44. })
+                            .style(move |_| container::Style {
+                                background: Some(mix(p.surface, p.bg, 0.4).into()),
+                                ..Default::default()
+                            }),
+                    );
+            }
             let last = borea_catalog::Category::ALL.len() - 1;
             for (index, category) in borea_catalog::Category::ALL.into_iter().enumerate() {
                 let label = category.label();
@@ -2059,6 +2112,10 @@ impl App {
     /// One app: a round selector on the left, then its name. Apps with no source
     /// for this system stay faint and can't be picked.
     fn app_row(&self, app: &'static borea_catalog::App) -> Element<'_, Message> {
+        // An app a ticked extra installs shows as included, not as a second choice.
+        if let Some(extra) = self.included_by(app) {
+            return self.pick_row(app.name, Some(format!("in {extra}")), true, None);
+        }
         let p = self.colors();
         let on = self.bridge.app.native.apps.contains(app.id);
         let available = app_available(app);
@@ -2093,6 +2150,66 @@ impl App {
                 // Captures draw every button as Disabled, so availability decides.
                 text_color: match status {
                     _ if !available => Color { a: 0.45, ..p.muted },
+                    button::Status::Hovered | button::Status::Pressed => p.text,
+                    _ => ink,
+                },
+                ..Default::default()
+            })
+            .into()
+    }
+    /// The ticked extra that already installs this app, if any.
+    fn included_by(&self, app: &borea_catalog::App) -> Option<String> {
+        let a = &self.bridge.app;
+        a.selection.ticked(&a.catalog, a.family()).into_iter().find_map(|o| {
+            app.native
+                .iter()
+                .any(|n| o.provision.packages.iter().any(|p| p == n.pkg))
+                .then(|| o.extra.name.clone())
+        })
+    }
+    /// A row with a round selector, a name and, faintly, a note. Without a press
+    /// it can't be changed here: included, or not available.
+    fn pick_row(
+        &self,
+        name: &str,
+        note: Option<String>,
+        on: bool,
+        press: Option<Message>,
+    ) -> Element<'_, Message> {
+        let p = self.colors();
+        let enabled = press.is_some();
+        let tick =
+            container(container(space()).width(7).height(7).style(move |_| container::Style {
+                background: on.then(|| p.ice.into()),
+                border: Border { radius: 3.5.into(), ..Default::default() },
+                ..Default::default()
+            }))
+            .width(15)
+            .height(15)
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center)
+            .style(move |_| container::Style {
+                border: Border {
+                    color: if on { p.ice } else { Color { a: 0.4, ..p.muted } },
+                    width: 1.5,
+                    radius: 7.5.into(),
+                },
+                ..Default::default()
+            });
+        let mut words =
+            row![tick, text(name.to_owned()).size(14)].spacing(12).align_y(Alignment::Center);
+        if let Some(note) = note {
+            words = words.push(text(note).size(12).color(Color { a: 0.7, ..p.muted }));
+        }
+        let ink = if on { p.text } else { p.muted };
+        button(words)
+            .width(Length::Fill)
+            .padding([6, 0])
+            .on_press_maybe(press)
+            .style(move |_, status| button::Style {
+                background: None,
+                text_color: match status {
+                    _ if !enabled && !on => Color { a: 0.45, ..p.muted },
                     button::Status::Hovered | button::Status::Pressed => p.text,
                     _ => ink,
                 },
@@ -2824,12 +2941,15 @@ fn showcase_region(app: &mut App) {
     };
     app.bridge.app.native.locale = locale;
 }
-/// Extra apps open on Chat & email, with Vesktop and Firefox picked.
+/// Extra apps open with the Gaming extra (Steam and Lutris shown as in Gaming),
+/// Chat & email and Games open, Vesktop and Firefox picked.
 fn showcase_apps(app: &mut App) {
+    app.bridge.command("extra/gaming");
     app.bridge.command("app/firefox");
     app.bridge.command("app/vesktop");
     app.apps_open = true;
     app.categories.insert(borea_catalog::Category::ChatEmail.label());
+    app.categories.insert(borea_catalog::Category::Games.label());
 }
 fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::error::Error>> {
     use std::borrow::Cow;
@@ -3018,7 +3138,6 @@ fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::err
                     app.pulse = 1.;
                     app.bloom = Some("shell/noctalia".into());
                 }
-                178 => app.bridge.command("extra/gaming"),
                 190 => {
                     app.bridge.next();
                     app.bridge.app.native.disks = showcase_disks();
@@ -3045,6 +3164,8 @@ fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::err
                 }
                 240 => showcase_region(&mut app),
                 248 => app.apps_open = true,
+                // System extras live here, on the review, and nowhere else.
+                250 => app.bridge.command("extra/gaming"),
                 252 => {
                     app.categories.insert(borea_catalog::Category::ChatEmail.label());
                 }
@@ -3471,6 +3592,43 @@ mod iced_tests {
         a.bridge.app.native.disks[0].parts[0].fs = "ext4".into();
         a.bridge.command("alongside/0/0");
         assert!(a.bridge.app.native.pick.is_none());
+    }
+    #[test]
+    fn extras_are_chosen_only_on_the_review() {
+        let mut a = app();
+        a.bridge.app.go(Step::System);
+        a.bridge.command("family/0");
+        a.bridge.command("distro/2");
+        a.bridge.command("edition/0");
+        a.bridge.next();
+        // The Desktop step offers no extras.
+        if a.bridge.app.step == Step::Desktop {
+            let (_, groups) = a.bridge.tiles();
+            assert!(groups.iter().flat_map(|g| &g.choices).all(|t| !t.key.starts_with("extra/")));
+            a.bridge.next();
+        }
+        assert_eq!(a.bridge.app.step, Step::Review);
+        a.bridge.app.handoff.phase = Phase::Choosing;
+        let (_, groups) = a.bridge.tiles();
+        let extras: Vec<_> = groups
+            .iter()
+            .flat_map(|g| &g.choices)
+            .filter(|t| t.key.starts_with("extra/"))
+            .collect();
+        assert!(extras.iter().any(|t| t.key == "extra/gaming"), "the review offers them");
+    }
+    #[test]
+    fn an_app_an_extra_installs_shows_as_included_not_twice() {
+        let mut a = app();
+        a.bridge.app.go(Step::System);
+        a.bridge.command("family/0");
+        a.bridge.command("distro/0");
+        let steam = borea_catalog::APPS.iter().find(|x| x.id == "steam").unwrap();
+        assert_eq!(a.included_by(steam), None);
+        a.bridge.command("extra/gaming");
+        assert_eq!(a.included_by(steam).as_deref(), Some("Gaming"));
+        let firefox = borea_catalog::APPS.iter().find(|x| x.id == "firefox").unwrap();
+        assert_eq!(a.included_by(firefox), None);
     }
     #[test]
     fn omarchy_reaches_its_upstream_handoff_and_keeps_extras() {
