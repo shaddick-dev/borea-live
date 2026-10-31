@@ -2923,8 +2923,9 @@ fn showcase_apps(app: &mut App) {
 /// Bundled fonts for captures, which draw without a window to load them.
 fn load_fonts() -> Result<(), Box<dyn std::error::Error>> {
     use std::borrow::Cow;
-    let mut fonts =
-        iced_tiny_skia::graphics::text::font_system().write().map_err(|_| "Font system lock failed")?;
+    let mut fonts = iced_tiny_skia::graphics::text::font_system()
+        .write()
+        .map_err(|_| "Font system lock failed")?;
     for font in [FONT, TITLE_FONT].into_iter().chain(BRAND_FONTS) {
         fonts.load_font(Cow::Borrowed(font));
     }
