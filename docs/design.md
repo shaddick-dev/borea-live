@@ -12,13 +12,14 @@
 
 ## Cards
 
-Every card in the GUI is the same card in three sizes: hero (families and distributions), compact (every other choice) and rail (the steps). All have 16 px corners.
+Every card in the GUI is the same card in four sizes: hero (families and distributions), compact (every other choice), rail (the steps) and form (fields to fill in). All have 16 px corners.
 
 - **Accent.** A family card wears its family's primary colour (Arch #1793D1, Fedora #51A2DA, Debian #A80030, openSUSE #73BA25). A distribution card wears its own brand colour (Arch Linux #1793D1, CachyOS #00AA88 from its mark), Borea's neutral grey where its mark is monochrome (Omarchy), or its family's until reviewed. Everything else wears Borea's ice.
 - **Hover.** The card rises (4 px hero, 2 px compact and rail) with a deeper shadow and a glow of its accent, and the side under the pointer gives way into shade, drawn beneath the words so logos and text never dim.
 - **Picked.** A soft gradient of the accent fades in and drifts slowly, with a 2 px rim and a gently breathing glow; just picked, a faint bloom grows from the pointer. No shimmer, glint, cursor glow or "SELECTED" label.
 - **Can't be picked.** Greyed toward the background, still, with a quiet tag at the bottom right saying why: "Coming soon", "Not available" or "Included" (included things also show as picked).
 - **Facts.** Facts to read (the machine, the final review) sit on flat cards: no hover, no greying.
+- **Forms.** Fields to fill in (Account, Region, Extra apps) sit on titled form cards: a 15 px semibold title, sections split by full-width hairlines, options in a sunk band with switches at the end of the card. Each field is a faint hint on a thin line, never a box and never a pre-filled example; the line and its card's rim turn ice while it is the one being filled in. Drop-downs open with a chevron and indent their rows in the same sunk band, a round selector on the left. The only words a form adds are its errors, inline under what they're about, the password's strength and whether passwords match.
 
 ## Words
 

@@ -46,6 +46,16 @@ pub fn valid_console(key: &str) -> bool {
         .filter(|l| !l.starts_with('#'))
         .any(|l| l.split_whitespace().next() == Some(key))
 }
+/// The console keymap matching a keyboard layout and variant, from the same map
+/// systemd-localed uses.
+pub fn console_for(layout: &str, variant: &str) -> Option<&'static str> {
+    let variant = if variant.is_empty() { "-" } else { variant };
+    CONSOLE_MAP.lines().filter(|l| !l.starts_with('#')).find_map(|l| {
+        let mut f = l.split_whitespace();
+        let (console, x, _model, v) = (f.next()?, f.next()?, f.next()?, f.next()?);
+        (x == layout && v == variant).then_some(console)
+    })
+}
 pub fn console_keymaps() -> impl Iterator<Item = &'static str> {
     CONSOLE_MAP
         .lines()

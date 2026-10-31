@@ -703,3 +703,84 @@ mod tests {
         assert!(s.choice(Family::Arch).compositor.is_none());
     }
 }
+
+/// A password's strength, 0 to 4: a guide only, never a requirement.
+pub fn strength(p: &str) -> usize {
+    let n = p.chars().count();
+    let mixed = p.chars().any(|c| c.is_ascii_lowercase())
+        && p.chars().any(|c| c.is_ascii_uppercase())
+        && p.chars().any(|c| c.is_ascii_digit());
+    let symbol = p.chars().any(|c| !c.is_ascii_alphanumeric());
+    usize::from(n >= 8)
+        + usize::from(n >= 12)
+        + usize::from(mixed)
+        + usize::from(n >= 16 || symbol && n >= 12)
+}
+/// The word under the strength bar.
+pub fn strength_word(score: usize) -> &'static str {
+    ["Weak.", "Okay.", "Good.", "Strong.", "Very strong."][score.min(4)]
+}
+/// Whether a confirmation matches: `Some(true)` once it does, `Some(false)` once it
+/// can't, and `None` while there is nothing to say yet.
+pub fn matches(password: &str, confirmation: &str) -> Option<bool> {
+    if confirmation.is_empty() {
+        None
+    } else if confirmation == password {
+        Some(true)
+    } else if password.starts_with(confirmation) {
+        None
+    } else {
+        Some(false)
+    }
+}
+/// What's wrong with the name, username or hostname typed so far, if anything.
+pub fn identity_problem(full_name: &str, username: &str, hostname: &str) -> Option<String> {
+    let shaped = |u: &str| {
+        let mut c = u.chars();
+        u.len() <= 32
+            && c.next().is_some_and(|c| c.is_ascii_lowercase() || c == '_')
+            && c.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+    };
+    if full_name.chars().any(|c| c.is_control() || c == ':') {
+        Some("Your name can\u{2019}t contain a colon or control characters.".into())
+    } else if !username.is_empty() && !borea_core::valid_username(username) {
+        Some(if shaped(username) {
+            format!("\u{201c}{username}\u{201d} is reserved by the system. Pick another username.")
+        } else {
+            "Usernames use lowercase letters, digits, - and _, starting with a letter.".into()
+        })
+    } else if !hostname.is_empty() && !borea_core::valid_hostname(hostname) {
+        Some("Hostnames use lowercase letters, digits and hyphens.".into())
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod account_tests {
+    use super::*;
+    #[test]
+    fn strength_is_a_guide() {
+        assert_eq!(strength(""), 0);
+        assert_eq!(strength("x"), 0);
+        assert_eq!(strength("abcdefgh"), 1);
+        assert_eq!(strength("Abcdefgh1234"), 3);
+        assert_eq!(strength("Abcdefgh1234!xyz"), 4);
+        assert_eq!(strength_word(4), "Very strong.");
+    }
+    #[test]
+    fn confirmations_speak_only_when_they_can() {
+        assert_eq!(matches("secret", ""), None);
+        assert_eq!(matches("secret", "sec"), None);
+        assert_eq!(matches("secret", "secret"), Some(true));
+        assert_eq!(matches("secret", "sex"), Some(false));
+    }
+    #[test]
+    fn identity_problems_name_the_field() {
+        assert!(identity_problem("Alex", "alex", "frost").is_none());
+        assert!(identity_problem("A:lex", "", "").unwrap().contains("colon"));
+        assert!(identity_problem("", "root", "").unwrap().contains("reserved"));
+        assert!(identity_problem("", "Alex", "").unwrap().contains("lowercase"));
+        assert!(identity_problem("", "", "-frost").unwrap().contains("Hostnames"));
+    }
+}
