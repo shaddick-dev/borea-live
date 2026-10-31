@@ -49,10 +49,15 @@ Borea writes your choices before creating the account:
 
 ## Release gate and testing
 
-**31 October 2026:** upstream stable v5 is **5.4.1**; the signed Arch package is
-**5.4.0-1**. Installation stops before disk changes until the selected repository
-provides the approved version. Borea does not compile a replacement or silently
-install an older release.
+**31 October 2026:** Borea installs the newest stable Noctalia v5 package in the
+selected distro's signed repositories, with **5.4.0** as the minimum supported
+release. Arch currently provides **5.4.0-1**. Upstream's newer **5.4.1** source
+release no longer blocks that native installation.
+
+Review approves stable major v5. Native preparation checks the actual package
+before target writes; prereleases, versions below 5.4.0 and other majors are
+rejected. Package signatures remain required. No source compilation or web API
+lookup is needed. Previously approved exact-version jobs retain their exact check.
 
 - Planner tests cover all six combinations, both storage layouts, selected packages, greeter, region and first-login app deferral.
 - Iced tests carry each compositor choice into the serialized native plan.

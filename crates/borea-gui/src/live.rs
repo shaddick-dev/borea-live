@@ -444,6 +444,9 @@ impl LiveInstaller {
                 }
             }
             Action::Family(f) => {
+                if f != Family::Arch {
+                    return;
+                }
                 if self.picked_family != Some(f) {
                     s.set_distro(f, 0);
                     s.secure_boot = false;

@@ -279,7 +279,10 @@ fn run() -> Result<(), Hint> {
     let entries = inventory(distro);
     let mode = args.get(1).map(String::as_str);
     if mode == Some("--check-noctalia") && distro == Distro::Arch {
-        println!("Arch has the latest stable Noctalia v{}.", borea_backend::noctalia::resolve()?);
+        let requirement = borea_backend::noctalia::resolve()?;
+        println!(
+            "Noctalia stable v{requirement} (5.4.0 or newer) is required from the selected signed repository; native preparation verifies the package before disk writes."
+        );
         return Ok(());
     }
     if mode.is_none() {

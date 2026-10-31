@@ -57,3 +57,10 @@ Native metadata preflight, approval checks and disk guards are enforced in code.
 - Generated configs passed the real signed Arch compositor binaries: Hyprland 0.57.0 `--verify-config`, niri 26.04 `validate`, MangoWC 0.18.4 `-p`, as UID 65534 in a disposable authenticated Arch bootstrap. CI repeats native parser checks. [Package and validation record](verification/noctalia-compositors-2026-10-31.json).
 - Native parsing caught and fixed a missing KDL terminator. Parsing is not session startup certification. MangoWC's headless launch stopped at renderer creation because scenefx requires a DRM FD.
 - Noctalia 5.4.1 remains ahead of the signed 5.4.0-1 package. The existing version gate covers all three recipes and blocks before target writes. Full installed graphical login, lock/unlock, suspend and Arc A770 testing remain outstanding. CachyOS branded preset integration is still a preview.
+
+## Noctalia native-package unblock — 31 October 2026
+
+- The earlier exact GitHub-patch gate is superseded: Review now approves stable major v5, and native pacman preparation accepts signed stable 5.4.0+ packages before target writes. Exact-version approvals from older jobs remain exact. Tests reject v4/v6, old config APIs, development versions and malformed versions.
+- Live Arch extra metadata still offers `noctalia 5.4.0-1`. Upstream v5.4.1 assets were downloaded and SHA-256 verified; the archive contains C++ source, not a prebuilt executable. Borea keeps native packages and does not compile that source.
+- Non-Arch GUI families are disabled in presentation and action handling. Omarchy handoff and the backend CLI remain available.
+- Passing package/config checks do not certify real graphical login, lock/unlock, suspend or Arc A770 hardware. Installed-system verification is recorded separately.

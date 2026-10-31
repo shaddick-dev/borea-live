@@ -4,7 +4,7 @@ Windpad and the live ISO run the same Rust/Iced 0.14 interface. Ratatui remains 
 
 - Nord dark and light colours. No purple accents.
 - Official distro logos at 52px, without decorative frames.
-- Right-to-left currents, drifting ice motes and selected-card frost effects.
+- Right-to-left wind streaks and selected-card frost effects.
 - Page changes ease the wind faster. Pause freezes every decorative effect.
 - Hardware, network and install requests run on Rust workers, outside rendering.
 - The ISO uses tiny-skia software rendering; an accelerated GPU is not required.
@@ -14,7 +14,7 @@ Windpad and the live ISO run the same Rust/Iced 0.14 interface. Ratatui remains 
 cargo run --locked -p borea-gui --bin borea-live -- --window
 cargo run --locked -p borea-gui --bin windpad
 cargo run --locked -p borea-gui --bin borea-live -- --showcase /tmp/borea-shots
-# Include the frames used for the README GIF:
+# Include the 24 fps frames used for the walkthrough video:
 cargo run --locked -p borea-gui --bin borea-live -- --showcase /tmp/borea-shots --animate
 ```
 
@@ -34,3 +34,13 @@ Tab/Shift-Tab move through text inputs. Number keys select visible choices; Ctrl
 The migration removes Slint, egui and their rendering bridges. The backend remains Rust 1.85 compatible. Iced is also used by System76's COSMIC ecosystem; Borea does not depend on COSMIC.
 
 [Logo sources](../crates/borea-gui/ui/logos/README.md) · [Design rules](design.md) · [Installation status](arch-noctalia.md)
+
+The README poster opens the MP4 player on GitHub Pages. Rebuild the video after
+changing installer screens:
+
+```sh
+ffmpeg -framerate 24 -i /tmp/borea-shots/motion/frame-%04d.png \
+  -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2" -c:v libx264 -crf 20 \
+  -pix_fmt yuv420p -movflags +faststart -an docs/assets/installer-showcase.mp4
+cp /tmp/borea-shots/family-dark.png docs/assets/installer-showcase.png
+```

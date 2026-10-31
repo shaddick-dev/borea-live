@@ -1302,7 +1302,7 @@ impl Session {
                 )?;
                 if self.job.plan.desktop.is_some_and(borea_core::Desktop::is_noctalia) {
                     let approved = self.job.external.noctalia.clone().ok_or_else(|| {
-                        err("Review the latest stable Noctalia v5 release before installing.")
+                        err("Review the stable Noctalia v5 package requirement before installing.")
                     })?;
                     let versions = self.command(
                         Root::Tools,
