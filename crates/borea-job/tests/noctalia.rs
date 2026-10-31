@@ -449,9 +449,23 @@ fn every_noctalia_compositor_has_its_own_packages_session_and_region_for_both_di
                 assert!(!config.contains("@@"));
                 assert!(written(&job, "/var/lib/borea/firstboot.json").contains("firefox"));
                 assert_eq!(job.plan.desktop, Some(desktop));
+                let approved = borea_backend::external::resolve(&job.review).unwrap();
+                assert_eq!(approved.noctalia.as_deref(), Some("5"));
+                assert!(
+                    borea_backend::noctalia::check_version(
+                        "5.4.0-1",
+                        approved.noctalia.as_deref().unwrap()
+                    )
+                    .is_ok()
+                );
                 if let Ok(dir) = std::env::var("BOREA_COMPOSITOR_CONFIGS") {
                     std::fs::create_dir_all(&dir).unwrap();
                     std::fs::write(std::path::Path::new(&dir).join(name), config).unwrap();
+                    std::fs::write(
+                        std::path::Path::new(&dir).join("noctalia.toml"),
+                        written(&job, "/etc/skel/.config/noctalia/config.toml"),
+                    )
+                    .unwrap();
                 }
             }
         }

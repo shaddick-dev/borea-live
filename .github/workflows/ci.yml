@@ -55,7 +55,7 @@ jobs:
     container: archlinux:base-devel
     steps:
       - name: Native compositor packages
-        run: pacman -Syu --noconfirm --needed rust gcc git pkgconf hyprland niri mangowm
+        run: pacman -Syu --noconfirm --needed rust gcc git pkgconf hyprland niri mangowm noctalia
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
       - name: Generate the reviewed compositor configurations
@@ -77,6 +77,7 @@ jobs:
           runuser -u nobody -- env HOME="$runtime" niri validate -c "$configs/niri.kdl"
           runuser -u nobody -- env HOME="$runtime" Hyprland --verify-config -c "$configs/hyprland.lua"
           runuser -u nobody -- env HOME="$runtime" mango -p -c "$configs/mango.conf"
+          runuser -u nobody -- env HOME="$runtime" noctalia config validate "$configs/noctalia.toml"
 
   borea-command-arch:
     name: borea install on Arch

@@ -95,3 +95,16 @@
 - Every Noctalia recipe shares version approval, greeter, user/locale, storage,
   first-login app deferral and lock policy. Compositor startup, portal backend
   and keyboard configuration are selected from the reviewed desktop variant.
+
+- Noctalia unblocking (31 October 2026): the native desktop means the latest
+  stable v5 package available in the selected distro's signed repositories,
+  with a minimum of 5.4.0 for the installed config/API. A newer GitHub patch
+  does not block installation. Upstream currently publishes a source archive,
+  not a prebuilt binary; Borea neither compiles it nor disables signatures.
+  Review approves stable major v5; native preparation checks the actual package
+  before any target writes. Previously approved exact-version jobs retain their
+  exact comparison. No GitHub/Arch web API is needed to approve this native path.
+- Other GUI distribution families remain visible but disabled until their GUI
+  install paths are ready. Their Rust backend/CLI implementations are preserved.
+- The README uses a still image linked to a GitHub Pages MP4 player because
+  GitHub Markdown does not reliably embed repository-hosted video elements.

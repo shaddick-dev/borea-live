@@ -13,6 +13,9 @@ on:
       - scripts/install.sh
       - scripts/borea-setup.sh
       - .github/workflows/pages.yml
+      - docs/assets/installer-showcase.mp4
+      - docs/assets/installer-showcase.png
+      - docs/showcase/**
       # The app is served from here too, so rebuild when it or its dependencies change.
       - crates/**
       - Cargo.toml
@@ -48,7 +51,9 @@ jobs:
           "$app" --help >/dev/null
       - name: Assemble
         run: |
-          mkdir _site
+          mkdir -p _site/showcase
+          cp docs/showcase/index.html _site/showcase/
+          cp docs/assets/installer-showcase.mp4 docs/assets/installer-showcase.png _site/showcase/
           cp target/x86_64-unknown-linux-musl/release/borea-rataTUI _site/borea-rataTUI-x86_64-linux
           (cd _site && sha256sum borea-rataTUI-x86_64-linux > borea-rataTUI-x86_64-linux.sha256)
           cp scripts/install.sh _site/install

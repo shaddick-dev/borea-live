@@ -65,14 +65,17 @@ impl Bridge {
         let bits: Vec<_> = key.split('/').collect();
         let index = |at: usize| bits.get(at).and_then(|v| v.parse::<usize>().ok());
         let action = match bits[0] {
-            "family" => index(1).and_then(|i| Family::ALL.get(i).copied()).and_then(|f| {
-                if self.app.still {
-                    Some(Action::Family(f))
-                } else {
-                    self.pending_family = Some((f, Instant::now()));
-                    None
-                }
-            }),
+            "family" => index(1)
+                .and_then(|i| Family::ALL.get(i).copied())
+                .filter(|f| *f == Family::Arch)
+                .and_then(|f| {
+                    if self.app.still {
+                        Some(Action::Family(f))
+                    } else {
+                        self.pending_family = Some((f, Instant::now()));
+                        None
+                    }
+                }),
             "distro" => index(1)
                 .filter(|i| *i < self.app.catalog.family(f).count())
                 .map(|i| Action::Distro(f, i)),
@@ -334,6 +337,7 @@ impl Bridge {
                             == Some(f),
                     );
                     t.logo = family_id(f).into();
+                    t.enabled = f == Family::Arch;
                     t.meta = match f {
                         Family::Arch => "Rolling release",
                         Family::Fedora => "Regular releases",
@@ -341,6 +345,9 @@ impl Bridge {
                         Family::Opensuse => "Rolling snapshots",
                     }
                     .into();
+                    if !t.enabled {
+                        t.meta = "Not available yet".into();
+                    }
                     heroes.push(t);
                 }
             }
@@ -980,6 +987,7 @@ impl App {
         let mut rail = column![
             text("Borea").size(32).color(p.ice),
             text("Follow the wind.").size(13).color(p.muted),
+            text("Only some Arch installs work (including Omarchy).").size(11).color(p.muted),
             space().height(28)
         ]
         .spacing(9);
@@ -1149,7 +1157,11 @@ impl App {
             if let Some(logo) = logo(&tile.logo, self.bridge.app.dark) {
                 title = title.push(logo);
             }
-            title = title.push(text(tile.meta).size(10).color(p.ice));
+            title = title.push(text(tile.meta).size(10).color(if tile.enabled {
+                p.ice
+            } else {
+                p.muted
+            }));
         }
         title = title
             .push(text(tile.label).size(if hero { 19 } else { 15 }))
@@ -1166,6 +1178,17 @@ impl App {
             .on_press_maybe(enabled.then_some(pick))
             .style(move |_, status| tile_style(p, selected, status))
             .into();
+        if !tile.enabled && hero {
+            let shade =
+                container(space()).width(Length::Fill).height(Length::Fill).style(move |_| {
+                    container::Style {
+                        background: Some(Color { a: 0.55, ..p.bg }.into()),
+                        border: Border { radius: 16.into(), ..Default::default() },
+                        ..Default::default()
+                    }
+                });
+            return stack![card, shade].into();
+        }
         if selected {
             let energy =
                 widget::canvas(SelectionFx { t: self.elapsed, pulse: self.pulse, color: p.ice })
@@ -1387,7 +1410,7 @@ impl App {
         } else {
             body = body.push(
                 text(
-                    "This combination is a preview. Its installation pathway is not connected yet.",
+                    "Only some Arch installs work (including Omarchy). This combination is not connected yet.",
                 )
                 .color(p.muted),
             );
@@ -1783,52 +1806,54 @@ fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::err
     app = make();
     app.bridge.app.still = false;
     let mut previous = String::new();
-    for frame in 0..216 {
-        match frame {
-            8 => *app.wifi_password = "showcase-only-password".into(),
-            20 => app.bridge.app.go(Step::Machine),
-            36 => app.bridge.app.go(Step::System),
-            52 => {
-                app.bridge.pending_family = Some((Family::Arch, Instant::now()));
-                app.pulse = 1.;
+    for frame in 0..432 {
+        if frame % 2 == 0 {
+            match frame / 2 {
+                8 => *app.wifi_password = "showcase-only-password".into(),
+                20 => app.bridge.app.go(Step::Machine),
+                36 => app.bridge.app.go(Step::System),
+                52 => {
+                    app.bridge.pending_family = Some((Family::Arch, Instant::now()));
+                    app.pulse = 1.;
+                }
+                56 => {
+                    app.bridge.pending_family = None;
+                    app.bridge.app.apply(Action::Family(Family::Arch));
+                }
+                66 => {
+                    app.bridge.command("distro/0");
+                    app.pulse = 1.;
+                }
+                80 => app.bridge.command("edition/3"),
+                92 => app.bridge.next(),
+                100 => app.bridge.command("mode/compose"),
+                110 => app.bridge.command("compositor/hyprland"),
+                126 => {
+                    app.bridge.command("shell/noctalia");
+                    app.pulse = 1.;
+                }
+                142 => app.bridge.command("extra/gaming"),
+                154 => {
+                    app.bridge.next();
+                    app.bridge.app.native.disks = showcase_disks();
+                }
+                168 => {
+                    app.bridge.command("whole/0");
+                    app.bridge.next();
+                }
+                180 => showcase_account(&mut app),
+                196 => app.bridge.app.native.review(),
+                _ => {}
             }
-            56 => {
-                app.bridge.pending_family = None;
-                app.bridge.app.apply(Action::Family(Family::Arch));
-            }
-            66 => {
-                app.bridge.command("distro/0");
-                app.pulse = 1.;
-            }
-            80 => app.bridge.command("edition/3"),
-            92 => app.bridge.next(),
-            100 => app.bridge.command("mode/compose"),
-            110 => app.bridge.command("compositor/hyprland"),
-            126 => {
-                app.bridge.command("shell/noctalia");
-                app.pulse = 1.;
-            }
-            142 => app.bridge.command("extra/gaming"),
-            154 => {
-                app.bridge.next();
-                app.bridge.app.native.disks = showcase_disks();
-            }
-            168 => {
-                app.bridge.command("whole/0");
-                app.bridge.next();
-            }
-            180 => showcase_account(&mut app),
-            196 => app.bridge.app.native.review(),
-            _ => {}
         }
-        if frame >= 196 {
+        if frame >= 392 {
             app.bridge.app.native.poll();
         }
         let next = app.key();
-        app.wind.advance(1. / 12., next != previous, false, None);
+        app.wind.advance(1. / 24., next != previous, false, None);
         previous = next;
-        app.elapsed += 1. / 12.;
-        app.pulse = (app.pulse - 1. / 12. / 0.7).max(0.);
+        app.elapsed += 1. / 24.;
+        app.pulse = (app.pulse - 1. / 24. / 0.7).max(0.);
         capture(&app, &dir.join(format!("motion/frame-{frame:04}.png")), 1120, 753)?;
     }
     println!("Iced showcase captured in {}", dir.display());
@@ -1886,8 +1911,8 @@ mod tests {
         b.back();
         assert_eq!(b.app.native.page, Page::Account);
         b.app.go(Step::System);
-        b.command("family/2");
-        assert!(!b.app.picked_distro);
+        b.command("distro/1");
+        assert!(b.app.picked_distro);
         assert!(!b.app.picked_edition);
     }
     #[test]
@@ -1965,19 +1990,26 @@ mod iced_tests {
         a.bridge.next();
     }
     #[test]
-    fn selection_is_explicit_for_each_family() {
-        for i in 0..4 {
-            let mut a = app();
-            a.bridge.app.go(Step::System);
-            a.bridge.next();
-            assert_eq!(a.bridge.app.step, Step::System);
+    fn only_arch_is_available_and_disabled_families_cannot_change_selection() {
+        let mut a = app();
+        a.bridge.app.go(Step::System);
+        a.bridge.next();
+        assert_eq!(a.bridge.app.step, Step::System);
+        let (heroes, _) = a.bridge.tiles();
+        assert!(heroes[0].enabled);
+        assert!(heroes[1..].iter().all(|t| !t.enabled && t.meta == "Not available yet"));
+        for i in 1..4 {
             a.bridge.command(&format!("family/{i}"));
-            let (heroes, _) = a.bridge.tiles();
-            assert!(heroes.iter().all(|t| !t.selected));
-            a.bridge.next();
-            assert_eq!(a.bridge.app.step, Step::Distribution);
+            a.bridge.app.apply(Action::Family(Family::ALL[i]));
+            assert_eq!(a.bridge.app.step, Step::System);
+            assert!(a.bridge.app.picked_family.is_none());
+            assert!(a.bridge.pending_family.is_none());
         }
+        a.bridge.command("family/0");
+        assert_eq!(a.bridge.app.step, Step::Distribution);
+        assert_eq!(a.bridge.app.picked_family, Some(Family::Arch));
     }
+
     #[test]
     fn real_iced_family_button_dispatches_a_choice() {
         use iced_runtime::user_interface::{Cache, UserInterface};

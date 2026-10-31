@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       desktop:
-        description: 'Noctalia on Arch/CachyOS; requires the latest stable v5 in signed native packages'
+        description: 'Noctalia on Arch/CachyOS; requires signed stable v5 packages, 5.4.0 or newer'
         type: choice
-        options: [none, noctalia, noctalia-niri, noctalia-mango]
+        options: [none, noctalia, noctalia-niri, noctalia-mango, noctalia-all]
         default: none
       distro:
         type: choice
@@ -71,7 +71,8 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix:
-        distro: ${{ fromJSON(startsWith(inputs.desktop, 'noctalia') && inputs.distro == 'cachyos' && '["cachyos"]' || startsWith(inputs.desktop, 'noctalia') && '["arch"]' || github.event_name == 'pull_request' && '["arch"]' || inputs.distro == 'cachyos' && '["cachyos"]' || inputs.distro == 'arch' && '["arch"]' || inputs.distro == 'debian' && '["debian"]' || inputs.distro == 'fedora' && '["fedora"]' || inputs.distro == 'opensuse' && '["opensuse"]' || inputs.distro == 'rpm' && '["fedora","opensuse"]' || '["arch","debian","fedora","opensuse"]') }}
+        distro: ${{ fromJSON(startsWith(inputs.desktop, 'noctalia') && inputs.distro == 'all' && '["arch","cachyos"]' || startsWith(inputs.desktop, 'noctalia') && inputs.distro == 'cachyos' && '["cachyos"]' || startsWith(inputs.desktop, 'noctalia') && '["arch"]' || github.event_name == 'pull_request' && '["arch"]' || inputs.distro == 'cachyos' && '["cachyos"]' || inputs.distro == 'arch' && '["arch"]' || inputs.distro == 'debian' && '["debian"]' || inputs.distro == 'fedora' && '["fedora"]' || inputs.distro == 'opensuse' && '["opensuse"]' || inputs.distro == 'rpm' && '["fedora","opensuse"]' || '["arch","debian","fedora","opensuse"]') }}
+        desktop: ${{ fromJSON(inputs.desktop == 'noctalia-all' && '["noctalia","noctalia-niri","noctalia-mango"]' || inputs.desktop == 'noctalia-niri' && '["noctalia-niri"]' || inputs.desktop == 'noctalia-mango' && '["noctalia-mango"]' || inputs.desktop == 'noctalia' && '["noctalia"]' || '["none"]') }}
         layout: ${{ fromJSON(inputs.layout == 'both' && '["whole","alongside"]' || inputs.layout == 'alongside' && '["alongside"]' || '["whole"]') }}
         secure_boot: ${{ fromJSON(inputs.secure_boot == 'both' && '["0","1"]' || inputs.secure_boot == '1' && '["1"]' || '["0"]') }}
         exclude:
@@ -81,7 +82,7 @@ jobs:
             secure_boot: '1'
     env:
       BOREA_TEST_DISTRO: ${{ matrix.distro }}
-      BOREA_TEST_DESKTOP: ${{ inputs.desktop || 'none' }}
+      BOREA_TEST_DESKTOP: ${{ matrix.desktop }}
       BOREA_TEST_LAYOUT: ${{ matrix.layout }}
       BOREA_TEST_SECURE_BOOT: ${{ matrix.secure_boot }}
       CARGO_BUILD_JOBS: '2'
@@ -133,7 +134,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: vm-${{ matrix.distro }}-${{ matrix.layout }}-sb${{ matrix.secure_boot }}
+          name: vm-${{ matrix.distro }}-${{ matrix.desktop }}-${{ matrix.layout }}-sb${{ matrix.secure_boot }}
           path: |
             vm-console.log
             vm-work/scenario

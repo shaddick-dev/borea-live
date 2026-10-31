@@ -2,7 +2,9 @@
 
 [Overview](#overview) · [Status](#status) · [Try it](#try-it) · [Development](#development) · [Help out](#help-out) · [Docs](#docs)
 
-![Borea Live installer walkthrough: connection, hardware, distribution families, distribution, desktop, extras and review.](docs/assets/installer-showcase.gif)
+[![Watch the Borea installer video](docs/assets/installer-showcase.png)](https://shaddick-dev.github.io/borea-live/showcase/)
+
+[Watch video](https://shaddick-dev.github.io/borea-live/showcase/) · [Download MP4](docs/assets/installer-showcase.mp4)
 
 ## Overview
 
@@ -26,7 +28,7 @@ flowchart LR
 
 ## Status
 
-**Work in progress. The full graphical installation flow is still being connected.**
+**Only some Arch installs work (including Omarchy). Other distro families are greyed out for now.**
 
 - The live desktop has passed UEFI VM boot tests.
 - Omarchy handoff opens its upstream installer; whole-disk and Windows-alongside paths have been tested in VMs.

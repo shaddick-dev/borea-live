@@ -25,3 +25,8 @@ The `backend-vm.yml` workflow runs the four whole-drive, Secure Boot-off scenari
 The additional ignored `borea-disk` native test runs only with `BOREA_TEST_NTFS_IMAGE` pointing to a regular NTFS image under `/fixtures`, alongside a `.borea-ntfs-fixture` marker containing `BOREA_TEST_NTFS`. Build its unit-test binary with `cargo test -p borea-disk --lib --no-run`, then run it with `--ignored --nocapture` inside the tools container after formatting a disposable 256 MiB regular file using `mkfs.ntfs --fast --force`. It hashes the entire image around each read-only probe and checks absent, inactive and active hibernation states. Never point this fixture test at a block device.
 
 CachyOS minimal is available as `BOREA_TEST_DISTRO=cachyos`, with the same whole/alongside fixtures. `BOREA_TEST_DESKTOP=noctalia` (Hyprland), `noctalia-niri` and `noctalia-mango` accept Arch or CachyOS. The boot check tests the chosen compositor config and active greeter services; it does not exercise graphical login. A successful `preflight` checks native package resolution without writing the target; it is not an installed-system pass. CachyOS, like Arch, needs a separate owner-key enrollment fixture for Secure Boot.
+
+The manual workflow's `desktop: noctalia-all`, `distro: all` selection tests
+Hyprland, niri and MangoWC on both Arch and CachyOS, sharing one binary build.
+Use `layout: both` to expand to both disk plans. Artifact names include the
+compositor so concurrent desktop results cannot overwrite one another.
