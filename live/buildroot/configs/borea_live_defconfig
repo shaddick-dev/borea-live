@@ -120,6 +120,7 @@ BR2_PACKAGE_DOSFSTOOLS=y
 BR2_PACKAGE_DOSFSTOOLS_MKFS_FAT=y
 BR2_PACKAGE_DOSFSTOOLS_FSCK_FAT=y
 BR2_PACKAGE_GPTFDISK=y
+BR2_PACKAGE_GPTFDISK_SGDISK=y
 # Native tools borea-installd runs on the live host (crates/borea-exec preflight).
 # borea-build's dropped-option check fails the build if Buildroot rejects any of these.
 BR2_PACKAGE_CRYPTSETUP=y

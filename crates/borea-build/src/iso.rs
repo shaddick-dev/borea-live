@@ -610,6 +610,27 @@ fn dropped_options(defconfig: &str, config: &str) -> Vec<String> {
 mod tests {
     use super::*;
 
+    /// The installer refuses to start without these programs, so both live images
+    /// must ship the packages that provide them.
+    #[test]
+    fn both_live_images_ship_the_native_installer_tools() {
+        let defconfig = include_str!("../../../live/buildroot/configs/borea_live_defconfig");
+        for option in [
+            "BR2_PACKAGE_GPTFDISK_SGDISK=y",
+            "BR2_PACKAGE_PARTED=y",
+            "BR2_PACKAGE_CRYPTSETUP=y",
+            "BR2_PACKAGE_BTRFS_PROGS=y",
+            "BR2_PACKAGE_NTFS_3G_NTFSPROGS=y",
+        ] {
+            assert!(defconfig.lines().any(|l| l == option), "Buildroot image lacks {option}");
+        }
+        let dockerfile = include_str!("../../../live/compose/Dockerfile");
+        let packages: Vec<_> = dockerfile.split_whitespace().collect();
+        for package in ["gdisk", "parted", "cryptsetup", "btrfs-progs", "ntfs-3g", "dosfstools"] {
+            assert!(packages.contains(&package), "compose image lacks {package}");
+        }
+    }
+
     #[test]
     fn source_and_vendor_identity_follow_content_and_manifest_changes() {
         let dir = std::env::temp_dir().join(format!("borea-source-key-{}", std::process::id()));

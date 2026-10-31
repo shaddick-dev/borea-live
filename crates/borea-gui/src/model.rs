@@ -704,22 +704,6 @@ mod tests {
     }
 }
 
-/// A password's strength, 0 to 4: a guide only, never a requirement.
-pub fn strength(p: &str) -> usize {
-    let n = p.chars().count();
-    let mixed = p.chars().any(|c| c.is_ascii_lowercase())
-        && p.chars().any(|c| c.is_ascii_uppercase())
-        && p.chars().any(|c| c.is_ascii_digit());
-    let symbol = p.chars().any(|c| !c.is_ascii_alphanumeric());
-    usize::from(n >= 8)
-        + usize::from(n >= 12)
-        + usize::from(mixed)
-        + usize::from(n >= 16 || symbol && n >= 12)
-}
-/// The word under the strength bar.
-pub fn strength_word(score: usize) -> &'static str {
-    ["Weak.", "Okay.", "Good.", "Strong.", "Very strong."][score.min(4)]
-}
 /// Whether a confirmation matches: `Some(true)` once it does, `Some(false)` once it
 /// can't, and `None` while there is nothing to say yet.
 pub fn matches(password: &str, confirmation: &str) -> Option<bool> {
@@ -759,15 +743,6 @@ pub fn identity_problem(full_name: &str, username: &str, hostname: &str) -> Opti
 #[cfg(test)]
 mod account_tests {
     use super::*;
-    #[test]
-    fn strength_is_a_guide() {
-        assert_eq!(strength(""), 0);
-        assert_eq!(strength("x"), 0);
-        assert_eq!(strength("abcdefgh"), 1);
-        assert_eq!(strength("Abcdefgh1234"), 3);
-        assert_eq!(strength("Abcdefgh1234!xyz"), 4);
-        assert_eq!(strength_word(4), "Very strong.");
-    }
     #[test]
     fn confirmations_speak_only_when_they_can() {
         assert_eq!(matches("secret", ""), None);
