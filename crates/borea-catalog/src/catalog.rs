@@ -193,14 +193,16 @@ pub const APPS: &[App] = &[
         appimage: None,
     },
     App {
-        id: "discord",
-        name: "Discord",
+        id: "vesktop",
+        name: "Vesktop",
         what: "chat and voice",
         category: ChatEmail,
         mb: 300,
-        native: &[n(Arch, "discord", AE), n(Fedora, "discord", RN), n(OpenSuse, "discord", ON)],
+        // Flathub checked 2026-10-31 (1.6.8). Native and AUR sources wait for a
+        // check against those indexes, which refused automated access that day.
+        native: &[],
         aur: None,
-        flatpak: Some("com.discordapp.Discord"),
+        flatpak: Some("dev.vencord.Vesktop"),
         appimage: None,
     },
     App {
@@ -659,7 +661,7 @@ pub const PRESETS: &[(&str, &[&str], &[&str])] = &[
         &["firefox", "thunderbird", "libreoffice", "okular", "vlc", "codecs", "keepassxc"],
         &[],
     ),
-    ("Gaming", &["steam", "lutris", "heroic", "prism", "discord"], &["gaming"]),
+    ("Gaming", &["steam", "lutris", "heroic", "prism", "vesktop"], &["gaming"]),
     ("Creator", &["gimp", "krita", "inkscape", "kdenlive", "obs", "audacity"], &[]),
     ("Developer", &["vscodium", "neovim"], &["dev", "containers"]),
 ];

@@ -97,16 +97,16 @@ fn unavailable_apps_cannot_be_ticked() {
 #[test]
 fn plan_groups_by_source_and_flags_stranded_apps() {
     let mut s = Sources::defaults(Distro::Debian);
-    let sel = Selection::with(&["firefox", "discord", "steam", "gimp"]);
+    let sel = Selection::with(&["firefox", "vesktop", "steam", "gimp"]);
     let p = plan(&sel, &s, Prefer::Native);
     assert_eq!(p.batches[&Source::Repo("debian.main")], vec!["firefox-esr", "gimp"]);
     assert_eq!(p.batches[&Source::Repo("debian.contrib")], vec!["steam-installer"]);
-    assert_eq!(p.batches[&Source::Flathub], vec!["com.discordapp.Discord"]);
+    assert_eq!(p.batches[&Source::Flathub], vec!["dev.vencord.Vesktop"]);
     assert_eq!(p.count(), 4);
-    // Switch Flathub off after picking: Discord is stranded rather than silently dropped.
+    // Switch Flathub off after picking: Vesktop is stranded rather than silently dropped.
     s.set(Source::Flathub, false).unwrap();
     let p = plan(&sel, &s, Prefer::Native);
-    assert_eq!(p.stranded, vec!["discord"]);
+    assert_eq!(p.stranded, vec!["vesktop"]);
 }
 
 #[test]

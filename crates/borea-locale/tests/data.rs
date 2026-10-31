@@ -56,3 +56,21 @@ fn host_specific_zone_pointers_are_not_installation_choices() {
     assert!(!TIMEZONES.contains(&"localtime"));
     assert!(!TIMEZONES.contains(&"posixrules"));
 }
+#[test]
+fn a_connection_guess_is_a_valid_region() {
+    let gb = borea_locale::guess("GB", Some("Europe/London")).unwrap();
+    assert_eq!(gb.lang, "en_GB.UTF-8");
+    assert_eq!(gb.keyboard.layout, "gb");
+    assert_eq!(gb.keyboard.console, "uk");
+    assert_eq!(gb.timezone, "Europe/London");
+    // The connection's own time zone wins when it is a known one.
+    assert_eq!(
+        borea_locale::guess("us", Some("America/Chicago")).unwrap().timezone,
+        "America/Chicago"
+    );
+    assert_eq!(borea_locale::guess("GB", Some("Mars/Base")).unwrap().timezone, "Europe/London");
+    assert!(borea_locale::guess("ZZ", None).is_none());
+    for d in borea_locale::DEFAULTS {
+        assert!(borea_locale::validate(&borea_locale::guess(d.country, None).unwrap()).is_ok());
+    }
+}

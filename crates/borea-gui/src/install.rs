@@ -46,6 +46,9 @@ pub struct NativeInstall {
     pub user: Identity,
     pub locale: LocaleChoice,
     pub apps: BTreeSet<String>,
+    /// Region fields the user has chosen; a suggestion from the connection never
+    /// overwrites these.
+    touched: BTreeSet<&'static str>,
     pub confirmed: bool,
     pub error: Option<String>,
     pub stage: String,
@@ -95,6 +98,32 @@ impl NativeInstall {
         self.page = Page::Storage;
         self.password.zeroize();
         self.confirmation.zeroize();
+    }
+    /// The user chose this region field ("language", "keyboard", "console" or
+    /// "timezone"); a suggestion from the connection leaves it alone from now on.
+    pub(crate) fn touch(&mut self, kind: &'static str) {
+        self.touched.insert(kind);
+    }
+    /// Fill the region from the connection's suggestion, sparing whatever the user
+    /// already chose. Never once installing has begun.
+    pub(crate) fn suggest_region(&mut self, guess: LocaleChoice) {
+        if self.busy() || matches!(self.page, Page::Review | Page::Running | Page::Finished) {
+            return;
+        }
+        let l = &mut self.locale;
+        if !self.touched.contains("language") {
+            l.lang = guess.lang;
+        }
+        if !self.touched.contains("timezone") {
+            l.timezone = guess.timezone;
+        }
+        if !self.touched.contains("keyboard") {
+            l.keyboard.layout = guess.keyboard.layout;
+            l.keyboard.variant = guess.keyboard.variant;
+        }
+        if !self.touched.contains("console") {
+            l.keyboard.console = guess.keyboard.console;
+        }
     }
     pub(crate) fn edit_account(&mut self, field: &str, value: String) {
         if self.page != Page::Account || self.busy() {
@@ -192,6 +221,7 @@ impl NativeInstall {
                 },
             },
             apps: BTreeSet::new(),
+            touched: BTreeSet::new(),
             confirmed: false,
             error: None,
             stage: String::new(),
@@ -536,6 +566,21 @@ mod tests {
                 _ => Value::Null,
             })
         })
+    }
+    #[test]
+    fn a_region_from_the_connection_spares_what_the_user_chose() {
+        let mut link = NativeInstall::with_service(service(Arc::default()));
+        link.page = Page::Account;
+        link.locale.timezone = "Europe/Berlin".into();
+        link.touch("timezone");
+        link.suggest_region(borea_locale::guess("GB", Some("Europe/London")).unwrap());
+        assert_eq!(link.locale.lang, "en_GB.UTF-8");
+        assert_eq!(link.locale.keyboard.layout, "gb");
+        assert_eq!(link.locale.keyboard.console, "uk");
+        assert_eq!(link.locale.timezone, "Europe/Berlin", "the user's choice stands");
+        link.page = Page::Review;
+        link.suggest_region(borea_locale::guess("US", None).unwrap());
+        assert_eq!(link.locale.lang, "en_GB.UTF-8", "never once reviewing");
     }
     #[test]
     fn whole_and_alongside_require_review_and_confirmation_before_start() {

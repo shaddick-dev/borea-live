@@ -67,3 +67,8 @@ Native metadata preflight, approval checks and disk guards are enforced in code.
 
 - All six Arch/CachyOS × Hyprland/niri/MangoWC whole-drive, Secure Boot-off installs and subsequent boots pass without repair at `c37b14f`. Assertions cover OS identity, LUKS, account, network, sudo, active greeter/account services and the chosen configs. [Results](verification/noctalia-installed-2026-10-31.json). This does not certify interactive graphical login, lock/suspend, first-login app downloads or physical Arc hardware.
 - Updated ISO composition and both USB boot fixtures pass; workspace tests, Rust 1.85, native compositor/Noctalia config validation and static Ratatui checks also pass. The 18-second H.264 walkthrough decodes successfully; its poster and Pages player reference the MP4.
+
+## Account step sources — 31 October 2026
+
+- Vesktop replaces Discord in the app catalog. Flathub lists `dev.vencord.Vesktop` 1.6.8, maintained by the Vencord contributors, with no end-of-life notice ([Flathub](https://flathub.org/apps/dev.vencord.Vesktop)). The Arch package index, its JSON API, Arch GitLab packaging and the AUR all refused automated access that day, so the catalog lists Flathub only; native and AUR sources wait for a check against those indexes.
+- The region lookup's endpoint, `https://geoip.fedoraproject.org/city` (already `borea_net::GEO_ENDPOINT`), returns `country_code` and `time_zone`; `borea_locale::guess` maps them through the 247 validated country defaults.

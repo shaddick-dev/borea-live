@@ -25,6 +25,21 @@ include!("generated.rs");
 pub fn suggest(country: &str) -> Option<&'static CountryDefault> {
     DEFAULTS.iter().find(|d| d.country.eq_ignore_ascii_case(country))
 }
+/// The region a connection's country and time zone suggest, from the country
+/// defaults. The time zone is kept when it is a known one, else the country's.
+pub fn guess(country: &str, time_zone: Option<&str>) -> Option<LocaleChoice> {
+    let d = suggest(country)?;
+    let timezone = time_zone.filter(|tz| TIMEZONES.contains(tz)).unwrap_or(d.timezone);
+    Some(LocaleChoice {
+        lang: d.locale.into(),
+        timezone: timezone.into(),
+        keyboard: borea_core::Keyboard {
+            layout: d.layout.into(),
+            variant: String::new(),
+            console: d.console.into(),
+        },
+    })
+}
 pub fn valid_console(key: &str) -> bool {
     CONSOLE_MAP
         .lines()

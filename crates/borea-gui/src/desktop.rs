@@ -241,22 +241,26 @@ impl Bridge {
             "language" => {
                 if let Some(v) = borea_locale::LOCALES.get(i) {
                     n.locale.lang = v.id.into();
+                    n.touch("language");
                 }
             }
             "keyboard" => {
                 if let Some(v) = borea_locale::KEYBOARDS.get(i) {
                     n.locale.keyboard.layout = v.layout.into();
                     n.locale.keyboard.variant = v.variant.into();
+                    n.touch("keyboard");
                 }
             }
             "console" => {
                 if let Some(v) = borea_locale::console_keymaps().nth(i) {
                     n.locale.keyboard.console = v.into();
+                    n.touch("console");
                 }
             }
             "timezone" => {
                 if let Some(v) = borea_locale::TIMEZONES.get(i) {
                     n.locale.timezone = (*v).into();
+                    n.touch("timezone");
                 }
             }
             _ => {}

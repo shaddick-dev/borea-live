@@ -529,6 +529,7 @@ dependencies = [
  "borea-live-catalog",
  "borea-live-core",
  "borea-locale",
+ "borea-net",
  "borea-network",
  "borea-protocol",
  "iced",
