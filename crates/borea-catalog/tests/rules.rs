@@ -78,7 +78,8 @@ fn ticking_an_app_switches_on_the_source_it_needs() {
     let mut s = Sources::defaults(Distro::Arch);
     s.set(Source::Flathub, false).unwrap();
     let mut sel = Selection::default();
-    // VSCodium has no Arch repo package: with Flathub off it needs the AUR.
+    s.set(Source::Aur, false).unwrap();
+    // VSCodium has no Arch repo package: with both optional sources off it enables AUR.
     assert_eq!(sel.toggle("vscodium", &mut s, Prefer::Native), Pick::AddedAndEnabled(Source::Aur));
     assert!(s.is_on(Source::Aur));
     assert_eq!(sel.toggle("vscodium", &mut s, Prefer::Native), Pick::Removed);
@@ -138,7 +139,8 @@ fn essentials_install_out_of_the_box_on_every_distro() {
 fn new_browsers_resolve_through_allowed_sources_only() {
     let helium = app("helium").unwrap();
     let mut arch = Sources::defaults(Distro::Arch);
-    // Mullvad comes from Flathub; Helium from its AppImage until the AUR is switched on.
+    arch.set(Source::Aur, false).unwrap();
+    // Explicitly disabling AUR allows the packaged fallback sources.
     let mut sel = Selection::default();
     assert_eq!(sel.toggle("mullvad", &mut arch, Prefer::Native), Pick::Added);
     assert_eq!(sel.toggle("helium", &mut arch, Prefer::Native), Pick::Added);
@@ -223,7 +225,7 @@ fn appimage_is_a_last_resort_on_every_distro() {
         assert_eq!(s.switches().last(), Some(&Source::AppImage));
         // Apps with a packaged source never fall back to an AppImage.
         for a in APPS.iter().filter(|a| a.appimage.is_some()) {
-            for p in [Prefer::Native, Prefer::Flatpak] {
+            for p in [Prefer::Native, Prefer::Flatpak, Prefer::Aur] {
                 assert_eq!(candidates(a, d, p).last().map(|c| c.0), Some(Source::AppImage));
             }
         }
@@ -231,7 +233,7 @@ fn appimage_is_a_last_resort_on_every_distro() {
         let mut sel = Selection::default();
         assert_eq!(
             sel.toggle("helium", &mut s, Prefer::Native),
-            Pick::AddedAndEnabled(if d == Distro::Arch { Source::Aur } else { Source::AppImage })
+            if d == Distro::Arch { Pick::Added } else { Pick::AddedAndEnabled(Source::AppImage) }
         );
     }
 }
@@ -342,4 +344,68 @@ fn minimal_has_no_firewall_to_open() {
 fn verified_missing_debian_cosmic_is_blocked_before_install() {
     assert!(borea_catalog::groups::desktop_unavailable(Distro::Debian, "cosmic").is_some());
     assert!(borea_catalog::plan_groups("workstation", &[], "cosmic", Distro::Debian).is_err());
+}
+
+#[test]
+fn aur_is_default_only_on_arch_and_flatpak_is_a_last_packaged_fallback() {
+    assert_eq!(Prefer::default(), Prefer::Aur);
+    const NATIVE: &[borea_catalog::catalog::Native] = &[borea_catalog::catalog::Native {
+        distro: Distro::Arch,
+        repo: "arch.core-extra",
+        pkg: "example",
+    }];
+    let mut example = App {
+        id: "example",
+        name: "Example",
+        what: "",
+        category: Category::Utilities,
+        mb: 1,
+        native: NATIVE,
+        aur: Some("example-bin"),
+        flatpak: Some("org.example.App"),
+        appimage: None,
+    };
+    let mut sources = Sources::defaults(Distro::Arch);
+    assert!(sources.is_on(Source::Aur));
+    assert_eq!(from(resolve(&example, &sources, Prefer::Aur)), Some((Source::Aur, "example-bin")));
+    sources.set(Source::Aur, false).unwrap();
+    assert_eq!(
+        from(resolve(&example, &sources, Prefer::Aur)),
+        Some((Source::Repo("arch.core-extra"), "example"))
+    );
+    example.native = &[];
+    example.aur = None;
+    assert_eq!(
+        from(resolve(&example, &sources, Prefer::Aur)),
+        Some((Source::Flathub, "org.example.App"))
+    );
+    example.aur = Some("example-bin");
+    for distro in [Distro::Debian, Distro::Fedora, Distro::OpenSuse] {
+        assert!(!Sources::defaults(distro).is_on(Source::Aur));
+        assert!(!candidates(&example, distro, Prefer::Aur).iter().any(|(s, _)| *s == Source::Aur));
+    }
+}
+#[test]
+fn vesktop_and_spotify_use_verified_aur_recipes_before_flathub() {
+    for (id, package) in [("vesktop", "vesktop-bin"), ("spotify", "spotify")] {
+        assert_eq!(
+            from(resolve(app(id).unwrap(), &Sources::defaults(Distro::Arch), Prefer::Aur)),
+            Some((Source::Aur, package))
+        );
+    }
+}
+
+#[test]
+fn every_current_arch_app_has_a_non_flatpak_default() {
+    let sources = Sources::defaults(Distro::Arch);
+    for app in APPS {
+        assert!(
+            matches!(
+                resolve(app, &sources, Prefer::Aur),
+                Resolution::From { source: Source::Aur | Source::Repo(_), .. }
+            ),
+            "{}",
+            app.id
+        );
+    }
 }

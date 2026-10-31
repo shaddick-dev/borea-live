@@ -1,0 +1,92 @@
+{
+  "date": "2026-10-31",
+  "scope": "Arch/CachyOS optional applications",
+  "policy": [
+    "AUR when mapped",
+    "official native package",
+    "Flatpak fallback"
+  ],
+  "aur_rpc": "https://aur.archlinux.org/rpc/v5/info?arg%5B%5D=brave-bin&arg%5B%5D=helium-browser-bin&arg%5B%5D=mullvad-browser-bin&arg%5B%5D=vesktop-bin&arg%5B%5D=onlyoffice-bin&arg%5B%5D=spotify&arg%5B%5D=heroic-games-launcher-bin&arg%5B%5D=vscodium-bin&arg%5B%5D=localsend-bin",
+  "packages": [
+    {
+      "Name": "brave-bin",
+      "PackageBase": "brave-bin",
+      "Version": "1:1.98.63-1",
+      "Maintainer": "brave",
+      "OutOfDate": null
+    },
+    {
+      "Name": "helium-browser-bin",
+      "PackageBase": "helium-browser-bin",
+      "Version": "0.20.3.1-1",
+      "Maintainer": "playleft",
+      "OutOfDate": null
+    },
+    {
+      "Name": "mullvad-browser-bin",
+      "PackageBase": "mullvad-browser-bin",
+      "Version": "16.0-1",
+      "Maintainer": "tarball",
+      "OutOfDate": null
+    },
+    {
+      "Name": "vesktop-bin",
+      "PackageBase": "vesktop-bin",
+      "Version": "1.6.8-1",
+      "Maintainer": "Vendicated",
+      "OutOfDate": null
+    },
+    {
+      "Name": "onlyoffice-bin",
+      "PackageBase": "onlyoffice-bin",
+      "Version": "10.0.0-1",
+      "Maintainer": "dbermond",
+      "OutOfDate": null
+    },
+    {
+      "Name": "spotify",
+      "PackageBase": "spotify",
+      "Version": "1:1.3.4.258-2",
+      "Maintainer": "gromit",
+      "OutOfDate": null
+    },
+    {
+      "Name": "heroic-games-launcher-bin",
+      "PackageBase": "heroic-games-launcher-bin",
+      "Version": "2.22.4-1",
+      "Maintainer": "flaviofearn",
+      "OutOfDate": null
+    },
+    {
+      "Name": "vscodium-bin",
+      "PackageBase": "vscodium-bin",
+      "Version": "1.143.17232-1",
+      "Maintainer": "Icelk",
+      "OutOfDate": null
+    },
+    {
+      "Name": "localsend-bin",
+      "PackageBase": "localsend-bin",
+      "Version": "1.18.2-2",
+      "Maintainer": "noureddinex",
+      "OutOfDate": null
+    }
+  ],
+  "vesktop_snapshot": {
+    "url": "https://aur.archlinux.org/cgit/aur.git/snapshot/vesktop-bin.tar.gz",
+    "sha256": "42eba36652332b5684d7e9dd322471aea8f03877d209cf301ac21954863fa958",
+    "upstream": "https://github.com/Vencord/Vesktop/releases/download/v1.6.8/vesktop-1.6.8.tar.gz",
+    "upstream_sha256": "477dc07e9da85cf3f86b890f00cebe328d82ef62a40790bb515f18de38845a46",
+    "inspection": "PKGBUILD and .SRCINFO inspected as data; prebuilt upstream binary, no make/check dependencies"
+  },
+  "native": {
+    "repository": "https://geo.mirror.pkgbuild.com/extra/os/x86_64/extra.db",
+    "flatseal": "2.4.1-1",
+    "spotify-launcher": "0.6.6-2"
+  },
+  "limits": [
+    "Live metadata and recipe inspection are not an installed-system result.",
+    "The separate pinned AUR native integration runs in a disposable Arch container.",
+    "No physical hardware or interactive graphical login certification."
+  ]
+}

@@ -12,7 +12,7 @@ fn main() -> std::process::ExitCode {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     if args.first().map(String::as_str) == Some("--help") {
         println!(
-            "borea-firstboot [--appimages | --after-login USER | --status]\nborea-firstboot --extract-appimage DIRECTORY FILENAME (unprivileged only)"
+            "borea-firstboot [--appimages | --aur | --after-login USER | --status]\nborea-firstboot --extract-appimage DIRECTORY FILENAME (unprivileged only)"
         );
         return std::process::ExitCode::SUCCESS;
     }
@@ -37,6 +37,7 @@ fn main() -> std::process::ExitCode {
     }
     match args.as_slice() {
         [] => report(borea_exec::postinstall::firstboot()),
+        [mode] if mode == "--aur" => report(borea_exec::postinstall::aur_apps()),
         [mode, user] if mode == "--after-login" => {
             report(borea_exec::postinstall::after_login(user))
         }

@@ -182,7 +182,14 @@ impl NativeInstall {
             .as_array()
             .into_iter()
             .flatten()
-            .filter_map(|p| p["name"].as_str().or_else(|| p.as_str()))
+            .filter_map(|p| {
+                let name = p["name"].as_str().or_else(|| p.as_str())?;
+                Some(match p["source"].as_str() {
+                    Some("aur") => format!("{name} (AUR)"),
+                    Some("flathub") => format!("{name} (Flatpak)"),
+                    _ => name.to_owned(),
+                })
+            })
             .collect::<Vec<_>>()
             .join(", ");
         let warnings = review["review"]["warnings"]
@@ -384,7 +391,7 @@ impl NativeInstall {
             apps: self.apps.clone(),
             addons: BTreeSet::new(),
             picks: vec![],
-            prefer: SourcePreference::Native,
+            prefer: SourcePreference::Aur,
             sources: Default::default(),
         };
         plan.validate_intent()

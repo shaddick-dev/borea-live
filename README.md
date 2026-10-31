@@ -13,6 +13,7 @@ The aim: one live USB for choosing and installing upstream distributions.
 
 - Download the chosen system and apps when needed.
 - Keep the distribution's own packages and updates.
+- On Arch/CachyOS, prefer AUR apps; use official packages next and Flatpak as fallback.
 - Choose the distribution, desktop and apps explicitly.
 - Keep the live environment separate from the system being installed.
 

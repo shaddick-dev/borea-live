@@ -198,10 +198,9 @@ pub const APPS: &[App] = &[
         what: "chat and voice",
         category: ChatEmail,
         mb: 300,
-        // Flathub checked 2026-10-31 (1.6.8). Native and AUR sources wait for a
-        // check against those indexes, which refused automated access that day.
+        // Maintained AUR binary recipe and upstream payload checksums checked 2026-10-31.
         native: &[],
-        aur: None,
+        aur: Some("vesktop-bin"),
         flatpak: Some("dev.vencord.Vesktop"),
         appimage: None,
     },
@@ -337,7 +336,7 @@ pub const APPS: &[App] = &[
         category: AudioVideo,
         mb: 300,
         native: &[n(Arch, "spotify-launcher", AE)],
-        aur: None,
+        aur: Some("spotify"),
         flatpak: Some("com.spotify.Client"),
         appimage: None,
     },
@@ -631,7 +630,7 @@ pub const APPS: &[App] = &[
         what: "Flatpak permissions",
         category: Utilities,
         mb: 10,
-        native: &[],
+        native: &[n(Arch, "flatseal", AE)],
         aur: None,
         flatpak: Some("com.github.tchx84.Flatseal"),
         appimage: None,

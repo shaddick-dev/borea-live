@@ -108,3 +108,26 @@
   install paths are ready. Their Rust backend/CLI implementations are preserved.
 - The README uses a still image linked to a GitHub Pages MP4 player because
   GitHub Markdown does not reliably embed repository-hosted video elements.
+
+- App source policy (31 October 2026, PR 64): Arch/CachyOS GUI app choices prefer
+  a verified AUR recipe, then an official native package, with Flatpak as fallback.
+  AUR is enabled by default only for the Arch source family. This changes app
+  selection, not signed system/driver/desktop packages. Prebuilt `-bin` recipes
+  are used where maintained (including `vesktop-bin`).
+- Noctalia's optional AUR apps finish quietly after the first active graphical
+  login. Review pins recipe snapshots and dependencies; installation stages the
+  approved archives in root-owned storage. The first-boot helper builds as a
+  dedicated unprivileged account, checks package identities, then installs with
+  pacman as root. It grants no passwordless sudo and retains makepkg integrity
+  checks. Completed recipes are checkpointed; failures retry without switching
+  sources or re-running completed recipes. Existing pre-login AUR jobs share the
+  same builder.
+- The uploaded Account handoff is reference material for this task. PR 64's
+  region lookup is preserved together with the merged password/encryption work;
+  the separate proposed Account-page redesign is not part of this source-policy
+  change.
+- AUR's unsigned local package files use a temporary, root-only pacman config
+  with `LocalFileSigLevel = Optional` only for inspecting/installing those files.
+  The real pacman config, signed remote repository policy and makepkg's upstream
+  integrity/signature checks remain unchanged. The temporary config is removed
+  after success; the dedicated builder has no sudo access.

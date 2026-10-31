@@ -16,6 +16,15 @@ fn scenario_target(alongside: bool, locale: LocaleChoice, cachyos: bool) -> Job 
     scenario_desktop(alongside, locale, cachyos, Desktop::HyprlandNoctalia)
 }
 fn scenario_desktop(alongside: bool, locale: LocaleChoice, cachyos: bool, desktop: Desktop) -> Job {
+    scenario_apps(alongside, locale, cachyos, desktop, false)
+}
+fn scenario_apps(
+    alongside: bool,
+    locale: LocaleChoice,
+    cachyos: bool,
+    desktop: Desktop,
+    aur: bool,
+) -> Job {
     let mut plan = common::plan(Distribution::Arch, true);
     plan.locale = locale;
     plan.derivative = cachyos.then_some(ArchDerivative::Cachyos);
@@ -24,6 +33,10 @@ fn scenario_desktop(alongside: bool, locale: LocaleChoice, cachyos: bool, deskto
     plan.secure_boot = Some(false);
     plan.extras = ["gaming", "printing", "codecs", "flatpak"].map(str::to_owned).into();
     plan.apps.insert("firefox".into());
+    if aur {
+        plan.apps.insert("vesktop".into());
+        plan.prefer = SourcePreference::Aur;
+    }
     let mut disk = Disk {
         id: plan.disk.disk().clone(),
         readonly: false,
@@ -467,6 +480,57 @@ fn every_noctalia_compositor_has_its_own_packages_session_and_region_for_both_di
                     )
                     .unwrap();
                 }
+            }
+        }
+    }
+}
+
+#[test]
+fn aur_apps_are_reviewed_and_queued_after_login_on_all_six_desktops_and_both_layouts() {
+    for desktop in [Desktop::HyprlandNoctalia, Desktop::NiriNoctalia, Desktop::MangoNoctalia] {
+        for cachyos in [false, true] {
+            for alongside in [false, true] {
+                let job = scenario_apps(
+                    alongside,
+                    common::plan(Distribution::Arch, true).locale,
+                    cachyos,
+                    desktop,
+                    true,
+                );
+                assert!(
+                    job.review
+                        .packages
+                        .iter()
+                        .any(|p| p.source == "aur" && p.name == "vesktop-bin")
+                );
+                assert!(
+                    !job.review
+                        .packages
+                        .iter()
+                        .any(|p| p.source == "flathub" && p.name == "dev.vencord.Vesktop")
+                );
+                assert!(job.stages.iter().flat_map(|s|&s.actions).any(|a|matches!(a,Action::DeferAur{packages} if packages.contains(&"vesktop-bin".to_owned()))));
+                assert!(
+                    !job.stages
+                        .iter()
+                        .flat_map(|s| &s.actions)
+                        .any(|a| matches!(a, Action::BuildAur { .. }))
+                );
+                let queue: serde_json::Value =
+                    serde_json::from_str(written(&job, "/var/lib/borea/firstboot.json")).unwrap();
+                let queue = queue.as_array().unwrap();
+                let build = queue
+                    .iter()
+                    .position(|a| {
+                        a["program"] == "/usr/bin/borea-firstboot"
+                            && a["args"] == serde_json::json!(["--aur"])
+                    })
+                    .unwrap();
+                assert!(build > 0 && queue[0]["program"] == "/usr/bin/pacman");
+                assert!(
+                    written(&job, "/etc/systemd/system/borea-firstboot.service.d/login.conf")
+                        .contains("--after-login")
+                );
             }
         }
     }

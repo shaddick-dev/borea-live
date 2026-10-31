@@ -12,20 +12,21 @@ Borea's Rust apps, without a release or a kernel/Mesa source build. The ordinary
 write screen does not expose whole-runtime source-build shortcuts.
 
 The backend installs the chosen upstream OS, drivers, boot components and desktop
-before rebooting. It records selected Flatpak apps in a root-owned first-boot queue
-as part of the approved job. The installed Rust `borea-firstboot` service registers
-Flathub and installs those apps noninteractively after networking starts. It uses
-`Type=exec` so the desktop does not wait for all app downloads to finish. Successful
-steps are checkpointed atomically, failures retry after 60 seconds, and progress
-and errors are available through `journalctl -fu borea-firstboot.service`.
-No arbitrary downloaded shell script is executed to install these apps.
+before rebooting. For Arch/CachyOS with Noctalia, selected extra apps finish quietly
+after the first active Wayland login:
 
-Native apps and AppImages are still installed during OS installation. An explicitly
-enabled AUR source can compile packages. Moving more optional apps to first boot,
-visible desktop progress, and wiring GUI selections to the backend remain further
-work. First-boot app installation requires connectivity on the installed system;
-failed steps remain queued across restarts. An offline computer is not reported as
-having completed app setup.
+- Prefer a maintained AUR recipe, then an official package. Use Flatpak as fallback.
+- Prefer upstream binaries through maintained `-bin` recipes where available.
+- Build AUR recipes as a separate unprivileged account. Root installs the resulting
+  reviewed packages; no passwordless sudo is granted.
+- Keep completed steps across restarts. Failed steps retry after 60 seconds.
+- Show logs with `journalctl -fu borea-firstboot.service`.
+
+Review pins AUR recipe snapshots before installation. Other backend desktop paths
+retain their existing native/AUR installation stages; selected Flatpak apps use the
+first-boot queue. AppImage remains a last resort outside the Noctalia GUI path.
+App setup needs a connection on the installed system; an offline machine keeps its
+unfinished queue.
 
 ## Writing Borea Live to a USB stick
 
