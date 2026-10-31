@@ -7,14 +7,8 @@ pub struct FrostMotion {
     air: Air,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Trail {
-    pub x: f32,
-    pub y: f32,
-    pub length: f32,
-    pub height: f32,
-    pub alpha: f32,
-}
+/// One gust as painted this frame.
+pub type Trail = wind::Shape;
 
 impl Default for FrostMotion {
     fn default() -> Self {
@@ -33,20 +27,9 @@ impl FrostMotion {
     }
 
     pub fn trails(&self) -> Vec<Trail> {
-        wind::alive(wind::launch_seed(), self.air.clock)
-            .map(|(g, progress)| {
-                let length = g.length * (1.0 + 0.5 * self.air.energy);
-                let travel = progress * (0.75 + 0.25 * progress);
-                Trail {
-                    // No wrapping or teleporting: each trail enters beyond the
-                    // right edge and dies beyond the left edge.
-                    x: 1.0 + g.length - travel * (1.0 + 2.0 * g.length),
-                    y: g.y + g.rise * progress,
-                    length,
-                    height: 16.0 + g.swell,
-                    alpha: g.alpha * (progress * std::f32::consts::PI).sin().powf(0.6) * 0.38,
-                }
-            })
+        let seed = wind::launch_seed();
+        wind::alive(seed, self.air.clock)
+            .map(|(g, progress)| wind::shape(seed, &g, progress, self.air.energy))
             .collect()
     }
 }
@@ -88,14 +71,14 @@ mod tests {
     #[test]
     fn the_same_gust_moves_left_as_its_clock_advances() {
         let mut wind = FrostMotion::default();
-        let before: Vec<_> = wind::alive(wind::launch_seed(), wind.air.clock).collect();
+        let seed = wind::launch_seed();
+        let before: Vec<_> = wind::alive(seed, wind.air.clock).collect();
         wind.advance(1.0 / 30.0, false, false, None);
-        let after: Vec<_> = wind::alive(wind::launch_seed(), wind.air.clock).collect();
+        let after: Vec<_> = wind::alive(seed, wind.air.clock).collect();
         let mut compared = 0;
         for (old, old_progress) in before {
             if let Some((_, new_progress)) = after.iter().find(|(g, _)| g.start == old.start) {
-                let x =
-                    |p: f32| 1.0 + old.length - p * (0.75 + 0.25 * p) * (1.0 + 2.0 * old.length);
+                let x = |p: f32| wind::head(seed, &old, p);
                 assert!(x(*new_progress) < x(old_progress));
                 compared += 1;
             }
