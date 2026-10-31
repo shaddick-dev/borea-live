@@ -1078,12 +1078,7 @@ impl App {
     }
     fn subscription(&self) -> Subscription<Message> {
         Subscription::batch([
-            iced::time::every(if self.bridge.app.still {
-                Duration::from_millis(150)
-            } else {
-                crate::wind::FRAME
-            })
-            .map(Message::Tick),
+            iced::time::every(tick(self.bridge.app.still, software_graphics())).map(Message::Tick),
             iced::keyboard::listen().map(Message::Key),
         ])
     }
@@ -2749,7 +2744,9 @@ fn capture_at(
     cursor: iced::mouse::Cursor,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use iced_runtime::user_interface::{Cache, UserInterface};
-    let mut renderer = iced_tiny_skia::Renderer::new(FACE, iced::Pixels(14.));
+    // Screenshots always draw on the CPU, the same way in any environment.
+    let mut renderer =
+        iced::Renderer::Secondary(iced_tiny_skia::Renderer::new(FACE, iced::Pixels(14.)));
     let size = iced::Size::new(width as f32, height as f32);
     let mut ui = UserInterface::build(app.view(), size, Cache::new(), &mut renderer);
     if app.bridge.native() && app.bridge.app.native.page == Page::Account && app.apps_open {
@@ -2776,6 +2773,10 @@ fn capture_at(
         &iced::advanced::renderer::Style { text_color: app.colors().text },
         cursor,
     );
+    drop(ui);
+    let iced::Renderer::Secondary(renderer) = &mut renderer else {
+        return Err("screenshots draw with tiny-skia".into());
+    };
     let mut pixels =
         tiny_skia::Pixmap::new(width, height).ok_or("Invalid screenshot dimensions")?;
     let mut mask = tiny_skia::Mask::new(width, height).ok_or("Invalid clip dimensions")?;
@@ -3078,6 +3079,23 @@ fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::err
     println!("Iced showcase captured in {}", dir.display());
     Ok(())
 }
+/// Borea Live draws on the CPU (no real GPU, a VM, or safe graphics): the
+/// session says so, and motion is kept light.
+fn software_graphics() -> bool {
+    static SOFTWARE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SOFTWARE.get_or_init(|| std::env::var("BOREA_GRAPHICS").is_ok_and(|g| g == "software"))
+}
+
+/// How often the window wakes to poll and animate. Every wake redraws it, so
+/// a still window wakes rarely, and on the CPU the motion runs at 15 frames.
+fn tick(still: bool, software: bool) -> Duration {
+    match (still, software) {
+        (true, _) => Duration::from_millis(400),
+        (false, true) => Duration::from_millis(66),
+        (false, false) => crate::wind::FRAME,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3237,7 +3255,8 @@ mod iced_tests {
         use iced_runtime::user_interface::{Cache, UserInterface};
         let mut a = app();
         a.bridge.app.go(Step::System);
-        let mut renderer = iced_tiny_skia::Renderer::new(FACE, iced::Pixels(14.));
+        let mut renderer =
+            iced::Renderer::Secondary(iced_tiny_skia::Renderer::new(FACE, iced::Pixels(14.)));
         let mut ui = UserInterface::build(
             a.view(),
             iced::Size::new(1120., 753.),

@@ -7,7 +7,7 @@ Windpad and the live ISO run the same Rust/Iced 0.14 interface. Ratatui remains 
 - Right-to-left wind streaks and selected-card frost effects.
 - Page changes ease the wind faster. Pause freezes every decorative effect.
 - Hardware, network and install requests run on Rust workers, outside rendering.
-- The ISO uses tiny-skia software rendering; an accelerated GPU is not required.
+- On a real GPU the ISO draws with Iced's wgpu renderer (Vulkan or OpenGL); in a VM, with safe graphics, or if wgpu fails, with tiny-skia on the CPU. An accelerated GPU is not required.
 - Bundled Noto Sans and licensed brand fonts keep text independent of the host's font configuration.
 
 ```sh

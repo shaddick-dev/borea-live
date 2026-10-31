@@ -31,7 +31,7 @@ borea-locale.workspace = true
 zeroize.workspace = true
 serde_json = "1"
 serde.workspace = true
-iced = { version = "0.14", default-features = false, features = ["tiny-skia", "canvas", "svg", "image-without-codecs", "advanced", "tokio", "x11", "wayland"] }
+iced = { version = "0.14", default-features = false, features = ["wgpu", "tiny-skia", "canvas", "svg", "image-without-codecs", "advanced", "tokio", "x11", "wayland"] }
 iced_tiny_skia = { version = "0.14", features = ["image", "svg", "geometry"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 iced_runtime = "0.14"
