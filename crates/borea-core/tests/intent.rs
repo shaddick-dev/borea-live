@@ -89,14 +89,14 @@ fn secrets_are_redacted_and_separate_admin_required() {
 #[test]
 fn passphrase_limits_match_interactive_disk_unlock_bytes() {
     let identity = common::plan(Distribution::Arch, false).user;
-    for value in ["x".repeat(512), "💨".repeat(128)] {
+    for value in ["x".into(), "x".repeat(512), "💨".repeat(128)] {
         assert!(
             Secrets { wifi: None, passphrase: Secret::new(value), admin: None }
                 .validate(&identity)
                 .is_ok()
         );
     }
-    for value in ["x".repeat(513), "💨".repeat(129)] {
+    for value in [String::new(), "x".repeat(513), "💨".repeat(129), "line\nbreak".into()] {
         assert!(
             Secrets { wifi: None, passphrase: Secret::new(value), admin: None }
                 .validate(&identity)

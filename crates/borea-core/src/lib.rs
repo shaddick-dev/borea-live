@@ -231,13 +231,13 @@ impl Secrets {
     pub fn validate(&self, identity: &Identity) -> Result<(), Hint> {
         for secret in std::iter::once(&self.passphrase).chain(self.admin.iter()) {
             let s = secret.expose();
-            if s.chars().count() < 8
+            if s.is_empty()
                 || s.len() > 512
                 || s.chars().any(|c| c == '\n' || c == '\r' || c == '\0')
             {
                 return Err(hint(
                     "passphrase",
-                    "Use at least eight characters and at most 512 UTF-8 bytes, without line breaks.",
+                    "Enter a password of at most 512 UTF-8 bytes, without line breaks.",
                 ));
             }
         }
