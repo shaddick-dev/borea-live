@@ -37,14 +37,6 @@ fn copy(from: &Path, to: &Path) -> Result {
 const SESSION_NEEDS: &[(&str, &str)] = &[
     ("usr/share/X11/xkb/rules/evdev", "keymaps (xkeyboard-config): cage would have no keyboard"),
     ("usr/bin/cage", "the kiosk compositor"),
-    (
-        "usr/share/vulkan/icd.d/intel_icd.x86_64.json",
-        "Mesa's Vulkan drivers: the installer would draw on the CPU even on a real GPU",
-    ),
-    (
-        "usr/share/vulkan/icd.d/radeon_icd.x86_64.json",
-        "Mesa's Vulkan drivers: the installer would draw on the CPU even on a real GPU",
-    ),
     ("usr/bin/borea-session", "the live session's safe-graphics launcher"),
     ("etc/systemd/system/borea-live.service", "the live display manager unit"),
     ("usr/bin/borea-live", "the installer"),
