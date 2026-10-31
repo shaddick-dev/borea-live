@@ -37,6 +37,7 @@ pub fn plan(d: Distribution, desktop: bool) -> Plan {
                 model: "Disposable VM disk".into(),
             },
         },
+        encrypt: true,
         user: Identity {
             full_name: "Test User".into(),
             username: "tester".into(),

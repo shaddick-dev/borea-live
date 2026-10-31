@@ -46,6 +46,9 @@ pub struct NativeInstall {
     pub user: Identity,
     pub locale: LocaleChoice,
     pub apps: BTreeSet<String>,
+    /// Encrypt the disk. Off by default; the Account page offers it only when the
+    /// firmware is in Setup Mode.
+    pub encrypt: bool,
     pub confirmed: bool,
     pub error: Option<String>,
     pub stage: String,
@@ -137,14 +140,23 @@ impl NativeInstall {
             .collect::<Vec<_>>()
             .join("\n");
         Some(format!(
-            "Drive: {}\n{storage}\nEncrypted Linux storage · LUKS2 and Btrfs\n\nAccount: {} · {}\nLanguage: {}\nKeyboard: {} ({})\nDisk unlock keyboard: {}\nTime zone: {}\n\nRequired packages: {packages}\n\n{warnings}",
+            "Drive: {}\n{storage}\n{}\n\nAccount: {} · {}\nLanguage: {}\nKeyboard: {} ({}){}\nTime zone: {}\n\nRequired packages: {packages}\n\n{warnings}",
             plan.disk.disk().path.display(),
+            if plan.encrypt {
+                "Encrypted Linux storage · LUKS2 and Btrfs"
+            } else {
+                "Linux storage · Btrfs"
+            },
             plan.user.username,
             plan.user.hostname,
             plan.locale.lang,
             plan.locale.keyboard.layout,
             plan.locale.keyboard.variant,
-            plan.locale.keyboard.console,
+            if plan.encrypt {
+                format!("\nDisk unlock keyboard: {}", plan.locale.keyboard.console)
+            } else {
+                String::new()
+            },
             plan.locale.timezone
         ))
     }
@@ -192,6 +204,7 @@ impl NativeInstall {
                 },
             },
             apps: BTreeSet::new(),
+            encrypt: false,
             confirmed: false,
             error: None,
             stage: String::new(),
@@ -298,7 +311,8 @@ impl NativeInstall {
             None => return Err("Choose where Arch will be installed.".into()),
         };
         let plan = Plan {
-            version: 1,
+            version: borea_core::PLAN_VERSION,
+            encrypt: self.encrypt,
             distro: borea_core::Distribution::Arch,
             derivative: self.derivative,
             release: "rolling".into(),

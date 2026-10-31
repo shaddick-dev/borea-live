@@ -106,6 +106,7 @@ fn run() -> Result<(), Hint> {
         prefer: SourcePreference::Native,
         sources: BTreeMap::new(),
         disk: disk_plan,
+        encrypt: true,
         user: Identity {
             full_name: "Disposable VM Test".into(),
             username: "boreatest".into(),

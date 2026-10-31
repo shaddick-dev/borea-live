@@ -109,7 +109,7 @@ chroot /run/borea/target '/usr/bin/ln' '-sf' '/usr/share/zoneinfo/Europe/London'
 #
 '/usr/sbin/blkid' '-s' 'UUID' '-o' 'value' '/dev/vda1'
 '/usr/sbin/blkid' '-s' 'UUID' '-o' 'value' '/dev/vda2'
-# Write fstab and crypttab from discovered filesystem/LUKS UUIDs and the reviewed btrfs layout.
+# Write fstab (and crypttab when encrypting) from discovered filesystem and LUKS UUIDs and the reviewed btrfs layout.
 # write target:/etc/default/keyboard mode 644
 # XKBMODEL=pc105
 # XKBLAYOUT=gb

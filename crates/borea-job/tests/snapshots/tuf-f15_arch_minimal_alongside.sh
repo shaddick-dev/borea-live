@@ -125,7 +125,7 @@ chroot /run/borea/target '/usr/bin/ln' '-sf' '/usr/share/zoneinfo/Europe/London'
 # compression-algorithm = zstd
 #
 '/usr/sbin/blkid' '-s' 'UUID' '-o' 'value' '/dev/vda1'
-# Write fstab and crypttab from discovered filesystem/LUKS UUIDs and the reviewed btrfs layout.
+# Write fstab (and crypttab when encrypting) from discovered filesystem and LUKS UUIDs and the reviewed btrfs layout.
 # write target:/etc/locale.gen mode 644
 # en_GB.UTF-8 UTF-8
 #
