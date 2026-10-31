@@ -2,7 +2,7 @@
 
 [Overview](#overview) · [Status](#status) · [Try it](#try-it) · [Development](#development) · [Help out](#help-out) · [Docs](#docs)
 
-[![Watch the Borea installer video](docs/assets/installer-showcase.png)](https://shaddick-dev.github.io/borea-live/showcase/)
+[![Animated preview — click to watch the Borea installer video](docs/assets/installer-showcase.gif)](https://shaddick-dev.github.io/borea-live/showcase/)
 
 [Watch video](https://shaddick-dev.github.io/borea-live/showcase/) · [Download MP4](docs/assets/installer-showcase.mp4)
 
