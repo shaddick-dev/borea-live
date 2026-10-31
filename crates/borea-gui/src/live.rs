@@ -385,6 +385,18 @@ impl LiveInstaller {
             self.handoff.start();
             return;
         }
+        if self.native.page == crate::install::Page::Finished
+            && !matches!(
+                action,
+                Action::ToggleTheme
+                    | Action::ToggleMotion
+                    | Action::OpenFirmware
+                    | Action::CancelFirmware
+                    | Action::RestartFirmware
+            )
+        {
+            return;
+        }
         let catalog = &self.catalog;
         let s = &mut self.selection;
         let family = s.selected;
@@ -503,7 +515,7 @@ impl LiveInstaller {
         }
         // Another target, or another edition, needs its disk chosen again.
         if resets {
-            self.native.invalidate();
+            self.native.reset_storage();
             self.handoff.pick = None;
             self.handoff.confirmed = false;
             if matches!(self.handoff.phase, Phase::Reviewing | Phase::Reviewed(_)) {
@@ -561,6 +573,14 @@ impl LiveInstaller {
         }
     }
     fn install_progress(&self) -> Option<f32> {
+        if self.native_target()
+            && matches!(
+                self.native.page,
+                crate::install::Page::Running | crate::install::Page::Finished
+            )
+        {
+            return Some(self.native.progress);
+        }
         match &self.handoff.phase {
             // Stages: find space, download, check, (make space,) start. The wind
             // keeps the highest value it has seen, so a new stage never slows it.

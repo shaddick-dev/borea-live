@@ -480,7 +480,13 @@ impl Session {
                 root.join("run/borea/session-ca.pem"),
                 fs::Permissions::from_mode(0o644),
             ))?;
-            if c.program == "/usr/bin/zypper" {
+            // libcurl clients may use their compiled CA directory instead of
+            // SSL_CERT_FILE/CURL_CA_BUNDLE. Keep session trust in a temporary
+            // bind mount, including pacstrap's child pacman processes.
+            if matches!(
+                c.program.as_str(),
+                "/usr/bin/zypper" | "/usr/bin/pacman" | "/usr/bin/pacstrap"
+            ) {
                 self.mount_transport_ca(&root, emit)?;
             }
             Some("/run/borea/session-ca.pem")
@@ -1112,11 +1118,13 @@ impl Session {
                 emit,
             )?;
         }
+        // Retain every member for path validation without streaming tens of
+        // thousands of archive filenames through installer progress events.
         let listing = self.command(
             Root::Live,
             "/usr/bin/tar",
             vec!["-tf".into(), archive.display().to_string()],
-            emit,
+            &mut |_| {},
         )?;
         if listing.lines().any(|s| {
             Path::new(s).is_absolute()
@@ -2052,6 +2060,13 @@ impl Session {
             vec!["rehash".into(), cache.display().to_string()],
             emit,
         )?;
+        // Some libcurl builds use the bundle inside this directory rather than
+        // its hashed entries. Supply both forms of the same verified session trust.
+        io(fs::write(cache.join("ca-certificates.crt"), &bundle))?;
+        io(fs::set_permissions(
+            cache.join("ca-certificates.crt"),
+            fs::Permissions::from_mode(0o644),
+        ))?;
         mount(Some(&cache), &destination, None::<&str>, MsFlags::MS_BIND, None::<&str>)
             .map_err(|e| err(e.to_string()))?;
         if root == Path::new(TARGET) {
@@ -2066,7 +2081,15 @@ impl Session {
             umount2(&path, MntFlags::empty()).map_err(|e| err(e.to_string()))?;
             self.mounted.retain(|mounted| mounted != &path);
             self.target_transport_ca = None;
-            self.command(Root::Target, "/usr/sbin/update-ca-certificates", vec![], emit)?;
+            let (program, args) = match self.job.plan.distro {
+                borea_core::Distribution::Arch | borea_core::Distribution::Fedora => {
+                    ("/usr/bin/update-ca-trust", vec!["extract".into()])
+                }
+                borea_core::Distribution::Debian | borea_core::Distribution::OpenSuse => {
+                    ("/usr/sbin/update-ca-certificates", vec![])
+                }
+            };
+            self.command(Root::Target, program, args, emit)?;
         }
         Ok(())
     }

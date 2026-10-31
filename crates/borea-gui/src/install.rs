@@ -75,11 +75,19 @@ impl NativeInstall {
     pub(crate) fn target(&mut self, cachyos: bool) {
         let derivative = cachyos.then_some(borea_core::ArchDerivative::Cachyos);
         if self.derivative != derivative && !self.busy() {
-            self.invalidate();
+            self.reset_storage();
             self.derivative = derivative;
-            self.pick = None;
-            self.page = Page::Storage;
         }
+    }
+    pub(crate) fn reset_storage(&mut self) {
+        if self.busy() || self.page == Page::Finished {
+            return;
+        }
+        self.invalidate();
+        self.pick = None;
+        self.page = Page::Storage;
+        self.password.zeroize();
+        self.confirmation.zeroize();
     }
     pub(crate) fn edit_account(&mut self, field: &str, value: String) {
         if self.page != Page::Account || self.busy() {

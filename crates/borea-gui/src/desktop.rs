@@ -58,7 +58,7 @@ impl Bridge {
         self.app.step == Step::Review && self.app.native_target()
     }
     fn command(&mut self, key: &str) {
-        if self.busy() || self.app.firmware_dialog {
+        if self.busy() || self.app.native.page == Page::Finished || self.app.firmware_dialog {
             return;
         }
         let f = self.app.family();
@@ -204,7 +204,7 @@ impl Bridge {
     }
     fn back(&mut self) {
         self.pending_family = None;
-        if self.busy() || self.app.firmware_dialog {
+        if self.busy() || self.app.native.page == Page::Finished || self.app.firmware_dialog {
             return;
         }
         if self.native() && self.app.native.page != Page::Storage {
@@ -986,7 +986,8 @@ impl App {
             if let Some(summary) = a.summary(step) {
                 content = content.push(text(summary).size(11).color(p.muted));
             }
-            let enabled = step <= a.reached && !self.bridge.busy();
+            let enabled =
+                step <= a.reached && !self.bridge.busy() && a.native.page != Page::Finished;
             rail = rail.push(
                 button(content)
                     .padding(12)
@@ -1085,7 +1086,10 @@ impl App {
         let footer = row![
             button("Back")
                 .on_press_maybe(
-                    (a.step != Step::Connect && !self.bridge.busy()).then_some(Message::Back)
+                    (a.step != Step::Connect
+                        && !self.bridge.busy()
+                        && a.native.page != Page::Finished)
+                        .then_some(Message::Back)
                 )
                 .style(button::text),
             text(a.selection_title()).size(11).color(p.muted),
@@ -1109,7 +1113,11 @@ impl App {
         let base: Element<'_, Message> = stack![background, content].into();
         if a.firmware_dialog {
             let dialog = column![text("Restart into UEFI setup?").size(24),
-                text("This restarts the computer. Your installer choices will be lost. Return to the Borea USB afterwards.").size(14),
+                text(if a.native.page == Page::Finished {
+                    "Restart into firmware settings, then boot your installed system."
+                } else {
+                    "This restarts the computer. Your installer choices will be lost. Return to the Borea USB afterwards."
+                }).size(14),
                 text(a.firmware.error.clone().unwrap_or_default()).size(13),
                 row![button("Cancel").on_press_maybe((!a.firmware.restarting).then_some(Message::Action(Action::CancelFirmware))),
                     button("Restart into firmware").on_press_maybe((!a.firmware.restarting).then_some(Message::Action(Action::RestartFirmware)))].spacing(12)].spacing(20);
@@ -1156,13 +1164,10 @@ impl App {
             .style(move |_, status| tile_style(p, selected, status))
             .into();
         if selected {
-            let energy = widget::canvas(SelectionFx {
-                t: self.elapsed,
-                pulse: if self.bridge.app.still { 0. } else { self.pulse },
-                color: p.ice,
-            })
-            .width(Length::Fill)
-            .height(Length::Fill);
+            let energy =
+                widget::canvas(SelectionFx { t: self.elapsed, pulse: self.pulse, color: p.ice })
+                    .width(Length::Fill)
+                    .height(Length::Fill);
             stack![card, energy].into()
         } else {
             card
@@ -1201,7 +1206,8 @@ impl App {
             ]
             .spacing(12),
         ]
-        .spacing(14);
+        .spacing(14)
+        .width(Length::Fill);
         for (kind, label) in [
             ("language", "Language"),
             ("keyboard", "Keyboard"),
@@ -1227,8 +1233,16 @@ impl App {
                         .placeholder("Choose…")
                         .width(Length::Fill)
                         .padding(12)
+                        .style(move |_, _| pick_list::Style {
+                            text_color: p.text,
+                            placeholder_color: p.muted,
+                            handle_color: p.ice,
+                            background: p.surface.into(),
+                            border: Border { color: p.line, width: 1., radius: 10.into() },
+                        })
                 ]
-                .spacing(6),
+                .spacing(6)
+                .width(Length::Fill),
             );
         }
         content
@@ -1375,7 +1389,7 @@ impl App {
                 .color(p.muted),
             );
         }
-        if !self.bridge.busy() {
+        if !self.bridge.busy() && a.handoff_target().is_none() {
             let available = matches!(a.secure_boot(), Some(Readiness::Available { .. }));
             let mut control =
                 checkbox(a.selection.secure_boot).label("Enable Secure Boot (optional)");
@@ -1390,6 +1404,9 @@ impl App {
                 .size(12)
                 .color(p.muted),
             );
+        }
+        if a.handoff_target().is_some() && !self.bridge.busy() {
+            body = body.push(text("Omarchy's installer manages its boot settings. Borea's handoff requires Secure Boot off.").size(12).color(p.muted));
         }
         body
     }
@@ -2224,5 +2241,52 @@ mod network_tests {
         assert!(matches!(bridge.app.secure_boot(), Some(Readiness::Unavailable(_))));
         bridge.app.apply(Action::SecureBoot(true));
         assert!(!bridge.app.selection.secure_boot);
+    }
+}
+
+#[cfg(test)]
+mod completion_tests {
+    use super::*;
+    #[test]
+    fn completed_installation_keeps_target_locked_and_firmware_available() {
+        let mut a = App::from_workflow(
+            LiveInstaller::with_hardware(showcase_fixture::machine(), true),
+            false,
+        );
+        a.bridge.app.go(Step::System);
+        a.bridge.command("family/0");
+        a.bridge.command("distro/0");
+        a.bridge.command("edition/3");
+        a.bridge.next();
+        a.bridge.command("mode/compose");
+        a.bridge.command("compositor/hyprland");
+        a.bridge.command("shell/noctalia");
+        a.bridge.next();
+        a.bridge.app.native.page = Page::Finished;
+        a.bridge.app.native.progress = 1.;
+        a.bridge.back();
+        a.bridge.command("family/2");
+        a.bridge.app.apply(Action::Go(Step::System));
+        assert_eq!(a.bridge.app.step, Step::Review);
+        assert_eq!(a.bridge.app.family(), Family::Arch);
+        assert_eq!(a.bridge.app.install_progress(), Some(1.));
+        a.bridge.app.apply(Action::OpenFirmware);
+        assert!(a.bridge.app.firmware_dialog);
+    }
+    #[test]
+    fn changing_edition_requires_a_new_disk_choice() {
+        let mut a = App::from_workflow(
+            LiveInstaller::with_hardware(showcase_fixture::machine(), true),
+            false,
+        );
+        a.bridge.app.go(Step::System);
+        a.bridge.command("family/0");
+        a.bridge.command("distro/0");
+        a.bridge.command("edition/3");
+        a.bridge.app.native.pick = Some(Where::Whole { disk: 0 });
+        a.bridge.app.native.page = Page::Account;
+        a.bridge.command("edition/3");
+        assert!(a.bridge.app.native.pick.is_none());
+        assert_eq!(a.bridge.app.native.page, Page::Storage);
     }
 }
