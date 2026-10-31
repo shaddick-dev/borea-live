@@ -83,7 +83,7 @@ fn digest(b: &[u8]) -> String {
 }
 pub fn resolve(review: &Review) -> Result<ExternalSources, Hint> {
     let mut result = ExternalSources::default();
-    if review.desktop == Some(borea_core::Desktop::HyprlandNoctalia) {
+    if review.desktop.is_some_and(borea_core::Desktop::is_noctalia) {
         result.noctalia = Some(crate::noctalia::resolve_for(review.derivative.is_some())?);
     }
     let mut recipes = BTreeMap::new();

@@ -59,6 +59,12 @@ fn inventory(distro: Distro) -> BTreeSet<Entry> {
         add(base, name);
     }
     if distro == Distro::Arch {
+        for recipe in catalog::noctalia::RECIPES {
+            add(base, recipe.package);
+            for name in recipe.packages {
+                add(base, name);
+            }
+        }
         for name in catalog::groups::ARCH_NOCTALIA_PACKAGES {
             add(base, name);
         }

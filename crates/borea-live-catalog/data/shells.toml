@@ -143,7 +143,7 @@ on.cachyos = { via = "aur", packages = ["caelestia-shell"] }
 
 [[shell]]
 id = "noctalia"
-name = "Noctalia"
+name = "Noctalia v5"
 by = "noctalia-dev"
 framework = "Native C++"
 license = "MIT"

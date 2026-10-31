@@ -349,7 +349,7 @@ impl Bridge {
                     let status = if d.id.as_str() == "omarchy" {
                         "Official installer, via Borea".into()
                     } else if matches!(d.id.as_str(), "arch" | "cachyos") {
-                        "Minimal · Hyprland + Noctalia".into()
+                        "Minimal · Noctalia v5 desktops".into()
                     } else {
                         format!("{} integration", crate::model::capitalize(&d.status.to_string()))
                     };
@@ -457,9 +457,13 @@ impl Bridge {
                                             && c.shell == Some(ShellPick::Shell(o.item.id.clone())),
                                     );
                                     t.enabled = o.available();
+                                    if o.item.id.starts_with("cachyos-noctalia-") {
+                                        t.description.push_str("\nPreview: CachyOS preset integration is pending. Choose Noctalia v5 for the native installer.");
+                                    }
                                     t
                                 })
                                 .collect();
+                            shells.sort_by_key(|t| t.key != "shell/noctalia");
                             shells.push(Tile::new(
                                 "shell/none",
                                 "No shell",
@@ -2272,5 +2276,83 @@ mod completion_tests {
         a.bridge.command("edition/3");
         assert!(a.bridge.app.native.pick.is_none());
         assert_eq!(a.bridge.app.native.page, Page::Storage);
+    }
+}
+
+#[cfg(test)]
+mod compositor_tests {
+    use super::*;
+    #[test]
+    fn all_three_noctalia_compositors_reach_the_correct_native_plan() {
+        for (id, desktop) in [
+            ("hyprland", borea_core::Desktop::HyprlandNoctalia),
+            ("niri", borea_core::Desktop::NiriNoctalia),
+            ("mango", borea_core::Desktop::MangoNoctalia),
+        ] {
+            for cachyos in [false, true] {
+                let mut b = Bridge {
+                    app: LiveInstaller::with_hardware(showcase_fixture::machine(), true),
+                    network: None,
+                    network_name: None,
+                    pending_family: None,
+                };
+                b.app.go(Step::System);
+                b.command("family/0");
+                b.command(if cachyos { "distro/1" } else { "distro/0" });
+                b.command(if cachyos { "edition/2" } else { "edition/3" });
+                b.next();
+                b.command("mode/compose");
+                b.command(&format!("compositor/{id}"));
+                b.command("shell/noctalia");
+                b.next();
+                assert!(b.native());
+                assert_eq!(b.app.native_desktop(), Some(desktop));
+                assert_eq!(b.app.native.page, Page::Storage);
+                assert!(b.app.native.pick.is_none());
+                b.app.native.disks = serde_json::from_value(serde_json::json!([{
+                    "id": {"logical_sector":512,"path":"/dev/vda","serial":"TEST",
+                        "size":107374182400u64,"model":"Disposable VM disk"},
+                    "parts": []
+                }]))
+                .unwrap();
+                b.command("whole/0");
+                b.next();
+                for (field, value) in
+                    [("full-name", "Test Person"), ("username", "tester"), ("hostname", "test-pc")]
+                {
+                    b.app.native.edit_account(field, value.into());
+                }
+                b.region(
+                    "language",
+                    borea_locale::LOCALES.iter().position(|v| v.id == "fr_FR.UTF-8").unwrap()
+                        as i32,
+                );
+                b.region(
+                    "keyboard",
+                    borea_locale::KEYBOARDS
+                        .iter()
+                        .position(|v| v.layout == "de" && v.variant == "nodeadkeys")
+                        .unwrap() as i32,
+                );
+                b.region(
+                    "console",
+                    borea_locale::console_keymaps().position(|v| v == "de-latin1").unwrap() as i32,
+                );
+                b.region(
+                    "timezone",
+                    borea_locale::TIMEZONES.iter().position(|v| *v == "Europe/Paris").unwrap()
+                        as i32,
+                );
+                let plan = b.app.native.plan().unwrap();
+                assert_eq!(plan.locale.lang, "fr_FR.UTF-8");
+                assert_eq!(plan.locale.keyboard.variant, "nodeadkeys");
+                assert_eq!(plan.desktop, Some(desktop));
+                assert_eq!(plan.derivative, cachyos.then_some(borea_core::ArchDerivative::Cachyos));
+                let encoded = serde_json::to_value(&plan).unwrap();
+                assert_eq!(encoded["desktop"], desktop.key());
+                let decoded: borea_core::Plan = serde_json::from_value(encoded).unwrap();
+                assert_eq!(decoded, plan);
+            }
+        }
     }
 }

@@ -49,6 +49,35 @@ jobs:
       - name: Setup script (shellcheck)
         run: shellcheck -S warning scripts/*.sh
 
+  noctalia-compositor-configs:
+    name: Noctalia compositor config parsers (Arch)
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    steps:
+      - name: Native compositor packages
+        run: pacman -Syu --noconfirm --needed rust gcc git pkgconf hyprland niri mangowm
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Generate the reviewed compositor configurations
+        env:
+          BOREA_COMPOSITOR_CONFIGS: ${{ runner.temp }}/noctalia-configs
+        run: cargo test --locked -p borea-job --test noctalia
+      - name: Parse as an unprivileged user with upstream binaries
+        run: |
+          set -eu
+          configs="$RUNNER_TEMP/noctalia-configs"
+          runtime="$RUNNER_TEMP/noctalia-runtime"
+          mkdir -p "$runtime"
+          chmod 755 "$configs"
+          chmod 644 "$configs"/*
+          chown nobody:nobody "$runtime"
+          chmod 700 "$runtime"
+          cd "$runtime"
+          export XDG_RUNTIME_DIR="$runtime"
+          runuser -u nobody -- env HOME="$runtime" niri validate -c "$configs/niri.kdl"
+          runuser -u nobody -- env HOME="$runtime" Hyprland --verify-config -c "$configs/hyprland.lua"
+          runuser -u nobody -- env HOME="$runtime" mango -p -c "$configs/mango.conf"
+
   borea-command-arch:
     name: borea install on Arch
     runs-on: ubuntu-24.04

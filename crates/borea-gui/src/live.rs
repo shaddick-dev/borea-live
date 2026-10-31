@@ -218,15 +218,21 @@ impl LiveInstaller {
     pub fn native(&self) -> &crate::install::NativeInstall {
         &self.native
     }
-    fn native_target(&self) -> bool {
+    fn native_desktop(&self) -> Option<borea_core::Desktop> {
         let c = self.selection.choice(self.family());
-        self.picked_edition
+        if !(self.picked_edition
             && self.picked_compositor
             && self.picked_shell
             && matches!(self.distro().id.as_str(), "arch" | "cachyos")
             && c.mode == DesktopMode::Compose
-            && c.compositor.as_deref() == Some("hyprland")
-            && c.shell == Some(ShellPick::Shell("noctalia".into()))
+            && c.shell == Some(ShellPick::Shell("noctalia".into())))
+        {
+            return None;
+        }
+        borea_core::Desktop::for_noctalia(c.compositor.as_deref()?)
+    }
+    fn native_target(&self) -> bool {
+        self.native_desktop().is_some()
     }
     fn handoff_target(&self) -> Option<&'static str> {
         (self.picked_edition && self.distro().id.as_str() == self.handoff.target)
@@ -296,6 +302,9 @@ impl LiveInstaller {
                 .map(|ssid| borea_core::NetChoice::Wifi { ssid })
                 .unwrap_or(borea_core::NetChoice::Ethernet);
             self.native.target(self.distro().id.as_str() == "cachyos");
+            if let Some(desktop) = self.native_desktop() {
+                self.native.composition(desktop);
+            }
             self.native.choices(extras, self.selection.secure_boot, net);
             self.native.load();
         }
@@ -539,6 +548,9 @@ impl LiveInstaller {
         }
         if self.native_target() {
             self.native.target(self.distro().id.as_str() == "cachyos");
+            if let Some(desktop) = self.native_desktop() {
+                self.native.composition(desktop);
+            }
         }
     }
     fn uefi(&self) -> bool {

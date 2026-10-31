@@ -87,3 +87,11 @@
 - Archive member lists are retained for path validation but are not forwarded
   as thousands of progress events. Signature and extraction failures still
   propagate normally.
+
+- Noctalia compositor support is one catalog-owned recipe table. The active
+  scope is Hyprland, niri and MangoWC on Arch and CachyOS Minimal. Other
+  documented compositors were audited but are not added in this change.
+  Recipes use signed Arch-family packages, with no silent AUR builds.
+- Every Noctalia recipe shares version approval, greeter, user/locale, storage,
+  first-login app deferral and lock policy. Compositor startup, portal backend
+  and keyboard configuration are selected from the reviewed desktop variant.

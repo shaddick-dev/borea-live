@@ -1,0 +1,101 @@
+{
+  "date": "2026-10-31",
+  "scope": {
+    "distros": [
+      "Arch rolling",
+      "CachyOS Minimal"
+    ],
+    "compositors": [
+      "Hyprland",
+      "niri",
+      "MangoWC"
+    ],
+    "shell": "Noctalia v5"
+  },
+  "sources": {
+    "arch_extra": "https://geo.mirror.pkgbuild.com/extra/os/x86_64/extra.db",
+    "cachyos": "https://mirror.cachyos.org/repo/x86_64/cachyos/cachyos.db",
+    "noctalia_docs": "https://github.com/noctalia-dev/noctalia/tree/v5.4.1/docs/user/compositor-settings"
+  },
+  "arch_extra": {
+    "hyprland": {
+      "version": "0.57.0-1",
+      "filename": "hyprland-0.57.0-1-x86_64.pkg.tar.zst"
+    },
+    "mangowm": {
+      "version": "0.18.4-1",
+      "filename": "mangowm-0.18.4-1-x86_64.pkg.tar.zst"
+    },
+    "niri": {
+      "version": "26.04-1",
+      "filename": "niri-26.04-1-x86_64.pkg.tar.zst"
+    },
+    "noctalia": {
+      "version": "5.4.0-1",
+      "filename": "noctalia-5.4.0-1-x86_64.pkg.tar.zst"
+    },
+    "noctalia-greeter": {
+      "version": "1.7.0-1",
+      "filename": "noctalia-greeter-1.7.0-1-x86_64.pkg.tar.zst"
+    },
+    "playerctl": {
+      "version": "2.4.1-5",
+      "filename": "playerctl-2.4.1-5-x86_64.pkg.tar.zst"
+    },
+    "xdg-desktop-portal-gnome": {
+      "version": "51.0-1",
+      "filename": "xdg-desktop-portal-gnome-51.0-1-x86_64.pkg.tar.zst"
+    },
+    "xdg-desktop-portal-hyprland": {
+      "version": "1.4.1-2",
+      "filename": "xdg-desktop-portal-hyprland-1.4.1-2-x86_64.pkg.tar.zst"
+    },
+    "xdg-desktop-portal-wlr": {
+      "version": "0.8.4-1",
+      "filename": "xdg-desktop-portal-wlr-0.8.4-1-x86_64.pkg.tar.zst"
+    },
+    "xwayland-satellite": {
+      "version": "0.8.3-1",
+      "filename": "xwayland-satellite-0.8.3-1-x86_64.pkg.tar.zst"
+    }
+  },
+  "cachyos_overrides": {
+    "noctalia-greeter": {
+      "version": "1.6.0-1",
+      "filename": "noctalia-greeter-1.6.0-1-x86_64.pkg.tar.zst"
+    }
+  },
+  "cachyos_inheritance": "All three compositor packages and portal packages are inherited from Arch extra in the generic x86_64 repository configuration.",
+  "native_validation": {
+    "environment": "Disposable signed Arch bootstrap, unprivileged UID 65534, no host block devices",
+    "bootstrap_signature": "Good signature from Pierre Schmitz; key 3E80CA1A8B89F69CBA57D98A76A5EF9054449A5C; checked with bundled arch.gpg before extraction",
+    "package_installation": "pacman -Syu hyprland niri mangowm foot; TLS and package signature verification enabled",
+    "configs": {
+      "hyprland": {
+        "command": "Hyprland --verify-config -c hyprland.lua",
+        "exit_code": 0
+      },
+      "niri": {
+        "command": "niri validate -c niri.kdl",
+        "exit_code": 0
+      },
+      "mango": {
+        "command": "mango -p -c mango.conf",
+        "exit_code": 0
+      }
+    },
+    "container_limits": "Landlock unavailable; only the disposable test root disabled pacman filesystem/syscall sandboxing. Production configuration is unchanged.",
+    "headless_runtime": "MangoWC failed before renderer creation: scenefx requires a DRM FD. No runtime or graphical login pass is claimed."
+  },
+  "release_gate": {
+    "latest_upstream_v5": "5.4.1",
+    "signed_package": "5.4.0-1",
+    "status": "blocked before target writes until the signed native package matches the approved stable release"
+  },
+  "not_verified": [
+    "full Noctalia graphical login and logout on all six installed paths",
+    "lock/unlock and suspend/resume",
+    "Intel Arc A770 hardware",
+    "CachyOS branded desktop preset integration"
+  ]
+}

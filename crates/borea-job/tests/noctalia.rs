@@ -13,10 +13,13 @@ fn scenario_with_locale(alongside: bool, locale: LocaleChoice) -> Job {
     scenario_target(alongside, locale, false)
 }
 fn scenario_target(alongside: bool, locale: LocaleChoice, cachyos: bool) -> Job {
+    scenario_desktop(alongside, locale, cachyos, Desktop::HyprlandNoctalia)
+}
+fn scenario_desktop(alongside: bool, locale: LocaleChoice, cachyos: bool, desktop: Desktop) -> Job {
     let mut plan = common::plan(Distribution::Arch, true);
     plan.locale = locale;
     plan.derivative = cachyos.then_some(ArchDerivative::Cachyos);
-    plan.desktop = Some(Desktop::HyprlandNoctalia);
+    plan.desktop = Some(desktop);
     plan.env = "composed".into();
     plan.secure_boot = Some(false);
     plan.extras = ["gaming", "printing", "codecs", "flatpak"].map(str::to_owned).into();
@@ -379,5 +382,78 @@ fn cachyos_secure_boot_uses_its_kernel_preset_for_both_layouts() {
             written(&job, "/etc/pacman.d/hooks/zz-borea-secureboot.hook")
                 .contains("Target = linux-cachyos\n")
         );
+    }
+}
+
+#[test]
+fn every_noctalia_compositor_has_its_own_packages_session_and_region_for_both_distros_and_layouts()
+{
+    for desktop in [Desktop::HyprlandNoctalia, Desktop::NiriNoctalia, Desktop::MangoNoctalia] {
+        let recipe = desktop.noctalia().unwrap();
+        for cachyos in [false, true] {
+            for alongside in [false, true] {
+                let mut locale = common::plan(Distribution::Arch, true).locale;
+                locale.lang = "fr_FR.UTF-8".into();
+                locale.timezone = "Europe/Paris".into();
+                locale.keyboard.layout = "de".into();
+                locale.keyboard.variant = "nodeadkeys".into();
+                locale.keyboard.console = "de-latin1".into();
+                let job = scenario_desktop(alongside, locale, cachyos, desktop);
+                let packages =
+                    job.review.packages.iter().map(|p| p.name.as_str()).collect::<Vec<_>>();
+                assert!(packages.contains(&recipe.package));
+                for other in borea_catalog::noctalia::RECIPES {
+                    if other.compositor != recipe.compositor {
+                        assert!(!packages.contains(&other.package));
+                    }
+                }
+                for package in recipe.packages {
+                    assert!(packages.contains(package));
+                }
+                let session = written(
+                    &job,
+                    &format!("/usr/share/wayland-sessions/borea-{}.desktop", recipe.compositor),
+                );
+                assert!(session.contains(recipe.session));
+                assert!(
+                    !session.contains("dbus-run-session"),
+                    "retain the login's user bus for portals"
+                );
+                assert!(session.contains(&format!("DesktopNames={}\n", recipe.desktop_name)));
+                assert!(
+                    written(&job, "/etc/greetd/config.toml").contains("noctalia-greeter-session")
+                );
+                assert!(
+                    written(&job, "/var/lib/noctalia-greeter/greeter.toml")
+                        .contains("variant = \"nodeadkeys\"")
+                );
+                assert!(
+                    written(&job, "/etc/skel/.config/noctalia/config.toml")
+                        .contains("lang = \"fr_FR.UTF-8\"")
+                );
+                assert!(
+                    written(&job, "/etc/skel/.config/xdg-desktop-portal/portals.conf")
+                        .contains(&format!("ScreenCast={}", recipe.portal))
+                );
+                let (name, path) = match desktop {
+                    Desktop::HyprlandNoctalia => {
+                        ("hyprland.lua", "/etc/skel/.config/hypr/hyprland.lua")
+                    }
+                    Desktop::NiriNoctalia => ("niri.kdl", "/etc/skel/.config/niri/config.kdl"),
+                    Desktop::MangoNoctalia => ("mango.conf", "/etc/skel/.config/mango/config.conf"),
+                    _ => unreachable!(),
+                };
+                let config = written(&job, path);
+                assert!(config.contains("nodeadkeys"));
+                assert!(config.contains("noctalia"));
+                assert!(!config.contains("@@"));
+                assert!(written(&job, "/var/lib/borea/firstboot.json").contains("firefox"));
+                assert_eq!(job.plan.desktop, Some(desktop));
+                if let Ok(dir) = std::env::var("BOREA_COMPOSITOR_CONFIGS") {
+                    std::fs::create_dir_all(&dir).unwrap();
+                    std::fs::write(std::path::Path::new(&dir).join(name), config).unwrap();
+                }
+            }
+        }
     }
 }

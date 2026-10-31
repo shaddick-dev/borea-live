@@ -271,7 +271,7 @@ pub fn compile(
         }
     }
     review.packages.sort_by(|a, b| (&a.source, &a.name).cmp(&(&b.source, &b.name)));
-    let composed = plan.desktop == Some(borea_core::Desktop::HyprlandNoctalia);
+    let composed = plan.desktop.is_some_and(borea_core::Desktop::is_noctalia);
     let mut deferred_native = BTreeSet::new();
     if composed {
         if review.packages.iter().any(|p| p.source == "aur" || p.source == "appimage") {

@@ -466,7 +466,6 @@ pub const ARCH_NOCTALIA_PACKAGES: &[&str] = &[
     "noctalia-greeter",
     "greetd",
     "accountsservice",
-    "xdg-desktop-portal-hyprland",
     "xdg-desktop-portal-gtk",
     "xdg-user-dirs",
     "pipewire",
@@ -511,8 +510,8 @@ pub const UNAVAILABLE_DESKTOPS: &[(Distro, &str, &str)] = &[(
     "COSMIC is not packaged in Debian 13's official repositories; choose another desktop.",
 )];
 pub fn desktop_unavailable(distro: Distro, desktop: &str) -> Option<&'static str> {
-    if desktop == "hyprland-noctalia" && distro != Distro::Arch {
-        return Some("Hyprland with Noctalia is currently supported on Arch only.");
+    if crate::noctalia::recipe(desktop).is_some() && distro != Distro::Arch {
+        return Some("Noctalia v5 desktops currently require Arch or CachyOS Minimal.");
     }
     UNAVAILABLE_DESKTOPS
         .iter()
@@ -648,11 +647,15 @@ pub fn plan_groups_with(
         if let Some(reason) = desktop_unavailable(d, desktop) {
             return Err(GroupError::UnavailableDesktop(reason));
         }
-        let (_, per) = DESKTOPS
-            .iter()
-            .find(|(id, _)| *id == desktop)
-            .ok_or_else(|| GroupError::UnknownDesktop(desktop.into()))?;
-        Some(per[idx(d)])
+        if let Some(recipe) = crate::noctalia::recipe(desktop) {
+            Some((recipe.package, "greetd"))
+        } else {
+            let (_, per) = DESKTOPS
+                .iter()
+                .find(|(id, _)| *id == desktop)
+                .ok_or_else(|| GroupError::UnknownDesktop(desktop.into()))?;
+            Some(per[idx(d)])
+        }
     } else {
         None
     };
