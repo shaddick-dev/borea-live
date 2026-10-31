@@ -2209,55 +2209,65 @@ fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::err
     app = make();
     app.bridge.app.still = false;
     let mut previous = String::new();
-    for frame in 0..432 {
+    for frame in 0..504 {
         if frame % 2 == 0 {
             match frame / 2 {
                 8 => *app.wifi_password = "showcase-only-password".into(),
                 20 => app.bridge.app.go(Step::Machine),
                 36 => app.bridge.app.go(Step::System),
-                52 => {
+                44 => {
+                    app.hovered = Some(Family::Arch);
+                    app.pointer = Some(iced::Point::new(396., 18.));
+                }
+                88 => {
                     app.bridge.pending_family = Some((Family::Arch, Instant::now()));
                     app.pulse = 1.;
                 }
-                56 => {
+                92 => {
                     app.bridge.pending_family = None;
                     app.bridge.app.apply(Action::Family(Family::Arch));
                 }
-                66 => {
+                102 => {
                     app.bridge.command("distro/0");
                     app.pulse = 1.;
                 }
-                80 => app.bridge.command("edition/3"),
-                92 => app.bridge.next(),
-                100 => app.bridge.command("mode/compose"),
-                110 => app.bridge.command("compositor/hyprland"),
-                126 => {
+                116 => app.bridge.command("edition/3"),
+                128 => app.bridge.next(),
+                136 => app.bridge.command("mode/compose"),
+                146 => app.bridge.command("compositor/hyprland"),
+                162 => {
                     app.bridge.command("shell/noctalia");
                     app.pulse = 1.;
                 }
-                142 => app.bridge.command("extra/gaming"),
-                154 => {
+                178 => app.bridge.command("extra/gaming"),
+                190 => {
                     app.bridge.next();
                     app.bridge.app.native.disks = showcase_disks();
                 }
-                168 => {
+                204 => {
                     app.bridge.command("whole/0");
                     app.bridge.next();
                 }
-                180 => showcase_account(&mut app),
-                196 => app.bridge.app.native.review(),
+                216 => showcase_account(&mut app),
+                232 => app.bridge.app.native.review(),
                 _ => {}
             }
         }
-        if frame >= 392 {
+        if frame >= 464 {
             app.bridge.app.native.poll();
         }
+        app.ease_family_cards(1. / 24., false);
         let next = app.key();
         app.wind.advance(1. / 24., next != previous, false, None);
         previous = next;
         app.elapsed += 1. / 24.;
         app.pulse = (app.pulse - 1. / 24. / 0.7).max(0.);
-        capture(&app, &dir.join(format!("motion/frame-{frame:04}.png")), 1120, 753)?;
+        let cursor = if app.hovered == Some(Family::Arch) {
+            iced::mouse::Cursor::Available(iced::Point::new(640., 166.))
+        } else {
+            iced::mouse::Cursor::Unavailable
+        };
+        capture_at(&app, &dir.join(format!("motion/frame-{frame:04}.png")), 1120, 753, cursor)?;
     }
     println!("Iced showcase captured in {}", dir.display());
     Ok(())
