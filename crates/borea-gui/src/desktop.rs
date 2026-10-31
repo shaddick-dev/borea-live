@@ -1106,10 +1106,9 @@ impl App {
             row![rail, container(main).padding(28).width(Length::Fill)].height(Length::Fill),
         )
         .style(move |_| container::Style { text_color: Some(p.text), ..Default::default() });
-        let background =
-            widget::canvas(AirCanvas { trails: self.wind.trails(), t: self.elapsed, dark: a.dark })
-                .width(Length::Fill)
-                .height(Length::Fill);
+        let background = widget::canvas(AirCanvas { trails: self.wind.trails(), dark: a.dark })
+            .width(Length::Fill)
+            .height(Length::Fill);
         let base: Element<'_, Message> = stack![background, content].into();
         if a.firmware_dialog {
             let dialog = column![text("Restart into UEFI setup?").size(24),
@@ -1525,7 +1524,6 @@ fn logo(id: &str, dark: bool) -> Option<Element<'static, Message>> {
 
 struct AirCanvas {
     trails: Vec<crate::frost_motion::Trail>,
-    t: f32,
     dark: bool,
 }
 impl widget::canvas::Program<Message> for AirCanvas {
@@ -1542,36 +1540,22 @@ impl widget::canvas::Program<Message> for AirCanvas {
         let mut f = Frame::new(renderer, bounds.size());
         let p = Colors::new(self.dark);
         f.fill_rectangle(iced::Point::ORIGIN, bounds.size(), p.bg);
+        // Each line is painted in short runs, so it can blur away behind its head.
         for g in &self.trails {
-            let x = g.x * bounds.width;
-            let y = g.y * bounds.height;
-            let len = g.length * bounds.width;
-            // Layered, slightly diverging currents. All travel right to left.
-            for strand in 0..3 {
-                let h = g.height * (strand as f32 + 1.) * 0.4;
-                let path = Path::new(|b| {
-                    b.move_to(iced::Point::new(x, y + h));
-                    b.bezier_curve_to(
-                        iced::Point::new(x - len * 0.33, y - h),
-                        iced::Point::new(x - len * 0.66, y + h * 0.6),
-                        iced::Point::new(x - len, y),
-                    );
-                });
+            for run in g.points.windows(2) {
+                let alpha = (run[0].alpha + run[1].alpha) / 2.;
+                if alpha < 0.004 {
+                    continue;
+                }
+                let y = run[0].y * bounds.height;
+                let path = Path::line(
+                    iced::Point::new(run[0].x * bounds.width, y),
+                    iced::Point::new(run[1].x * bounds.width, y),
+                );
                 f.stroke(
                     &path,
-                    Stroke::default()
-                        .with_color(Color { a: g.alpha / (strand as f32 + 1.), ..p.ice })
-                        .with_width(if strand == 0 { 1.3 } else { 0.6 }),
+                    Stroke::default().with_color(Color { a: alpha, ..p.ice }).with_width(1.3),
                 );
-            }
-            // Frost motes dissolve along the current, without strobing.
-            for i in 0..3 {
-                let phase = (self.t * 0.11 + i as f32 * 0.31).fract();
-                let at = iced::Point::new(
-                    x - len * phase,
-                    y + (phase * 6. + i as f32).sin() * g.height * 0.4,
-                );
-                f.fill(&Path::circle(at, 1.2), Color { a: g.alpha * 0.8, ..p.ice });
             }
         }
         vec![f.into_geometry()]

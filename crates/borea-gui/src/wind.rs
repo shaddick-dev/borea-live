@@ -8,6 +8,12 @@
 //! design: speed changes ease in and out (never a jump), are capped at a few
 //! times the calm speed, and never change brightness, so nothing flashes.
 //! "Pause wind" (or a window in the background) holds one still frame.
+//!
+//! Each gust is a hard, straight line that eases in, accelerates and drags to
+//! a stop. Its length is its motion blur: the trail of where its head has just
+//! been, so it stretches as it speeds up and draws in as drag slows it, fading
+//! in as it appears and out as it settles. Gusts start where they like, travel
+//! as far as they like and surge a little on the way, so no two move in step.
 
 use std::f64::consts::TAU;
 use std::sync::OnceLock;
@@ -35,7 +41,7 @@ fn noise(seed: u64, n: u64) -> f64 {
 pub const FRAME: std::time::Duration = std::time::Duration::from_millis(33);
 
 /// Gusts may start this often (seconds of wind clock); most slots stay empty.
-const SLOT: f64 = 0.3;
+const SLOT: f64 = 0.2;
 /// The longest a gust lives, so only recent slots need looking at.
 const LONGEST: f64 = 7.0;
 
@@ -65,13 +71,21 @@ pub struct Gust {
     pub rise: f32,
     pub width: f32,
     pub alpha: f32,
+    /// Its slot: the gust's own source of wander.
+    pub id: u64,
+    /// Where it appears, and how far it travels before it settles, as shares
+    /// of the width.
+    pub from: f32,
+    pub reach: f32,
+    /// How much it surges and slackens on the way.
+    pub surge: f32,
 }
 
 /// The gust in slot `n`, if the weather starts one there.
 pub fn gust(seed: u64, n: u64) -> Option<Gust> {
     let r = |k: u64| noise(seed, n * 16 + k);
     let start = n as f64 * SLOT + r(0) * SLOT;
-    let chance = 0.04 + 0.55 * weather(seed, start);
+    let chance = 0.14 + 0.5 * weather(seed, start);
     if r(1) >= chance {
         return None;
     }
@@ -85,6 +99,11 @@ pub fn gust(seed: u64, n: u64) -> Option<Gust> {
         rise: ((r(7) - 0.5) * 0.25) as f32,
         width: (0.8 + r(8) * 0.9) as f32,
         alpha: (0.22 + r(9) * 0.4) as f32,
+        id: n,
+        from: (0.15 + r(10) * 1.15) as f32,
+        reach: (0.5 + r(11) * 0.6) as f32,
+        // Kept below its slowest pace, so a slackening gust never backs up.
+        surge: (0.005 + r(13) * 0.02) as f32,
     })
 }
 
@@ -173,7 +192,90 @@ impl Gusts {
     }
 }
 
-/// Paint the wind into `rect`. `None` holds one still frame.
+/// A wandering number, about -1 to 1: seeded values at whole numbers, eased
+/// between, so it drifts without ever jumping.
+fn wander(seed: u64, x: f64) -> f64 {
+    let i = x.floor();
+    let u = x - i;
+    let k = i as i64 as u64;
+    let at = |k: u64| noise(seed, k) * 2.0 - 1.0;
+    let (a, b) = (at(k), at(k.wrapping_add(1)));
+    a + (b - a) * u * u * (3.0 - 2.0 * u)
+}
+
+/// A gust's own seed for everything it does as it goes.
+fn own(seed: u64, g: &Gust) -> u64 {
+    seed ^ g.id.wrapping_add(1).wrapping_mul(0xd6e8_feb8_6659_fd93)
+}
+
+/// How far a gust has come, as a share of the width, `progress` (0 to 1)
+/// through its life: it eases in, accelerates to its fastest about a quarter
+/// of the way, then drag slows it to a crawl, with small surges on the way. It
+/// never backs up: the surges can never outpace its slowest crawl.
+fn travel(seed: u64, g: &Gust, progress: f32) -> f64 {
+    let p = f64::from(progress.clamp(0.0, 1.0));
+    let flight = 0.88 * (1.0 - (1.0 - p.powf(1.6)).powi(3)) + 0.12 * p;
+    let surge = f64::from(g.surge) * wander(own(seed, g), p * 3.0 + 11.0);
+    f64::from(g.reach) * (flight + surge)
+}
+
+/// Where a gust's leading end is, as a share of the width.
+pub fn head(seed: u64, g: &Gust, progress: f32) -> f32 {
+    (f64::from(g.from) - travel(seed, g, progress)) as f32
+}
+
+/// Points along each line, head to tail.
+pub const POINTS: usize = 16;
+
+/// One point of a line, ready to paint.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Point {
+    /// Across, as a share of the area's width.
+    pub x: f32,
+    /// Height, as a share of the area.
+    pub y: f32,
+    pub alpha: f32,
+}
+
+/// A gust at one moment: one straight line, head to tail.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Shape {
+    pub points: Vec<Point>,
+}
+
+/// Rises from 0 at `a` to 1 at `b`, leaving and arriving with no kick at all
+/// (flat in speed and in acceleration at both ends), so a fade has no edge.
+fn ease(a: f32, b: f32, x: f32) -> f32 {
+    let u = ((x - a) / (b - a)).clamp(0.0, 1.0);
+    u * u * u * (u * (u * 6.0 - 15.0) + 10.0)
+}
+
+/// The gust `progress` (0 to 1) through its life. `energy` (0 calm, 1 fastest)
+/// lengthens its blur a little, never brightens it.
+pub fn shape(seed: u64, g: &Gust, progress: f32, energy: f32) -> Shape {
+    // Its blur follows its speed: short while easing in, longest at full
+    // speed, drawing in as drag slows it.
+    let lead = head(seed, g, progress);
+    let speed = (head(seed, g, progress - 0.01) - head(seed, g, progress + 0.01)) / 0.02;
+    let blur = speed * (0.9 + 3.0 * g.length) * (1.0 + 0.5 * energy) / g.life as f32;
+    // A slow drift up or down over its life; the line itself stays level.
+    let y = g.y + 0.3 * g.rise * progress;
+    // Fades in from nothing over its first third while it is still slow and
+    // short, and out over its second half as drag brings it to a crawl: it
+    // never visibly starts or stops.
+    let fade = g.alpha * 0.38 * ease(0.0, 0.32, progress) * (1.0 - ease(0.45, 1.0, progress));
+    let points = (0..=POINTS)
+        .map(|k| {
+            let u = k as f32 / POINTS as f32;
+            let x = lead + blur * u;
+            // A crisp head, blurring away to nothing behind it.
+            let streak = (u * 12.0).min(1.0) * (1.0 - u).powf(1.5);
+            Point { x, y, alpha: fade * streak }
+        })
+        .collect();
+    Shape { points }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::panic)]
 mod tests {
@@ -258,5 +360,80 @@ mod tests {
         // Done: calm again.
         let calm = run(&mut g, 60.0, 8.0, None).last().unwrap().energy;
         assert!(calm < 0.02);
+    }
+
+    fn length(g: &Gust, p: f32) -> f32 {
+        let s = shape(42, g, p, 0.0);
+        s.points[POINTS].x - s.points[0].x
+    }
+
+    #[test]
+    fn a_gust_accelerates_blurs_then_drags() {
+        for n in 0..400 {
+            let Some(g) = gust(42, n) else { continue };
+            let speed = |p: f32| head(42, &g, p) - head(42, &g, p + 0.01);
+            assert!(speed(0.25) > 2.0 * speed(0.02), "accelerates: gust {n}");
+            assert!(speed(0.25) > 2.0 * speed(0.9), "drags: gust {n}");
+            assert!(length(&g, 0.3) > 1.5 * length(&g, 0.9), "blur draws in: gust {n}");
+        }
+    }
+
+    #[test]
+    fn lines_are_hard_straight_and_fade_smoothly() {
+        let (g, _) = alive(42, 100.0).next().unwrap();
+        let mut last = 0.0;
+        for step in 0..=200 {
+            let p = step as f32 / 200.0;
+            let line = shape(42, &g, p, 0.0).points;
+            assert!(line.iter().all(|q| q.y == line[0].y), "straight");
+            let peak = line.iter().map(|q| q.alpha).fold(0.0, f32::max);
+            assert!((peak - last).abs() < 0.01, "no pop at {p}");
+            last = peak;
+            assert!(line[POINTS].alpha < 1e-6, "blurs away behind");
+        }
+        assert!(last < 1e-6, "gone at the end");
+    }
+
+    #[test]
+    fn gusts_in_the_air_together_are_not_in_step() {
+        let t = busy(42, 100.0);
+        let gusts: Vec<(Gust, f32)> = alive(42, t).collect();
+        assert!(gusts.len() >= 3);
+        let speed =
+            |(g, p): &(Gust, f32)| (head(42, g, *p) - head(42, g, *p + 0.01)) / g.life as f32;
+        for pair in gusts.windows(2) {
+            assert!((speed(&pair[0]) - speed(&pair[1])).abs() > 1e-5, "different speeds");
+        }
+    }
+
+    #[test]
+    fn gusts_surge_but_never_back_up_and_stay_gentle() {
+        for seed in 0..10 {
+            for n in 0..200 {
+                let Some(g) = gust(seed, n) else { continue };
+                let mut last = f32::INFINITY;
+                for step in 0..=400 {
+                    let p = step as f32 / 400.0;
+                    let x = head(seed, &g, p);
+                    assert!(x < last, "seed {seed} gust {n} backs up at {p}");
+                    last = x;
+                    if step % 20 != 0 {
+                        continue;
+                    }
+                    for q in shape(seed, &g, p, 1.0).points {
+                        assert!((0.0..0.3).contains(&q.alpha), "never bright: {}", q.alpha);
+                        assert!(q.x.is_finite() && q.y.is_finite());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn energy_never_brightens_the_wind() {
+        let (g, p) = alive(42, 100.0).next().unwrap();
+        let alphas =
+            |e: f32| -> Vec<f32> { shape(42, &g, p, e).points.iter().map(|q| q.alpha).collect() };
+        assert_eq!(alphas(0.0), alphas(1.0));
     }
 }
