@@ -4,7 +4,7 @@ use crate::install::Page;
 use crate::model::hardware_facts;
 use iced::widget::{
     self, button, checkbox, column, container, image, pick_list, progress_bar, row, scrollable,
-    slider, space, stack, svg, text, text_input,
+    slider, space, stack, svg, text, text_input, toggler,
 };
 use iced::{Alignment, Background, Border, Color, Element, Length, Subscription, Task, Theme};
 use std::collections::{BTreeMap, BTreeSet};
@@ -249,6 +249,7 @@ impl Bridge {
                     n.locale.keyboard.layout = v.layout.into();
                     n.locale.keyboard.variant = v.variant.into();
                     n.touch("keyboard");
+                    n.follow_keyboard();
                 }
             }
             "console" => {
@@ -555,63 +556,10 @@ impl Bridge {
                         .collect(),
                 ));
             }
-            Step::Review if self.native() => match a.native.page {
-                Page::Storage => groups.extend(storage_tiles(&a.native.disks, &a.native.pick, 40)),
-                Page::Account => {
-                    let sources = borea_catalog::Sources::defaults(borea_catalog::Distro::Arch);
-                    groups.push(section(
-                        "Extra applications · installed quietly after login",
-                        borea_catalog::APPS
-                            .iter()
-                            .map(|app| {
-                                let mut t = Tile::new(
-                                    format!("app/{}", app.id),
-                                    app.name,
-                                    "",
-                                    a.native.apps.contains(app.id),
-                                );
-                                t.enabled = matches!(
-                                    borea_catalog::resolve(
-                                        app,
-                                        &sources,
-                                        borea_catalog::Prefer::Aur
-                                    ),
-                                    borea_catalog::Resolution::From {
-                                        source: borea_catalog::Source::Repo(_)
-                                            | borea_catalog::Source::Aur
-                                            | borea_catalog::Source::Flathub,
-                                        ..
-                                    }
-                                );
-                                t.badge = Some(
-                                    match borea_catalog::resolve(
-                                        app,
-                                        &sources,
-                                        borea_catalog::Prefer::Aur,
-                                    ) {
-                                        borea_catalog::Resolution::From {
-                                            source: borea_catalog::Source::Aur,
-                                            ..
-                                        } => "AUR",
-                                        borea_catalog::Resolution::From {
-                                            source: borea_catalog::Source::Repo(_),
-                                            ..
-                                        } => "Native",
-                                        borea_catalog::Resolution::From {
-                                            source: borea_catalog::Source::Flathub,
-                                            ..
-                                        } => "Flatpak",
-                                        _ => "Not available",
-                                    }
-                                    .into(),
-                                );
-                                t
-                            })
-                            .collect(),
-                    ));
-                }
-                _ => {}
-            },
+            Step::Review if self.native() && a.native.page == Page::Storage => {
+                groups.extend(storage_tiles(&a.native.disks, &a.native.pick, 40))
+            }
+            Step::Review if self.native() => {}
             Step::Review if a.handoff_target().is_some() => {
                 if matches!(
                     a.handoff.phase,
@@ -676,6 +624,14 @@ enum Message {
     Space(f32),
     Confirm(bool),
     Apps(bool),
+    /// The account password is also the sudo password.
+    SameSudo(bool),
+    Encrypt(bool),
+    ShowPassword,
+    /// Open or close an Extra apps category, by its label.
+    Category(&'static str),
+    /// Choose the disk unlock keyboard instead of following the keyboard.
+    ConsoleChange,
     WifiPassword(String),
     Reveal(bool),
     Join,
@@ -703,6 +659,11 @@ impl std::fmt::Debug for Message {
             Self::Space(..) => "Space",
             Self::Confirm(..) => "Confirm",
             Self::Apps(..) => "Apps",
+            Self::SameSudo(..) => "SameSudo",
+            Self::Encrypt(..) => "Encrypt",
+            Self::ShowPassword => "ShowPassword",
+            Self::Category(..) => "Category",
+            Self::ConsoleChange => "ConsoleChange",
             Self::Reveal(..) => "Reveal",
             Self::Join => "Join",
             Self::Rescan => "Rescan",
@@ -715,6 +676,9 @@ impl std::fmt::Debug for Message {
 }
 const FONT: &[u8] = include_bytes!("../assets/NotoSans-Regular.ttf");
 const FACE: iced::Font = iced::Font::with_name("Noto Sans");
+/// Card titles: Noto Sans SemiBold.
+const TITLE_FONT: &[u8] = include_bytes!("../assets/NotoSans-SemiBold.ttf");
+const TITLE: iced::Font = iced::Font { weight: iced::font::Weight::Semibold, ..FACE };
 /// Each family's own type, where it publishes a free one (all SIL OFL 1.1): Fedora's
 /// wordmark face and body text, and openSUSE's title face.
 const BRAND_FONTS: [&[u8]; 3] = [
@@ -761,6 +725,14 @@ struct App {
     bloom: Option<String>,
     password: zeroize::Zeroizing<String>,
     confirmation: zeroize::Zeroizing<String>,
+    admin: zeroize::Zeroizing<String>,
+    admin_confirmation: zeroize::Zeroizing<String>,
+    show_password: bool,
+    /// The field last typed in or chosen: its line turns ice, and its card takes
+    /// the ice rim. Iced reports no focus, so this stands in for it.
+    focus: Option<&'static str>,
+    /// Open Extra apps categories, by label.
+    categories: BTreeSet<&'static str>,
     wifi_password: zeroize::Zeroizing<String>,
     reveal: bool,
     hidden: bool,
@@ -792,6 +764,11 @@ impl App {
             bloom: None,
             password: Default::default(),
             confirmation: Default::default(),
+            admin: Default::default(),
+            admin_confirmation: Default::default(),
+            show_password: false,
+            focus: None,
+            categories: BTreeSet::new(),
             wifi_password: Default::default(),
             reveal: false,
             hidden: false,
@@ -940,6 +917,11 @@ impl App {
                     use zeroize::Zeroize;
                     self.password.zeroize();
                     self.confirmation.zeroize();
+                    self.admin.zeroize();
+                    self.admin_confirmation.zeroize();
+                }
+                if !self.bridge.app.encryption_offered() && self.bridge.app.native.encrypt {
+                    self.bridge.app.native.encrypt = false;
                 }
                 if self.boot_smoke && !self.ready {
                     self.ready = true;
@@ -983,14 +965,49 @@ impl App {
                 match field {
                     "password" => *self.password = value.clone(),
                     "confirmation" => *self.confirmation = value.clone(),
+                    "admin" => *self.admin = value.clone(),
+                    "admin-confirmation" => *self.admin_confirmation = value.clone(),
                     _ => {}
                 }
+                self.focus = Some(field);
                 self.bridge.app.native.edit_account(field, value);
+            }
+            Message::SameSudo(same)
+                if self.bridge.native()
+                    && !self.bridge.busy()
+                    && !self.bridge.app.firmware_dialog =>
+            {
+                self.bridge.app.native.same_sudo(same);
+                if same {
+                    use zeroize::Zeroize;
+                    self.admin.zeroize();
+                    self.admin_confirmation.zeroize();
+                }
+            }
+            Message::Encrypt(on)
+                if self.bridge.native()
+                    && !self.bridge.app.firmware_dialog
+                    && self.bridge.app.encryption_offered() =>
+            {
+                self.bridge.app.native.set_encrypt(on)
+            }
+            Message::ShowPassword => self.show_password = !self.show_password,
+            Message::Category(label) => {
+                if !self.categories.remove(label) {
+                    self.categories.insert(label);
+                }
+            }
+            Message::ConsoleChange
+                if self.bridge.native() && self.bridge.app.native.page == Page::Account =>
+            {
+                self.bridge.app.native.touch("console");
+                self.focus = Some("console");
             }
             Message::Region(kind, value)
                 if !self.bridge.busy() && !self.bridge.app.firmware_dialog =>
             {
                 let index = region_options(kind).iter().position(|s| s == &value);
+                self.focus = Some(kind);
                 if let Some(i) = index {
                     self.bridge.region(kind, i as i32);
                 }
@@ -1106,6 +1123,7 @@ impl App {
             };
             let enabled = match n.page {
                 Page::Storage => n.pick.is_some(),
+                Page::Account => n.account_complete(),
                 Page::Review => n.ready(),
                 Page::Running => n.error.is_some(),
                 _ => true,
@@ -1234,9 +1252,6 @@ impl App {
                 body.push(button("Rescan networks").on_press(Message::Rescan).style(button::text));
         }
         for group in groups {
-            if self.bridge.native() && a.native.page == Page::Account && !self.apps_open {
-                continue;
-            }
             body = body.push(text(group.title).size(12).color(p.ice));
             // Compact rows keep long shell/app catalogs readable at laptop resolutions.
             let across = if a.step == Step::Connect || a.step == Step::Review { 1 } else { 2 };
@@ -1461,17 +1476,23 @@ impl App {
             if still { 0.41 } else { 0.41 + 0.09 * (t * std::f32::consts::TAU / 6.8).sin() };
         let shade = if a.dark { Color::from_rgb8(8, 11, 18) } else { Color::from_rgb8(46, 52, 64) };
         let depth = if a.dark { (0.2, 0.42) } else { (0.08, 0.2) };
-        let words = button(words)
-            .padding(size.padding())
-            .width(Length::Fill)
-            .height(size.height())
-            .on_press_maybe(press)
-            .style(move |_, _| button::Style {
-                background: None,
-                text_color: p.text,
-                border: Border { radius: 16.into(), ..Default::default() },
-                ..Default::default()
-            });
+        // A form card holds fields to type in, so it is never a button itself.
+        let words: Element<'a, Message> = if look == Look::Form {
+            container(words).width(Length::Fill).into()
+        } else {
+            button(words)
+                .padding(size.padding())
+                .width(Length::Fill)
+                .height(size.height())
+                .on_press_maybe(press)
+                .style(move |_, _| button::Style {
+                    background: None,
+                    text_color: p.text,
+                    border: Border { radius: 16.into(), ..Default::default() },
+                    ..Default::default()
+                })
+                .into()
+        };
         let mut layers = stack![words];
         if live {
             layers = layers.push_under(
@@ -1506,7 +1527,9 @@ impl App {
         } else {
             layers.into()
         };
-        let glow = (0.36 * lift).max(breath * chosen);
+        // A form card's rim glows steadily while you type in it.
+        let glow =
+            if look == Look::Form { 0.3 * chosen } else { (0.36 * lift).max(breath * chosen) };
         let blur = size.glow();
         let card = container(card).style(move |_| container::Style {
             border: Border { radius: 16.into(), ..Default::default() },
@@ -1578,47 +1601,283 @@ impl App {
         let words = self.compact_body(&tile);
         self.card_shell(&tile.key, words, p.ice, Size::Compact, look, tile.selected, press)
     }
+    /// The Account page: three titled form cards in the shared card language.
+    /// Every field is a faint hint on a thin line; the only words added are errors,
+    /// the password's strength and whether the passwords match.
     fn account(&self) -> Element<'_, Message> {
+        column![self.account_card(), self.region_card(), self.apps_card()].spacing(10).into()
+    }
+    /// A form card: the shared card shell, rimmed in ice while `active`.
+    fn form_card<'a>(&'a self, words: Element<'a, Message>, active: bool) -> Element<'a, Message> {
+        let p = self.colors();
+        self.card_shell("", words, p.ice, Size::Form, Look::Form, active, None)
+    }
+    /// A card's title, at the top of its first section.
+    fn form_title<'a>(&self, title: &'static str) -> Element<'a, Message> {
+        let p = self.colors();
+        container(text(title).size(15).font(TITLE).color(p.text))
+            .padding(iced::Padding { top: 14., right: 16., bottom: 2., left: 16. })
+            .into()
+    }
+    /// One field: a faint hint on a thin line that turns ice while you type in it.
+    fn form_field<'a>(
+        &self,
+        key: &'static str,
+        hint: &'static str,
+        value: &str,
+        secret: bool,
+        size: f32,
+        width: Length,
+    ) -> Element<'a, Message> {
+        let p = self.colors();
+        column![
+            text_input(hint, value)
+                .secure(secret)
+                .on_input(move |s| Message::Field(key, s))
+                .size(size)
+                .padding(iced::Padding { bottom: 6., left: 1., right: 1., ..Default::default() })
+                .style(move |_, _| bare_input(p)),
+            underline(p, self.focus == Some(key)),
+        ]
+        .width(width)
+        .into()
+    }
+    fn account_card(&self) -> Element<'_, Message> {
+        let a = &self.bridge.app;
+        let n = &a.native;
+        let p = self.colors();
+        let initial: String = n
+            .user
+            .full_name
+            .trim()
+            .chars()
+            .next()
+            .into_iter()
+            .flat_map(char::to_uppercase)
+            .collect();
+        let set = !initial.is_empty();
+        let avatar = container(text(initial).size(22).color(p.text))
+            .width(52)
+            .height(52)
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center)
+            .style(move |_| container::Style {
+                background: set.then(|| {
+                    Background::Gradient(iced::Gradient::Linear(
+                        iced::gradient::Linear::new(iced::Degrees(160.))
+                            .add_stop(0., mix(p.surface, p.ice, 0.45))
+                            .add_stop(0.75, p.surface),
+                    ))
+                }),
+                border: Border {
+                    color: if set { p.line } else { Color { a: 0.45, ..p.muted } },
+                    width: 1.,
+                    radius: 26.into(),
+                },
+                ..Default::default()
+            });
+        // Username and hostname sit inline, each as wide as what's typed in it.
+        let inline = |key: &'static str, hint: &'static str, value: &str| {
+            let chars = if value.is_empty() { hint.len() } else { value.chars().count() };
+            self.form_field(key, hint, value, false, 14., Length::Fixed(chars as f32 * 8.2 + 8.))
+        };
+        let handle = row![
+            inline("username", "username", &n.user.username),
+            text("@").size(14).color(p.muted),
+            inline("hostname", "hostname", &n.user.hostname),
+        ]
+        .spacing(8);
+        let who = column![
+            self.form_field("full-name", "Your name", &n.user.full_name, false, 21., Length::Fill),
+            handle
+        ]
+        .spacing(10);
+        let mut you = column![row![avatar, who].spacing(14).align_y(Alignment::Center)];
+        if let Some(problem) =
+            crate::model::identity_problem(&n.user.full_name, &n.user.username, &n.user.hostname)
+        {
+            you = you.push(container(note(problem, p.warn)).padding(iced::Padding {
+                top: 6.,
+                left: 66.,
+                ..Default::default()
+            }));
+        }
+        // Password and confirm side by side, with the eye to show them.
+        let shown = self.show_password;
+        let eye = button(svg(svg::Handle::from_memory(EYE.as_bytes())).width(18).height(18).style(
+            move |_, status| svg::Style {
+                color: Some(if shown || matches!(status, svg::Status::Hovered) {
+                    p.text
+                } else {
+                    p.muted
+                }),
+            },
+        ))
+        .width(30)
+        .height(30)
+        .padding(6)
+        .on_press(Message::ShowPassword)
+        .style(|_, _| button::Style::default());
+        let password = row![
+            self.form_field("password", "Password", &self.password, !shown, 15., Length::Fill),
+            self.form_field(
+                "confirmation",
+                "Confirm password",
+                &self.confirmation,
+                !shown,
+                15.,
+                Length::Fill
+            ),
+            eye
+        ]
+        .spacing(16)
+        .align_y(Alignment::End);
+        // A four-step guide to strength, once something is typed. Never a requirement.
+        let typed = !self.password.is_empty();
+        let score = crate::model::strength(&self.password);
+        let lit = if typed { score.max(1) } else { 0 };
+        let mut meter = row![].spacing(4);
+        for i in 0..4 {
+            let colour = if !typed {
+                Color::TRANSPARENT
+            } else if i < lit {
+                p.ice
+            } else {
+                Color { a: 0.5, ..p.line }
+            };
+            meter = meter.push(container(space()).width(Length::Fill).height(3).style(move |_| {
+                container::Style {
+                    background: Some(colour.into()),
+                    border: Border { radius: 2.into(), ..Default::default() },
+                    ..Default::default()
+                }
+            }));
+        }
+        let strength = if typed {
+            note(crate::model::strength_word(score).into(), if score > 0 { p.ice } else { p.muted })
+        } else {
+            space().into()
+        };
+        let password = column![
+            password,
+            container(meter).padding(iced::Padding { top: 10., right: 46., bottom: 6., left: 0. }),
+            row![
+                strength,
+                space().width(Length::Fill),
+                match_note(p, &self.password, &self.confirmation)
+            ],
+        ];
+        // Options: a sunk band under the last divider.
+        let option = |label: &'static str, on: bool, toggle: fn(bool) -> Message| {
+            container(
+                row![
+                    text(label).size(14).color(p.text),
+                    space().width(Length::Fill),
+                    toggler(on)
+                        .on_toggle(toggle)
+                        .size(20)
+                        .style(move |_, status| switch(p, status))
+                ]
+                .align_y(Alignment::Center),
+            )
+            .padding([11, 16])
+        };
+        let mut options =
+            column![option("Use as sudo password", n.user.same_passphrase, Message::SameSudo)];
+        if !n.user.same_passphrase {
+            options = options.push(
+                container(column![
+                    row![
+                        self.form_field(
+                            "admin",
+                            "Sudo password",
+                            &self.admin,
+                            !shown,
+                            15.,
+                            Length::Fill
+                        ),
+                        self.form_field(
+                            "admin-confirmation",
+                            "Confirm sudo password",
+                            &self.admin_confirmation,
+                            !shown,
+                            15.,
+                            Length::Fill
+                        ),
+                    ]
+                    .spacing(16),
+                    container(row![
+                        space().width(Length::Fill),
+                        match_note(p, &self.admin, &self.admin_confirmation)
+                    ])
+                    .padding(iced::Padding { top: 6., ..Default::default() }),
+                ])
+                .padding(iced::Padding {
+                    top: 2.,
+                    right: 16.,
+                    bottom: 12.,
+                    left: 32.,
+                }),
+            );
+        }
+        if a.encryption_offered() {
+            options = options.push(divider(p, 0.45)).push(option(
+                "Encrypt disk",
+                n.encrypt,
+                Message::Encrypt,
+            ));
+        }
+        let band = container(options).width(Length::Fill).style(move |_| container::Style {
+            background: Some(mix(p.surface, p.bg, 0.4).into()),
+            border: Border {
+                radius: iced::border::Radius {
+                    top_left: 0.,
+                    top_right: 0.,
+                    bottom_right: 15.,
+                    bottom_left: 15.,
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+        let mut words = column![
+            self.form_title("Account"),
+            container(you).padding(iced::Padding { top: 12., right: 16., bottom: 14., left: 16. }),
+            divider(p, 0.65),
+            container(password).padding(iced::Padding {
+                top: 12.,
+                right: 16.,
+                bottom: 14.,
+                left: 16.
+            }),
+        ];
+        if let Some(e) = n.error.clone().filter(|_| n.page == Page::Account) {
+            words = words.push(container(note(e, p.warn)).padding(iced::Padding {
+                bottom: 12.,
+                left: 16.,
+                right: 16.,
+                ..Default::default()
+            }));
+        }
+        let words = words.push(divider(p, 0.65)).push(band);
+        let active = matches!(
+            self.focus,
+            Some(
+                "full-name"
+                    | "username"
+                    | "hostname"
+                    | "password"
+                    | "confirmation"
+                    | "admin"
+                    | "admin-confirmation"
+            )
+        );
+        self.form_card(words.into(), active)
+    }
+    fn region_card(&self) -> Element<'_, Message> {
         let n = &self.bridge.app.native;
         let p = self.colors();
-        let field = |label: &'static str,
-                     key: &'static str,
-                     value: &str,
-                     secret: bool|
-         -> Element<'_, Message> {
-            column![
-                text(label).size(12),
-                text_input(label, value)
-                    .secure(secret)
-                    .on_input(move |s| Message::Field(key, s))
-                    .padding(12)
-                    .style(move |_, status| input_style(p, status))
-            ]
-            .spacing(6)
-            .width(Length::Fill)
-            .into()
-        };
-        let mut content = column![
-            row![
-                field("Full name", "full-name", &n.user.full_name, false),
-                field("Username", "username", &n.user.username, false)
-            ]
-            .spacing(12),
-            field("Computer name", "hostname", &n.user.hostname, false),
-            row![
-                field("Password", "password", &self.password, true),
-                field("Confirm password", "confirmation", &self.confirmation, true)
-            ]
-            .spacing(12),
-        ]
-        .spacing(14)
-        .width(Length::Fill);
-        for (kind, label) in [
-            ("language", "Language"),
-            ("keyboard", "Keyboard"),
-            ("console", "Disk unlock keyboard"),
-            ("timezone", "Time zone"),
-        ] {
+        let choose = |kind: &'static str, hint: &'static str| -> Element<'_, Message> {
             let value = match kind {
                 "language" => borea_locale::LOCALES.iter().position(|v| v.id == n.locale.lang),
                 "keyboard" => borea_locale::KEYBOARDS.iter().position(|v| {
@@ -1631,31 +1890,214 @@ impl App {
             };
             let options = region_options(kind);
             let selected = value.and_then(|i| options.get(i)).cloned();
-            content = content.push(
-                column![
-                    text(label).size(12),
-                    pick_list(options, selected, move |s| Message::Region(kind, s))
-                        .placeholder("Choose…")
-                        .width(Length::Fill)
-                        .padding(12)
-                        .style(move |_, _| pick_list::Style {
-                            text_color: p.text,
-                            placeholder_color: p.muted,
-                            handle_color: p.ice,
-                            background: p.surface.into(),
-                            border: Border { color: p.line, width: 1., radius: 10.into() },
-                        })
+            column![
+                pick_list(options, selected, move |s| Message::Region(kind, s))
+                    .placeholder(hint)
+                    .width(Length::Fill)
+                    .text_size(15)
+                    .padding(iced::Padding { top: 2., right: 18., bottom: 6., left: 0. })
+                    .style(move |_, _| pick_list::Style {
+                        text_color: p.text,
+                        placeholder_color: Color { a: 0.55, ..p.muted },
+                        handle_color: p.ice,
+                        background: Color::TRANSPARENT.into(),
+                        border: Border::default(),
+                    }),
+                underline(p, self.focus == Some(kind)),
+            ]
+            .width(Length::Fill)
+            .into()
+        };
+        let mut second = row![choose("keyboard", "Keyboard")].spacing(24);
+        // The disk unlock keyboard only matters when the disk is encrypted.
+        let console: Element<'_, Message> = if !n.encrypt {
+            space().width(Length::Fill).into()
+        } else if n.touched("console") {
+            column![
+                text("Disk unlock keyboard").size(12).color(p.muted),
+                choose("console", "Disk unlock keyboard")
+            ]
+            .spacing(2)
+            .width(Length::Fill)
+            .into()
+        } else {
+            let same = if n.locale.keyboard.layout.is_empty() {
+                "Disk unlock keyboard: same as keyboard".to_string()
+            } else {
+                format!("Disk unlock keyboard: same ({})", n.locale.keyboard.console)
+            };
+            column![
+                row![
+                    text(same)
+                        .size(15)
+                        .wrapping(text::Wrapping::None)
+                        .color(Color { a: 0.75, ..p.muted }),
+                    button(text("Change").size(12).color(p.ice))
+                        .padding(0)
+                        .on_press(Message::ConsoleChange)
+                        .style(|_, _| button::Style::default()),
                 ]
-                .spacing(6)
-                .width(Length::Fill),
-            );
-        }
-        content
-            .push(
-                checkbox(self.apps_open)
-                    .label("Choose extra applications (optional)")
-                    .on_toggle(Message::Apps),
+                .spacing(8)
+                .align_y(Alignment::Center)
+                .padding(iced::Padding {
+                    top: 2.,
+                    bottom: 6.,
+                    ..Default::default()
+                }),
+                underline(p, false),
+            ]
+            .width(Length::Fill)
+            .into()
+        };
+        second = second.push(console);
+        let grid = column![
+            row![choose("language", "Language"), choose("timezone", "Time zone")].spacing(24),
+            second
+        ]
+        .spacing(10);
+        let words = column![
+            self.form_title("Region"),
+            container(grid).padding(iced::Padding { top: 12., right: 16., bottom: 14., left: 16. })
+        ];
+        let active = matches!(self.focus, Some("language" | "keyboard" | "console" | "timezone"));
+        self.form_card(words.into(), active)
+    }
+    fn apps_card(&self) -> Element<'_, Message> {
+        let n = &self.bridge.app.native;
+        let p = self.colors();
+        let picked: Vec<&str> = borea_catalog::APPS
+            .iter()
+            .filter(|app| n.apps.contains(app.id))
+            .map(|app| app.name)
+            .collect();
+        let count = match picked.len() {
+            0 => "None".to_string(),
+            1..=3 => picked.join(", "),
+            more => format!("{} and {} more", picked[..3].join(", "), more - 3),
+        };
+        let head =
+            |label: Element<'static, Message>, summary: String, open: bool, press: Message| {
+                button(
+                    row![
+                        label,
+                        space().width(Length::Fill),
+                        text(summary).size(12).wrapping(text::Wrapping::None).color(p.ice),
+                        chevron(p, open)
+                    ]
+                    .spacing(10)
+                    .align_y(Alignment::Center),
+                )
+                .width(Length::Fill)
+                .on_press(press)
+                .style(|_, _| button::Style::default())
+            };
+        let mut words = column![
+            head(
+                text("Extra apps").size(15).font(TITLE).color(p.text).into(),
+                count,
+                self.apps_open,
+                Message::Apps(!self.apps_open)
             )
+            .padding([13, 16])
+        ];
+        if self.apps_open {
+            let last = borea_catalog::Category::ALL.len() - 1;
+            for (index, category) in borea_catalog::Category::ALL.into_iter().enumerate() {
+                let label = category.label();
+                let open = self.categories.contains(label);
+                let apps: Vec<_> =
+                    borea_catalog::APPS.iter().filter(|app| app.category == category).collect();
+                let summary = apps
+                    .iter()
+                    .filter(|app| n.apps.contains(app.id))
+                    .map(|app| app.name)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let name = text(label).size(14).font(if open { TITLE } else { FACE }).color(p.text);
+                words = words.push(divider(p, if index == 0 { 0.65 } else { 0.6 })).push(
+                    container(
+                        head(name.into(), summary, open, Message::Category(label)).padding([10, 0]),
+                    )
+                    .padding([0, 16]),
+                );
+                if open {
+                    let mut list = column![].spacing(0);
+                    for pair in apps.chunks(2) {
+                        let mut line = row![].spacing(40);
+                        for app in pair {
+                            line = line.push(self.app_row(app));
+                        }
+                        if pair.len() < 2 {
+                            line = line.push(space().width(Length::Fill));
+                        }
+                        list = list.push(line);
+                    }
+                    let round = if index == last { 15. } else { 0. };
+                    words = words.push(divider(p, 0.45)).push(
+                        container(list)
+                            .width(Length::Fill)
+                            .padding(iced::Padding { top: 8., right: 16., bottom: 12., left: 44. })
+                            .style(move |_| container::Style {
+                                background: Some(mix(p.surface, p.bg, 0.4).into()),
+                                border: Border {
+                                    radius: iced::border::Radius {
+                                        top_left: 0.,
+                                        top_right: 0.,
+                                        bottom_right: round,
+                                        bottom_left: round,
+                                    },
+                                    ..Default::default()
+                                },
+                                ..Default::default()
+                            }),
+                    );
+                }
+            }
+        }
+        self.form_card(words.into(), self.apps_open)
+    }
+    /// One app: a round selector on the left, then its name. Apps with no source
+    /// for this system stay faint and can't be picked.
+    fn app_row(&self, app: &'static borea_catalog::App) -> Element<'_, Message> {
+        let p = self.colors();
+        let on = self.bridge.app.native.apps.contains(app.id);
+        let available = app_available(app);
+        let ink = if on { p.text } else { p.muted };
+        let tick =
+            container(container(space()).width(7).height(7).style(move |_| container::Style {
+                background: on.then(|| p.ice.into()),
+                border: Border { radius: 3.5.into(), ..Default::default() },
+                ..Default::default()
+            }))
+            .width(15)
+            .height(15)
+            .align_x(Alignment::Center)
+            .align_y(Alignment::Center)
+            .style(move |_| container::Style {
+                border: Border {
+                    color: if on { p.ice } else { Color { a: 0.4, ..p.muted } },
+                    width: 1.5,
+                    radius: 7.5.into(),
+                },
+                ..Default::default()
+            });
+        button(row![tick, text(app.name).size(14)].spacing(12).align_y(Alignment::Center))
+            .width(Length::Fill)
+            .padding([6, 0])
+            .on_press_maybe(
+                (available && !self.bridge.busy())
+                    .then(|| Message::Choose(format!("app/{}", app.id))),
+            )
+            .style(move |_, status| button::Style {
+                background: None,
+                // Captures draw every button as Disabled, so availability decides.
+                text_color: match status {
+                    _ if !available => Color { a: 0.45, ..p.muted },
+                    button::Status::Hovered | button::Status::Pressed => p.text,
+                    _ => ink,
+                },
+                ..Default::default()
+            })
             .into()
     }
     fn wifi(&self) -> Element<'_, Message> {
@@ -1748,8 +2190,10 @@ impl App {
         }
         if self.bridge.native() {
             let n = &a.native;
-            if let Some(e) = &n.error {
-                body = body.push(text(e.clone()).color(Color::from_rgb8(208, 135, 112)));
+            if let Some(e) = &n.error
+                && n.page != Page::Account
+            {
+                body = body.push(text(e.clone()).color(p.warn));
             }
             match n.page {
                 Page::Storage if n.disks.is_empty() => {
@@ -1816,6 +2260,99 @@ impl App {
         body
     }
 }
+/// Whether an app has a source on this system (Arch, preferring the AUR).
+fn app_available(app: &borea_catalog::App) -> bool {
+    matches!(
+        borea_catalog::resolve(
+            app,
+            &borea_catalog::Sources::defaults(borea_catalog::Distro::Arch),
+            borea_catalog::Prefer::Aur
+        ),
+        borea_catalog::Resolution::From {
+            source: borea_catalog::Source::Repo(_)
+                | borea_catalog::Source::Aur
+                | borea_catalog::Source::Flathub,
+            ..
+        }
+    )
+}
+/// The show-password eye.
+const EYE: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="1.6"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>"#;
+/// A drop-down's chevron: down when closed, up when open.
+fn chevron<'a>(p: Colors, open: bool) -> Element<'a, Message> {
+    let path = if open { "M3 9.5 8 4.5 13 9.5" } else { "M3 5.5 8 10.5 13 5.5" };
+    let mark = format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="black" stroke-width="1.5"><path d="{path}"/></svg>"#
+    );
+    svg(svg::Handle::from_memory(mark.into_bytes()))
+        .width(12)
+        .height(12)
+        .style(move |_, _| svg::Style { color: Some(p.ice) })
+        .into()
+}
+/// A full-width hairline between a card's sections, `strength` of the line colour.
+fn divider<'a>(p: Colors, strength: f32) -> Element<'a, Message> {
+    container(space())
+        .width(Length::Fill)
+        .height(1)
+        .style(move |_| container::Style {
+            background: Some(Color { a: strength, ..p.line }.into()),
+            ..Default::default()
+        })
+        .into()
+}
+/// The thin line under a field, ice while it's the one being filled in.
+fn underline<'a>(p: Colors, on: bool) -> Element<'a, Message> {
+    container(space())
+        .width(Length::Fill)
+        .height(1)
+        .style(move |_| container::Style {
+            background: Some(if on { p.ice } else { Color { a: 0.3, ..p.muted } }.into()),
+            ..Default::default()
+        })
+        .into()
+}
+/// A field with no box: its card and line frame it.
+fn bare_input(p: Colors) -> text_input::Style {
+    text_input::Style {
+        background: Color::TRANSPARENT.into(),
+        border: Border::default(),
+        icon: p.muted,
+        placeholder: Color { a: 0.55, ..p.muted },
+        value: p.text,
+        selection: Color { a: 0.35, ..p.ice },
+    }
+}
+/// Small words under a field.
+fn note<'a>(words: String, colour: Color) -> Element<'a, Message> {
+    text(words).size(12).color(colour).into()
+}
+/// "Passwords match." once they do, "Doesn't match yet." once they can't.
+fn match_note<'a>(p: Colors, password: &str, confirmation: &str) -> Element<'a, Message> {
+    match crate::model::matches(password, confirmation) {
+        Some(true) => note("Passwords match.".into(), p.ice),
+        Some(false) => note("Doesn\u{2019}t match yet.".into(), p.warn),
+        None => space().into(),
+    }
+}
+/// The ice switch: line-grey when off, ice when on.
+fn switch(p: Colors, status: toggler::Status) -> toggler::Style {
+    // Before its first event a toggler reports Disabled; its state still shows.
+    let (toggler::Status::Active { is_toggled: on }
+    | toggler::Status::Hovered { is_toggled: on }
+    | toggler::Status::Disabled { is_toggled: on }) = status;
+    toggler::Style {
+        background: if on { p.ice } else { Color { a: 0.85, ..p.line } }.into(),
+        background_border_width: 0.,
+        background_border_color: Color::TRANSPARENT,
+        foreground: if on { p.bg } else { p.text }.into(),
+        foreground_border_width: 0.,
+        foreground_border_color: Color::TRANSPARENT,
+        text_color: None,
+        border_radius: None,
+        padding_ratio: 0.1,
+    }
+}
 fn region_options(kind: &str) -> Vec<String> {
     match kind {
         "language" => {
@@ -1835,6 +2372,8 @@ struct Colors {
     ice: Color,
     line: Color,
     selected: Color,
+    /// Errors, inline under what they're about.
+    warn: Color,
 }
 impl Colors {
     fn new(dark: bool) -> Self {
@@ -1848,6 +2387,7 @@ impl Colors {
                 ice: rgb(136, 192, 208),
                 line: rgb(76, 86, 106),
                 selected: rgb(48, 76, 94),
+                warn: rgb(208, 135, 112),
             }
         } else {
             Self {
@@ -1858,6 +2398,7 @@ impl Colors {
                 ice: rgb(46, 99, 126),
                 line: rgb(170, 187, 203),
                 selected: rgb(206, 227, 237),
+                warn: rgb(166, 82, 46),
             }
         }
     }
@@ -1877,6 +2418,8 @@ enum Size {
     Compact,
     /// The step rail.
     Rail,
+    /// A titled card of fields: Account, Region, Extra apps. Its sections pad themselves.
+    Form,
 }
 impl Size {
     fn padding(self) -> f32 {
@@ -1884,12 +2427,13 @@ impl Size {
             Size::Hero => 22.,
             Size::Compact => 14.,
             Size::Rail => 12.,
+            Size::Form => 0.,
         }
     }
     fn height(self) -> Length {
         match self {
             Size::Hero => Length::Fixed(245.),
-            Size::Compact | Size::Rail => Length::Shrink,
+            Size::Compact | Size::Rail | Size::Form => Length::Shrink,
         }
     }
     /// How far it rises under the pointer, in points.
@@ -1897,13 +2441,14 @@ impl Size {
         match self {
             Size::Hero => 4.,
             Size::Compact | Size::Rail => 2.,
+            Size::Form => 0.,
         }
     }
     /// How far its glow spreads, in points.
     fn glow(self) -> f32 {
         match self {
             Size::Hero => 32.,
-            Size::Compact => 22.,
+            Size::Compact | Size::Form => 22.,
             Size::Rail => 18.,
         }
     }
@@ -1917,6 +2462,8 @@ enum Look {
     Waiting,
     /// Facts to read: a plain card, no hover and no greying.
     Info,
+    /// Fields to fill in: a plain card that takes the ice rim while you type in it.
+    Form,
 }
 /// The rail key for a step, so it eases like any other card.
 fn step_key(step: Step) -> String {
@@ -1960,6 +2507,13 @@ fn card_surface(
             return container::Style {
                 background: Some(p.surface.into()),
                 border: Border { color: p.line, width: 1., radius: 16.into() },
+                ..Default::default()
+            };
+        }
+        Look::Form => {
+            return container::Style {
+                background: Some(p.surface.into()),
+                border: Border { color: mix(p.line, brand, chosen), width: 1., radius: 16.into() },
                 ..Default::default()
             };
         }
@@ -2158,7 +2712,8 @@ pub fn run(live: bool) -> Result<(), Box<dyn std::error::Error>> {
             .title(if live { "Borea Live" } else { "Windpad" })
             .theme(App::theme)
             .subscription(App::subscription)
-            .font(FONT);
+            .font(FONT)
+            .font(TITLE_FONT);
     for font in BRAND_FONTS {
         application = application.font(font);
     }
@@ -2198,11 +2753,11 @@ fn capture_at(
     let size = iced::Size::new(width as f32, height as f32);
     let mut ui = UserInterface::build(app.view(), size, Cache::new(), &mut renderer);
     if app.bridge.native() && app.bridge.app.native.page == Page::Account && app.apps_open {
-        // Scroll the real account view to its application cards, as a user does.
+        // Scroll the real account view down to its open apps, as a user does.
         let y = if app.elapsed > 0. {
-            700. + 420. * ((app.elapsed - 18.) / 4.).clamp(0., 1.)
+            900. * ((app.elapsed - 21.2) / 1.4).clamp(0., 1.)
         } else {
-            1120.
+            2000.
         };
         ui.operate(
             &renderer,
@@ -2244,16 +2799,20 @@ fn showcase_disks() -> Vec<handoff::Disk> {
         "readonly":false,"in_use":false,"live":false,"parts":[{"path":"/dev/vda3","number":3,"uuid":"SHOWCASE-NTFS","fs":"ntfs","max_linux_size":128_849_018_880u64}]
     }])).unwrap_or_default()
 }
+/// The example account: the username follows the name; the hostname is typed.
 fn showcase_account(app: &mut App) {
     for (field, value) in [
-        ("full-name", "Alex"),
-        ("username", "alex"),
+        ("full-name", "Alex Morgan"),
         ("hostname", "frost"),
-        ("password", "showcase-only-password"),
-        ("confirmation", "showcase-only-password"),
+        ("password", "Showcase-only-1"),
+        ("confirmation", "Showcase-only-1"),
     ] {
         let _ = app.update(Message::Field(field, value.into()));
     }
+    showcase_region(app);
+}
+/// The region as the connection suggests it.
+fn showcase_region(app: &mut App) {
     let locale = borea_core::LocaleChoice {
         lang: "en_GB.UTF-8".into(),
         timezone: "Europe/London".into(),
@@ -2264,8 +2823,13 @@ fn showcase_account(app: &mut App) {
         },
     };
     app.bridge.app.native.locale = locale;
+}
+/// Extra apps open on Chat & email, with Vesktop and Firefox picked.
+fn showcase_apps(app: &mut App) {
+    app.bridge.command("app/firefox");
     app.bridge.command("app/vesktop");
     app.apps_open = true;
+    app.categories.insert(borea_catalog::Category::ChatEmail.label());
 }
 fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::error::Error>> {
     use std::borrow::Cow;
@@ -2273,12 +2837,12 @@ fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::err
         let mut fonts = iced_tiny_skia::graphics::text::font_system()
             .write()
             .map_err(|_| "Font system lock failed")?;
-        for font in std::iter::once(FONT).chain(BRAND_FONTS) {
+        for font in [FONT, TITLE_FONT].into_iter().chain(BRAND_FONTS) {
             fonts.load_font(Cow::Borrowed(font));
         }
     }
     std::fs::create_dir_all(dir.join("motion"))?;
-    let make = || {
+    let make = |setup_mode: bool| {
         let wifi = WifiLink::simulated(
             borea_network::Status {
                 connectivity: borea_network::Connectivity::None,
@@ -2294,7 +2858,11 @@ fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::err
                 false,
             )],
         );
-        let mut workflow = LiveInstaller::with_link(showcase_fixture::machine(), wifi, true);
+        let mut machine = showcase_fixture::machine();
+        if setup_mode {
+            machine.setup_mode = borea_live_core::Fact::Known(true);
+        }
+        let mut workflow = LiveInstaller::with_link(machine, wifi, true);
         // Capture fixtures cannot start installation, reboot or contact any service.
         workflow.set_install_service(std::sync::Arc::new(|method,_|match method {
             "plan.review"=>Ok(serde_json::json!({"approval":"showcase-only","review":{"packages":[{"name":"hyprland","source":"arch.core-extra"},{"name":"noctalia","source":"arch.core-extra"},{"name":"noctalia-greeter","source":"arch.core-extra"},{"name":"vesktop-bin","source":"aur"}],"warnings":["Example plan. This capture does not install a system."]}})),
@@ -2304,7 +2872,7 @@ fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::err
         app.bridge.network = Some(0);
         app
     };
-    let mut app = make();
+    let mut app = make(false);
     capture(&app, &dir.join("connect.png"), 1120, 753)?;
     app.bridge.app.go(Step::Machine);
     capture(&app, &dir.join("machine.png"), 1120, 753)?;
@@ -2356,11 +2924,51 @@ fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::err
     capture(&app, &dir.join("storage.png"), 1120, 753)?;
     app.bridge.command("whole/0");
     app.bridge.next();
+    // The Account page, empty, filled, with a separate sudo password, and with its
+    // apps open, in both themes; then encryption offered, on firmware in Setup Mode.
+    let both = |app: &mut App, name: &str| -> Result<(), Box<dyn std::error::Error>> {
+        for dark in [true, false] {
+            app.bridge.app.dark = dark;
+            let theme = if dark { "dark" } else { "light" };
+            capture(app, &dir.join(format!("{name}-{theme}.png")), 1120, 753)?;
+            capture(app, &dir.join(format!("{name}-{theme}-small.png")), 900, 600)?;
+        }
+        app.bridge.app.dark = true;
+        Ok(())
+    };
+    both(&mut app, "account-empty")?;
+    showcase_account(&mut app);
+    app.focus = Some("password");
+    both(&mut app, "account-filled")?;
     capture(&app, &dir.join("account.png"), 1120, 753)?;
     capture(&app, &dir.join("account-small.png"), 900, 600)?;
-    showcase_account(&mut app);
-    capture(&app, &dir.join("account-apps.png"), 1120, 753)?;
-    capture(&app, &dir.join("account-apps-small.png"), 900, 600)?;
+    let _ = app.update(Message::SameSudo(false));
+    let _ = app.update(Message::Field("admin", "Sudo-only-2".into()));
+    let _ = app.update(Message::Field("admin-confirmation", "Sudo-only".into()));
+    both(&mut app, "account-sudo")?;
+    let _ = app.update(Message::SameSudo(true));
+    showcase_apps(&mut app);
+    both(&mut app, "account-apps")?;
+    app.apps_open = false;
+    app.focus = None;
+    let mut setup = make(true);
+    setup.bridge.app.go(Step::System);
+    setup.bridge.command("family/0");
+    setup.bridge.app.go(Step::Distribution);
+    setup.bridge.command("distro/0");
+    setup.bridge.command("edition/3");
+    setup.bridge.next();
+    setup.bridge.command("mode/compose");
+    setup.bridge.command("compositor/hyprland");
+    setup.bridge.command("shell/noctalia");
+    setup.bridge.next();
+    setup.bridge.app.native.disks = showcase_disks();
+    setup.bridge.command("whole/0");
+    setup.bridge.next();
+    showcase_account(&mut setup);
+    both(&mut setup, "account-encrypt-offered")?;
+    let _ = setup.update(Message::Encrypt(true));
+    both(&mut setup, "account-encrypted")?;
     app.bridge.app.native.review();
     for _ in 0..100 {
         app.bridge.app.native.poll();
@@ -2374,7 +2982,7 @@ fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::err
         println!("Iced showcase captured in {}", dir.display());
         return Ok(());
     }
-    app = make();
+    app = make(false);
     app.bridge.app.still = false;
     let mut previous = String::new();
     for frame in 0..600 {
@@ -2419,7 +3027,29 @@ fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::err
                     app.bridge.command("whole/0");
                     app.bridge.next();
                 }
-                216 => showcase_account(&mut app),
+                // The Account page fills in as someone types.
+                218 => {
+                    let _ = app.update(Message::Field("full-name", "Alex".into()));
+                }
+                221 => {
+                    let _ = app.update(Message::Field("full-name", "Alex Morgan".into()));
+                }
+                226 => {
+                    let _ = app.update(Message::Field("hostname", "frost".into()));
+                }
+                231 => {
+                    let _ = app.update(Message::Field("password", "Showcase-only-1".into()));
+                }
+                236 => {
+                    let _ = app.update(Message::Field("confirmation", "Showcase-only-1".into()));
+                }
+                240 => showcase_region(&mut app),
+                248 => app.apps_open = true,
+                252 => {
+                    app.categories.insert(borea_catalog::Category::ChatEmail.label());
+                }
+                258 => app.bridge.command("app/vesktop"),
+                262 => app.bridge.command("app/firefox"),
                 280 => app.bridge.app.native.review(),
                 _ => {}
             }
@@ -2552,11 +3182,8 @@ mod tests {
         assert_eq!(plan.locale.timezone, "Asia/Tokyo");
         assert!(plan.apps.contains("firefox"));
         assert_eq!(plan.prefer, borea_core::SourcePreference::Aur);
-        let (_, groups) = b.tiles();
-        let vesktop =
-            groups.iter().flat_map(|g| &g.choices).find(|t| t.key == "app/vesktop").unwrap();
-        assert!(vesktop.enabled);
-        assert_eq!(vesktop.badge.as_deref(), Some("AUR"));
+        let vesktop = borea_catalog::APPS.iter().find(|app| app.id == "vesktop").unwrap();
+        assert!(app_available(vesktop));
         assert!(!b.app.native.ready());
         b.next();
         assert_eq!(
@@ -2918,6 +3545,30 @@ mod network_tests {
         let _ = app.update(Message::Tick(Instant::now()));
         assert!(app.bridge.network.is_none());
         assert!(app.wifi_password.is_empty());
+    }
+    #[test]
+    fn disk_encryption_is_offered_only_in_setup_mode() {
+        for setup in [false, true] {
+            let mut hardware = showcase_fixture::machine();
+            hardware.setup_mode = Fact::Known(setup);
+            let mut app = App::from_workflow(LiveInstaller::with_hardware(hardware, true), false);
+            let b = &mut app.bridge;
+            b.app.go(Step::System);
+            b.command("family/0");
+            b.command("distro/0");
+            b.command("edition/3");
+            b.next();
+            b.command("mode/compose");
+            b.command("compositor/hyprland");
+            b.command("shell/noctalia");
+            b.next();
+            b.app.native.disks = showcase_disks();
+            b.command("whole/0");
+            b.next();
+            assert_eq!(b.app.native.page, Page::Account);
+            let _ = app.update(Message::Encrypt(true));
+            assert_eq!(app.bridge.app.native.encrypt, setup);
+        }
     }
     #[test]
     fn native_secure_boot_requires_firmware_setup_mode() {

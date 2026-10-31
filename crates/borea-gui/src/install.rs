@@ -49,6 +49,8 @@ pub struct NativeInstall {
     /// Region fields the user has chosen; a suggestion from the connection never
     /// overwrites these.
     touched: BTreeSet<&'static str>,
+    /// Set once the user types a username; until then it follows the full name.
+    username_edited: bool,
     /// Encrypt the disk. Off by default; the Account page offers it only when the
     /// firmware is in Setup Mode.
     pub encrypt: bool,
@@ -112,7 +114,6 @@ impl NativeInstall {
     }
     /// Whether the account password is also the sudo password. Turning it back on
     /// forgets the separate one. The Account page's switch calls this.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn same_sudo(&mut self, same: bool) {
         if self.page != Page::Account || self.busy() {
             return;
@@ -128,6 +129,38 @@ impl NativeInstall {
     /// "timezone"); a suggestion from the connection leaves it alone from now on.
     pub(crate) fn touch(&mut self, kind: &'static str) {
         self.touched.insert(kind);
+    }
+    pub(crate) fn touched(&self, kind: &str) -> bool {
+        self.touched.contains(kind)
+    }
+    /// A new keyboard: the disk unlock keyboard follows it, unless the user chose one.
+    pub(crate) fn follow_keyboard(&mut self) {
+        if !self.touched.contains("console") {
+            let k = &mut self.locale.keyboard;
+            k.console = borea_locale::console_for(&k.layout, &k.variant).unwrap_or("us").into();
+        }
+    }
+    /// Encrypt the disk. Only offered when the firmware is in Setup Mode.
+    pub(crate) fn set_encrypt(&mut self, on: bool) {
+        if self.page != Page::Account || self.busy() {
+            return;
+        }
+        self.invalidate();
+        self.encrypt = on;
+    }
+    /// Everything the Account page asks for is filled in and valid.
+    pub(crate) fn account_complete(&self) -> bool {
+        let u = &self.user;
+        let name = u.full_name.trim();
+        !name.is_empty()
+            && !u.full_name.chars().any(|c| c.is_control() || c == ':')
+            && borea_core::valid_username(&u.username)
+            && borea_core::valid_hostname(&u.hostname)
+            && !self.password.is_empty()
+            && *self.password == *self.confirmation
+            && (u.same_passphrase
+                || (!self.admin.is_empty() && *self.admin == *self.admin_confirmation))
+            && borea_locale::validate(&self.locale).is_ok()
     }
     /// Fill the region from the connection's suggestion, sparing whatever the user
     /// already chose. Never once installing has begun.
@@ -156,9 +189,17 @@ impl NativeInstall {
         }
         self.invalidate();
         match field {
-            "full-name" => self.user.full_name = value,
-            "username" => self.user.username = value,
-            "hostname" => self.user.hostname = value,
+            "full-name" => {
+                if !self.username_edited {
+                    self.user.username = borea_core::suggest_username(&value);
+                }
+                self.user.full_name = value;
+            }
+            "username" => {
+                self.username_edited = true;
+                self.user.username = value.to_lowercase();
+            }
+            "hostname" => self.user.hostname = value.to_lowercase(),
             "password" => *self.password = value,
             "confirmation" => *self.confirmation = value,
             "admin" => *self.admin = value,
@@ -265,6 +306,7 @@ impl NativeInstall {
             },
             apps: BTreeSet::new(),
             touched: BTreeSet::new(),
+            username_edited: false,
             encrypt: false,
             confirmed: false,
             error: None,
@@ -632,6 +674,39 @@ mod tests {
         link.page = Page::Review;
         link.suggest_region(borea_locale::guess("US", None).unwrap());
         assert_eq!(link.locale.lang, "en_GB.UTF-8", "never once reviewing");
+    }
+    #[test]
+    fn the_username_follows_the_name_until_edited_and_the_hostname_stays_empty() {
+        let mut link = NativeInstall::with_service(service(Arc::default()));
+        link.page = Page::Account;
+        link.edit_account("full-name", "Alex Morgan".into());
+        assert_eq!(link.user.username, "alex");
+        assert!(link.user.hostname.is_empty(), "the hostname is never filled in");
+        link.edit_account("username", "Morgan".into());
+        link.edit_account("full-name", "Sam Morgan".into());
+        assert_eq!(link.user.username, "morgan");
+    }
+    #[test]
+    fn the_account_is_complete_only_when_every_field_is_valid() {
+        let mut link = NativeInstall::with_service(service(Arc::default()));
+        link.page = Page::Account;
+        account(&mut link);
+        assert!(link.account_complete());
+        link.user.hostname.clear();
+        assert!(!link.account_complete());
+        link.user.hostname = "frost".into();
+        link.same_sudo(false);
+        assert!(!link.account_complete(), "a separate sudo password must be typed");
+        *link.admin = "x".into();
+        *link.admin_confirmation = "x".into();
+        assert!(link.account_complete());
+        link.locale.keyboard.layout = "de".into();
+        link.follow_keyboard();
+        assert_eq!(link.locale.keyboard.console, "de");
+        link.touch("console");
+        link.locale.keyboard.layout = "gb".into();
+        link.follow_keyboard();
+        assert_eq!(link.locale.keyboard.console, "de", "a chosen unlock keyboard stays");
     }
     #[test]
     fn any_length_password_and_a_separate_sudo_password_are_accepted() {

@@ -268,6 +268,10 @@ impl LiveInstaller {
     fn edition(&self) -> &Edition {
         self.selection.edition(&self.catalog, self.family())
     }
+    /// Disk encryption is offered only when the firmware is known to be in Setup Mode.
+    pub(crate) fn encryption_offered(&self) -> bool {
+        self.hardware().is_some_and(|h| h.setup_mode == Fact::Known(true))
+    }
     fn secure_boot(&self) -> Option<Readiness> {
         if self.native_target() {
             if !self.uefi() {

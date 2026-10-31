@@ -309,6 +309,39 @@ pub fn valid_username(name: &str) -> bool {
         ]
         .contains(&name)
 }
+/// The username a full name suggests: its first word, lowercased, with accents
+/// dropped and anything a username can't hold removed, at most 32 characters.
+/// Empty when the name gives nothing usable.
+pub fn suggest_username(full_name: &str) -> String {
+    let word = full_name.split_whitespace().next().unwrap_or_default();
+    let mut name: String = word
+        .chars()
+        .flat_map(char::to_lowercase)
+        .filter_map(|c| match c {
+            'a'..='z' | '0'..='9' | '_' | '-' => Some(c),
+            'à'..='å' | 'ā' | 'ă' | 'ą' => Some('a'),
+            'ç' | 'ć' | 'č' => Some('c'),
+            'ď' => Some('d'),
+            'è'..='ë' | 'ē' | 'ė' | 'ę' | 'ě' => Some('e'),
+            'ì'..='ï' | 'ī' | 'į' => Some('i'),
+            'ł' => Some('l'),
+            'ñ' | 'ń' | 'ň' => Some('n'),
+            'ò'..='ö' | 'ø' | 'ō' | 'ő' => Some('o'),
+            'ř' => Some('r'),
+            'ś' | 'š' | 'ş' => Some('s'),
+            'ť' | 'ţ' => Some('t'),
+            'ù'..='ü' | 'ū' | 'ů' | 'ű' => Some('u'),
+            'ý' | 'ÿ' => Some('y'),
+            'ź' | 'ż' | 'ž' => Some('z'),
+            _ => None,
+        })
+        .collect();
+    if name.starts_with(|c: char| !(c.is_ascii_lowercase() || c == '_')) {
+        name.insert(0, '_');
+    }
+    name.truncate(32);
+    name
+}
 pub fn valid_hostname(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 63

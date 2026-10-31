@@ -183,3 +183,14 @@ fn derivative_is_explicit_round_trips_and_cannot_cross_source_families() {
         "Omarchy uses its actual upstream installer"
     );
 }
+#[test]
+fn a_full_name_suggests_a_valid_username() {
+    use borea_core::{suggest_username, valid_username};
+    assert_eq!(suggest_username("Alex Morgan"), "alex");
+    assert_eq!(suggest_username("  Zoë   Brontë"), "zoe");
+    assert_eq!(suggest_username("Łukasz"), "lukasz");
+    assert_eq!(suggest_username("42 Wallaby"), "_42");
+    assert_eq!(suggest_username("李"), "");
+    assert_eq!(suggest_username(&"a".repeat(40)).len(), 32);
+    assert!(valid_username(&suggest_username("Émile")));
+}

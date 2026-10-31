@@ -74,3 +74,9 @@ fn a_connection_guess_is_a_valid_region() {
         assert!(borea_locale::validate(&borea_locale::guess(d.country, None).unwrap()).is_ok());
     }
 }
+#[test]
+fn the_console_keymap_follows_the_keyboard() {
+    assert_eq!(borea_locale::console_for("gb", ""), Some("uk"));
+    assert_eq!(borea_locale::console_for("de", "nodeadkeys"), Some("de-latin1-nodeadkeys"));
+    assert_eq!(borea_locale::console_for("zz", ""), None);
+}
