@@ -47,7 +47,12 @@ jobs:
           key: compose-rust-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
           restore-keys: compose-rust-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-
       - name: Compose Borea Live
-        run: cargo run --locked --profile app -p borea-build -- compose
+        # A failure is repeated as annotations, readable without the full log.
+        run: |
+          set -o pipefail
+          cargo run --locked --profile app -p borea-build -- compose 2>&1 | tee compose.log \
+            || { sed 's/\x1b\[[0-9;]*m//g' compose.log | grep -iE 'error|failed|missing|no space|E: ' \
+                   | tail -12 | sed 's/^/::error::/'; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
           name: borea-live-handoff-test
