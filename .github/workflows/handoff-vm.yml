@@ -51,8 +51,8 @@ jobs:
         run: |
           set -o pipefail
           cargo run --locked --profile app -p borea-build -- compose 2>&1 | tee compose.log \
-            || { sed 's/\x1b\[[0-9;]*m//g' compose.log | grep -iE 'error|failed|missing|no space|E: ' \
-                   | tail -12 | sed 's/^/::error::/'; exit 1; }
+            || { sed 's/\x1b\[[0-9;]*m//g' compose.log | grep -v '^\s*$' | tail -10 \
+                   | sed 's/^/::error::/'; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
           name: borea-live-handoff-test
