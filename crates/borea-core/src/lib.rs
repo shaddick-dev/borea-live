@@ -32,8 +32,17 @@ pub struct Plan {
     pub prefer: Prefer,
     pub sources: BTreeMap<String, bool>,
     pub disk: DiskPlan,
+    /// Encrypt the root filesystem with LUKS2. Version 1 plans, written before this
+    /// was a choice, always encrypted, so a missing field means yes.
+    #[serde(default = "encrypted_by_default")]
+    pub encrypt: bool,
     pub user: Identity,
 }
+fn encrypted_by_default() -> bool {
+    true
+}
+/// The newest plan version: 2 made encryption a choice.
+pub const PLAN_VERSION: u32 = 2;
 /// A derivative is part of the approved plan; it never changes the base source family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -358,7 +367,7 @@ impl Plan {
                 return Err(hint("extras", format!("Unknown extra: {id}.")));
             }
         }
-        if self.version != 1 {
+        if !(1..=PLAN_VERSION).contains(&self.version) {
             return Err(hint("version", "This installation plan version is not supported."));
         }
         self.user.validate()?;

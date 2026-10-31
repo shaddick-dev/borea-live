@@ -234,3 +234,59 @@ fn review_script_cannot_execute_without_the_privileged_service() {
     assert_eq!(status.code(), Some(64));
     assert!(!marker.exists());
 }
+#[test]
+fn unencrypted_installs_format_the_partition_and_boot_without_luks() {
+    let (_, hw) = borea_catalog::hardware::samples().into_iter().next().unwrap();
+    for d in Distribution::ALL {
+        let mut scripts = vec![];
+        for encrypt in [true, false] {
+            let mut p = common::plan(d, false);
+            p.encrypt = encrypt;
+            let disk = Disk {
+                id: p.disk.disk().clone(),
+                readonly: false,
+                in_use: false,
+                live: false,
+                removable: false,
+                transport: "virtio".into(),
+                parts: Vec::new(),
+            };
+            let b = Bootstrap {
+                distro: d,
+                release: p.release.clone(),
+                artifact: (d != Distribution::Debian).then(|| Artifact {
+                    checksum: None,
+                    url: format!("https://example.org/{}.tar.xz", d.key()),
+                    sha256: "a".repeat(64),
+                    signature_url: "https://example.org/image.sig".into(),
+                    keyring: format!("/usr/share/keyrings/borea/{}.gpg", d.key()),
+                }),
+            };
+            let job = compile(&p, &hw, &DiskFacts { uefi: true, disks: vec![disk] }, &b).unwrap();
+            assert_eq!(job.stages.iter().map(|s| s.weight).sum::<u32>(), 100);
+            scripts.push(job.render_script());
+        }
+        let (locked, open) = (&scripts[0], &scripts[1]);
+        assert!(locked.contains("luksFormat") && locked.contains("rd.luks.name="), "{d:?}");
+        // The cryptsetup package stays in the base set; it is never run.
+        assert!(!open.contains("'/usr/sbin/cryptsetup'"), "{d:?}: no LUKS at all");
+        // Fedora's grubby clears any stale unlock arguments; that removal is fine.
+        let unlock: Vec<_> = open
+            .lines()
+            .filter(|l| !l.contains("--remove-args="))
+            .filter(|l| l.contains("rd.luks") || l.contains("/dev/mapper/"))
+            .collect();
+        assert!(unlock.is_empty(), "{d:?}: {unlock:#?}");
+        assert!(!open.contains("sd-encrypt"), "{d:?}: no unlock hook");
+        assert!(open.contains("root=UUID=${ROOT_UUID}"), "{d:?}: boots by filesystem UUID");
+        assert!(open.contains("Preparing your space."), "{d:?}");
+    }
+}
+#[test]
+fn version_one_plans_without_the_field_still_encrypt() {
+    let mut plan = serde_json::to_value(common::plan(Distribution::Arch, false)).unwrap();
+    plan["version"] = 1.into();
+    plan.as_object_mut().unwrap().remove("encrypt");
+    let plan: Plan = serde_json::from_value(plan).unwrap();
+    assert!(plan.encrypt);
+}

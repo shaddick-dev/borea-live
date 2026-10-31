@@ -437,8 +437,12 @@ pub fn compile(
         actions: storage,
     });
     let root = layout.root.display().to_string();
-    let mut locking = vec![
-        secret(
+    // Encrypted, the filesystem sits in the opened LUKS mapping; otherwise straight on
+    // the partition.
+    let device = if plan.encrypt { "/dev/mapper/${MAPPER_NAME}".to_string() } else { root.clone() };
+    let mut locking = vec![];
+    if plan.encrypt {
+        locking.push(secret(
             "/usr/sbin/cryptsetup",
             &[
                 "luksFormat",
@@ -458,24 +462,20 @@ pub fn compile(
                 &root,
             ],
             SecretRef::Luks,
-        ),
-        secret(
+        ));
+        locking.push(secret(
             "/usr/sbin/cryptsetup",
             &["open", "--key-file", "-", &root, "${MAPPER_NAME}"],
             SecretRef::Luks,
-        ),
-        run(
-            Root::Live,
-            "/usr/sbin/mkfs.btrfs",
-            ["-f", "-L", "borea_root", "/dev/mapper/${MAPPER_NAME}"],
-        ),
-        Action::Mount {
-            source: "/dev/mapper/${MAPPER_NAME}".into(),
-            path: TARGET.into(),
-            fs: Some("btrfs".into()),
-            options: "subvolid=5".into(),
-        },
-    ];
+        ));
+    }
+    locking.push(run(Root::Live, "/usr/sbin/mkfs.btrfs", ["-f", "-L", "borea_root", &device]));
+    locking.push(Action::Mount {
+        source: device.clone(),
+        path: TARGET.into(),
+        fs: Some("btrfs".into()),
+        options: "subvolid=5".into(),
+    });
     for (sub, _) in &layout.subvolumes {
         if let Some(parent) =
             std::path::Path::new(sub).parent().filter(|p| !p.as_os_str().is_empty())
@@ -522,7 +522,7 @@ pub fn compile(
     locking.push(Action::Unmount { path: TARGET.into() });
     for (sub, path) in &layout.subvolumes {
         locking.push(Action::Mount {
-            source: "/dev/mapper/${MAPPER_NAME}".into(),
+            source: device.clone(),
             path: format!("{TARGET}{}", if path == "/" { "" } else { path }),
             fs: Some("btrfs".into()),
             options: format!("subvol={sub},compress=zstd:1,noatime"),
@@ -545,19 +545,22 @@ pub fn compile(
     if matches!(plan.disk, DiskPlan::Alongside { .. }) {
         locking.push(Action::PreserveEfiFallback);
     }
+    if plan.encrypt {
+        locking.push(capture(
+            Root::Live,
+            "/usr/sbin/blkid",
+            &["-s", "UUID", "-o", "value", &root],
+            "LUKS_UUID",
+        ));
+    }
     locking.push(capture(
         Root::Live,
         "/usr/sbin/blkid",
-        &["-s", "UUID", "-o", "value", &root],
-        "LUKS_UUID",
-    ));
-    locking.push(capture(
-        Root::Live,
-        "/usr/sbin/blkid",
-        &["-s", "UUID", "-o", "value", "/dev/mapper/${MAPPER_NAME}"],
+        &["-s", "UUID", "-o", "value", &device],
         "ROOT_UUID",
     ));
-    stages.push(Stage { title: "Locking your space.".into(), weight: 3, actions: locking });
+    let title = if plan.encrypt { "Locking your space." } else { "Preparing your space." };
+    stages.push(Stage { title: title.into(), weight: 3, actions: locking });
     let native = review
         .packages
         .iter()
@@ -569,8 +572,10 @@ pub fn compile(
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();
+    let root_device = if plan.encrypt { "/dev/mapper/borea-root" } else { "UUID=${ROOT_UUID}" };
+    let unlock = if plan.encrypt { "rd.luks.name=${LUKS_UUID}=borea-root " } else { "" };
     let cmdline = format!(
-        "rd.luks.name=${{LUKS_UUID}}=borea-root root=/dev/mapper/borea-root rootflags=subvol={} {}",
+        "{unlock}root={root_device} rootflags=subvol={} {}",
         layout.root_subvol,
         review.kernel_args.join(" ")
     );
@@ -1014,7 +1019,7 @@ pub fn compile(
     let mut boot = vec![write("/etc/kernel/cmdline", cmdline.clone() + "\n", 0o644)];
     match plan.distro {
         Distro::Arch => {
-            boot.push(write("/etc/mkinitcpio.conf", format!("MODULES=()\nBINARIES=()\nFILES=()\nHOOKS=(base systemd {}autodetect microcode modconf kms keyboard sd-vconsole block sd-encrypt filesystems fsck)\n", if composed { "plymouth " } else { "" }),0o644));
+            boot.push(write("/etc/mkinitcpio.conf", format!("MODULES=()\nBINARIES=()\nFILES=()\nHOOKS=(base systemd {}autodetect microcode modconf kms keyboard sd-vconsole block {}filesystems fsck)\n", if composed { "plymouth " } else { "" }, if plan.encrypt { "sd-encrypt " } else { "" }),0o644));
             boot.push(target("/usr/bin/mkinitcpio", ["-P"]));
             let mut arguments = vec![format!("--esp-path={}", layout.esp_mount)];
             if layout.boot.is_some() {
@@ -1030,7 +1035,7 @@ pub fn compile(
             boot.push(write("/boot/loader/entries/arch.conf",format!("title {system_name}\nlinux /vmlinuz-{kernel}\ninitrd /initramfs-{kernel}.img\noptions {cmdline}\n"),0o644));
         }
         Distro::Debian => {
-            boot.push(write("/etc/default/grub",format!("GRUB_DEFAULT=0\nGRUB_TIMEOUT=4\nGRUB_CMDLINE_LINUX=\"root=/dev/mapper/borea-root rootflags=subvol={} {}\"\nGRUB_DISABLE_OS_PROBER=false\n",layout.root_subvol,review.kernel_args.join(" ")),0o644));
+            boot.push(write("/etc/default/grub",format!("GRUB_DEFAULT=0\nGRUB_TIMEOUT=4\nGRUB_CMDLINE_LINUX=\"root={root_device} rootflags=subvol={} {}\"\nGRUB_DISABLE_OS_PROBER=false\n",layout.root_subvol,review.kernel_args.join(" ")),0o644));
             boot.push(Action::RestoreInitramfs);
             boot.push(write(
                 "/etc/initramfs-tools/update-initramfs.conf",

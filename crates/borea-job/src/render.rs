@@ -401,7 +401,7 @@ pub(crate) fn helper(job: &Job, action: &Action, out: &mut String) {
             }
             note(
                 out,
-                "Write fstab and crypttab from discovered filesystem/LUKS UUIDs and the reviewed btrfs layout.",
+                "Write fstab (and crypttab when encrypting) from discovered filesystem and LUKS UUIDs and the reviewed btrfs layout.",
             );
         }
         Action::RestoreTransportTrust => note(
