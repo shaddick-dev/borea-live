@@ -69,18 +69,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # A stick with only the image: Borea adds its data partition and downloads.
-          - name: whole
-            layout: whole
-            flags: --plain-stick
-          - name: alongside
-            layout: alongside
-            flags: ""
+          # Whole disk and alongside Windows share one VM host: one setup, one
+          # download of Omarchy's ISO, both runs every time.
+          # Whole: a stick with only the image; Borea adds its data partition
+          # and downloads. Alongside: a synthetic Windows, shrunk and checked.
+          - name: whole + alongside
+            key: disks
+            runs: |
+              whole whole --plain-stick
+              alongside alongside
           # All the way: Omarchy installs itself (unattended, test only), and on
           # its first start Borea's service adds the extras chosen here.
           - name: install
-            layout: whole
-            flags: --install --extras printing,flatpak --timeout 1200
+            key: install
+            runs: |
+              install whole --install --extras printing,flatpak --timeout 1200
     steps:
       - uses: actions/checkout@v4
       - name: Make room and enable KVM
@@ -110,16 +113,27 @@ jobs:
           [ "$(cut -d' ' -f1 "$OMARCHY_ISO.sha256")" = "$(sha256sum "$OMARCHY_ISO" | cut -d' ' -f1)" ]
           gpgv --keyring "$GITHUB_WORKSPACE/backend/dist/keys/omarchy.gpg" "$OMARCHY_ISO.sig" "$OMARCHY_ISO"
       - name: Hand off (${{ matrix.name }})
+        env:
+          RUNS: ${{ matrix.runs }}
         run: |
-          python3 tests/vm/handoff_boot.py /mnt/handoff/borea/borea-live-compose.iso /mnt/handoff/omarchy \
-            --layout "${{ matrix.layout }}" --name "${{ matrix.name }}" --work /mnt/handoff/work \
-            ${{ matrix.flags }} \
-            || { tr -d '\r' < /mnt/handoff/work/handoff-${{ matrix.name }}/failure.txt \
-                   | head -9 | sed 's/^/::error::/'; exit 1; }
+          status=0
+          while read -r name layout flags; do
+            [ -n "$name" ] || continue
+            echo "::group::Hand off ($name)"
+            # shellcheck disable=SC2086 # flags are separate arguments
+            python3 tests/vm/handoff_boot.py /mnt/handoff/borea/borea-live-compose.iso /mnt/handoff/omarchy \
+              --layout "$layout" --name "$name" --work /mnt/handoff/work $flags \
+              || { tr -d '\r' < "/mnt/handoff/work/handoff-$name/failure.txt" \
+                     | head -9 | sed "s/^/::error::$name: /"; status=1; }
+            # Keep the logs; free the disk images before the next run.
+            rm -f /mnt/handoff/work/handoff-"$name"/*.img
+            echo "::endgroup::"
+          done <<< "$RUNS"
+          exit "$status"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: handoff-${{ matrix.name }}-logs
+          name: handoff-${{ matrix.key }}-logs
           path: |
-            /mnt/handoff/work/handoff-${{ matrix.name }}/*.log
+            /mnt/handoff/work/handoff-*/*.log
           retention-days: 7
