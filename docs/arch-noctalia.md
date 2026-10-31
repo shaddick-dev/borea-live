@@ -12,7 +12,7 @@ Reboot → graphical disk unlock → Noctalia Greeter → chosen compositor + No
 | --- | --- | --- |
 | Hyprland | `start-hyprland`; Lua startup hook | Hyprland |
 | niri | `niri-session`; `spawn-at-startup` | GNOME; Xwayland satellite for X11 apps |
-| MangoWC | `mango` in a D-Bus session; `exec_once` | wlroots |
+| MangoWC | `mango` using the login’s user bus; `exec_once` | wlroots |
 
 All three use signed upstream packages. CachyOS adds its signed repository,
 `linux-cachyos`, settings and branding; Arch uses its stock kernel.

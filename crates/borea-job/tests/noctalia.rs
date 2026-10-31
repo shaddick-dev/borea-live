@@ -415,6 +415,10 @@ fn every_noctalia_compositor_has_its_own_packages_session_and_region_for_both_di
                     &format!("/usr/share/wayland-sessions/borea-{}.desktop", recipe.compositor),
                 );
                 assert!(session.contains(recipe.session));
+                assert!(
+                    !session.contains("dbus-run-session"),
+                    "retain the login's user bus for portals"
+                );
                 assert!(session.contains(&format!("DesktopNames={}\n", recipe.desktop_name)));
                 assert!(
                     written(&job, "/etc/greetd/config.toml").contains("noctalia-greeter-session")

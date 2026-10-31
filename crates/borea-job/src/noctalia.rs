@@ -29,8 +29,10 @@ pub fn configure(plan: &borea_core::Plan) -> Vec<Action> {
     ];
     let exec = match recipe.compositor {
         "hyprland" | "niri" => recipe.session.to_owned(),
+        // Keep greetd/PAM's user bus. A second dbus-run-session would isolate
+        // applications from the systemd-activated portal services.
         _ => format!(
-            "/usr/bin/env XDG_CURRENT_DESKTOP={} XDG_SESSION_DESKTOP={} XDG_SESSION_TYPE=wayland /usr/bin/dbus-run-session -- {}",
+            "/usr/bin/env XDG_CURRENT_DESKTOP={} XDG_SESSION_DESKTOP={} XDG_SESSION_TYPE=wayland {}",
             recipe.desktop_name, recipe.compositor, recipe.session
         ),
     };
