@@ -2,6 +2,11 @@
 # Every ignore names who pulls the crate in, why it cannot be fixed here yet,
 # and what removes the need for it. Revisit them whenever Iced, Winit or zbus moves.
 
+# Borea only ships Linux binaries: crates other platforms need (wgpu's Metal
+# backend for macOS, for one) are not part of anything Borea builds.
+[graph]
+targets = ["x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl"]
+
 [advisories]
 ignore = [
     # Iced 0.14's SVG renderer uses resvg/usvg 0.45, which requires rustybuzz.

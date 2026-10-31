@@ -43,7 +43,7 @@ borea/
 | Area | Proposed choice | Reason and qualification |
 | --- | --- | --- |
 | GUI | Iced over a render-independent Rust workflow | Shared Windpad/live-ISO screens, embedded official logos, channel-based workers |
-| Graphics | Iced tiny-skia software renderer, Winit on Wayland/X11 | Native startup tested in the Debian runtime under cage without GPU access; Fontconfig and fonts are included |
+| Graphics | Iced wgpu on a real GPU, tiny-skia software renderer otherwise; Winit on Wayland/X11 | Native startup tested in the Debian runtime under cage without GPU access; Fontconfig and fonts are included |
 | TUI | Ratatui + Crossterm | Terminal layout, keyboard input, progress display |
 | Hardware | Rust sysfs/udev access and bounded native queries | Progressive local read-only facts, hotplug invalidation |
 | Wi-Fi | NetworkManager D-Bus via zbus | Shared TUI/GUI connections and scoped secret handling |

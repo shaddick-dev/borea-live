@@ -29,7 +29,7 @@ RUN --mount=type=secret,id=proxy_ca \
         systemd systemd-sysv systemd-resolved libpam-systemd libnss-systemd dbus \
         network-manager wpasupplicant wireless-regdb iw ca-certificates \
         usb-modeswitch usb-modeswitch-data \
-        cage libegl-mesa0 libgl1-mesa-dri libwayland-egl1 libxkbcommon0 xkb-data \
+        cage libegl-mesa0 libgl1-mesa-dri mesa-vulkan-drivers libvulkan1 libwayland-egl1 libxkbcommon0 xkb-data \
         libfontconfig1 fonts-dejavu-core fonts-noto-core polkitd libpam-modules udisks2 \
         cryptsetup btrfs-progs ntfs-3g gnupg gpgv efibootmgr parted fdisk \
         dosfstools e2fsprogs util-linux kmod busybox-static kexec-tools \
