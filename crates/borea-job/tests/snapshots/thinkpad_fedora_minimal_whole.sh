@@ -100,7 +100,7 @@ chroot /run/borea/target '/usr/bin/ln' '-sf' '/usr/share/zoneinfo/Europe/London'
 #
 '/usr/sbin/blkid' '-s' 'UUID' '-o' 'value' '/dev/vda1'
 '/usr/sbin/blkid' '-s' 'UUID' '-o' 'value' '/dev/vda2'
-# Write fstab and crypttab from discovered filesystem/LUKS UUIDs and the reviewed btrfs layout.
+# Write fstab (and crypttab when encrypting) from discovered filesystem and LUKS UUIDs and the reviewed btrfs layout.
 chroot /run/borea/target '/usr/sbin/groupadd' '--system' '--force' 'wheel'
 chroot /run/borea/target '/usr/sbin/useradd' '--create-home' '--user-group' '--shell' '/bin/bash' '--groups' 'wheel' '--comment' 'Test User' 'tester'
 # stdin: <redacted secret>

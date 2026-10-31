@@ -1518,6 +1518,9 @@ impl Session {
             text.push_str(&format!("UUID={uuid} {path} {fs} {options} 0 2\n"));
         }
         self.write("/etc/fstab", &text, 0o644)?;
+        if !self.job.plan.encrypt {
+            return Ok(());
+        }
         self.write(
             "/etc/crypttab",
             &format!(
