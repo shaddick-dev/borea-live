@@ -675,7 +675,11 @@ pub fn compile(
     }
     bootstrap_actions.push(Action::CopyNetwork);
     stages.push(Stage {
-        title: format!("Installing {}.", plan.distro.name()),
+        // CachyOS is in the Arch family, but it is CachyOS being installed.
+        title: format!(
+            "Installing {}.",
+            if plan.distro == Distro::Arch { system_name } else { plan.distro.name() }
+        ),
         weight: 35,
         actions: bootstrap_actions,
     });
