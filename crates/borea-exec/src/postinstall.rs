@@ -222,10 +222,32 @@ pub fn aur_apps() -> Result<(), Hint> {
         },
     )
 }
+/// Whether pacman's database is locked by a running transaction. A lock with no
+/// pacman (or AUR helper) running was left by an interrupted one, such as a
+/// reboot mid-upgrade; as pacman itself advises, it is removed.
+fn pacman_busy() -> bool {
+    pacman_busy_in(Path::new("/var/lib/pacman/db.lck"), Path::new("/proc"))
+}
+fn pacman_busy_in(lock: &Path, proc: &Path) -> bool {
+    if !lock.exists() {
+        return false;
+    }
+    let running = fs::read_dir(proc).into_iter().flatten().flatten().any(|entry| {
+        entry.file_name().to_string_lossy().bytes().all(|b| b.is_ascii_digit())
+            && fs::read_to_string(entry.path().join("comm")).is_ok_and(|comm| {
+                matches!(comm.trim(), "pacman" | "paru" | "yay" | "pamac" | "pacstrap" | "makepkg")
+            })
+    });
+    if running {
+        return true;
+    }
+    eprintln!("Removing a stale pacman lock: no package transaction is running.");
+    fs::remove_file(lock).is_err() && lock.exists()
+}
 pub(crate) fn aur_command(program: &str, args: Vec<String>) -> Result<String, Hint> {
     if program == "/usr/bin/pacman"
         && args.first().is_some_and(|v| v == "-S" || v == "-U")
-        && Path::new("/var/lib/pacman/db.lck").exists()
+        && pacman_busy()
     {
         return Err(err("Another package transaction is running; Borea will retry later."));
     }
@@ -251,7 +273,7 @@ pub fn firstboot() -> Result<(), Hint> {
     let path = Path::new("/var/lib/borea/firstboot.json");
     trusted(path)?;
     run_queue(path, |action| {
-        if action.program == "/usr/bin/pacman" && Path::new("/var/lib/pacman/db.lck").exists() {
+        if action.program == "/usr/bin/pacman" && pacman_busy() {
             return Err(err("Another package transaction is running; Borea will retry later."));
         }
         command(&action.program, &action.args)
@@ -443,6 +465,23 @@ fn update_one(config: &Path) -> Result<(), Hint> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_stale_pacman_lock_is_cleared_and_a_live_one_waits() {
+        let dir = std::env::temp_dir().join(format!("borea-lock-{}", std::process::id()));
+        let proc = dir.join("proc");
+        fs::create_dir_all(proc.join("4242")).unwrap();
+        fs::write(proc.join("4242/comm"), "bash\n").unwrap();
+        let lock = dir.join("db.lck");
+        assert!(!pacman_busy_in(&lock, &proc), "no lock, not busy");
+        fs::write(&lock, "").unwrap();
+        assert!(!pacman_busy_in(&lock, &proc), "a stale lock is cleared");
+        assert!(!lock.exists());
+        fs::write(&lock, "").unwrap();
+        fs::write(proc.join("4242/comm"), "pacman\n").unwrap();
+        assert!(pacman_busy_in(&lock, &proc), "a running pacman keeps its lock");
+        assert!(lock.exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct Queue(std::path::PathBuf);

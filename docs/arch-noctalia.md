@@ -66,16 +66,25 @@ so `borea remove` works for them.
 
 ## Shortcuts and region
 
-Shortcuts follow [Noctalia's v5 compositor guides](https://github.com/noctalia-dev/noctalia/tree/v5.4.1/docs/user/compositor-settings).
-Window and workspace keys follow each compositor's upstream defaults.
+Each compositor is set up as [Noctalia's v5 compositor guides](https://github.com/noctalia-dev/noctalia/tree/v5.4.1/docs/user/compositor-settings)
+describe, all of it: autostart, rounded windows, gaps, shadows and blur, its
+settings window floating, layer rules and shortcuts. The compositors' own example
+configurations are not used. Noctalia defines no window keys, so all three share
+one small set:
 
 | Action | Hyprland | niri | MangoWC |
 | --- | --- | --- | --- |
 | Launcher | Super+Space | Super+Space | Super+Space |
 | Control Center | Super+S | Super+S | Super+S |
 | Settings | Super+comma | Super+Shift+comma | Super+comma |
-| Window switcher | Alt+Tab | Alt+Tab | Upstream MangoWC Alt+Tab |
+| Window switcher | Alt+Tab | Alt+Tab | — (not in Noctalia's Mango guide) |
 | Audio / brightness | Noctalia media keys | Noctalia media keys | Noctalia media keys |
+| Terminal (foot) | Super+T | Super+T | Super+T |
+| Close window | Super+Q | Super+Q | Super+Q |
+| Workspace / move to it | Super+1–9 / Super+Shift+1–9 | Super+1–9 / Super+Shift+1–9 | Super+1–9 / Super+Shift+1–9 |
+| Focus | Super+arrows | Super+arrows | Super+arrows |
+| Float | Super+V | Super+V | Super+V |
+| Log out | Super+Shift+E | Super+Shift+E | Super+Shift+E |
 
 Noctalia keeps its internal navigation defaults and handles lock-before-suspend.
 Borea writes your choices before creating the account:

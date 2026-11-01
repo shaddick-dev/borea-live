@@ -988,8 +988,18 @@ impl Session {
                     "/etc/pacman.conf",
                     "/etc/pacman.d/mirrorlist",
                     "/etc/pacman.d/cachyos-mirrorlist",
+                    "/etc/pacman.d/cachyos-v3-mirrorlist",
                 ] {
-                    let content = io(fs::read_to_string(root.join(path.trim_start_matches('/'))))?;
+                    // CachyOS's signed mirror-list packages, installed with the
+                    // system, are kept: its own pacman reads their $arch_v3.
+                    if path.contains("cachyos") && self.target_path(path)?.exists() {
+                        continue;
+                    }
+                    let source = root.join(path.trim_start_matches('/'));
+                    if !source.exists() {
+                        continue;
+                    }
+                    let content = io(fs::read_to_string(source))?;
                     self.write(path, &content, 0o644)?;
                 }
                 self.command(Root::Target, "/usr/bin/pacman-key", vec!["--init".into()], emit)?;
@@ -1263,11 +1273,18 @@ impl Session {
                     ""
                 };
                 let cachyos = self.job.plan.derivative == Some(borea_core::ArchDerivative::Cachyos);
-                let overlay = if cachyos { borea_backend::cachyos::repositories() } else { "" };
+                let v3 = cachyos && borea_backend::cachyos::optimised(&self.job.review.packages);
+                let overlay =
+                    if cachyos { borea_backend::cachyos::repositories(v3) } else { String::new() };
+                let architecture = borea_backend::cachyos::architecture(v3);
                 if cachyos {
                     io(fs::write(
                         root.join("etc/pacman.d/cachyos-mirrorlist"),
                         borea_backend::cachyos::MIRRORLIST,
+                    ))?;
+                    io(fs::write(
+                        root.join("etc/pacman.d/cachyos-v3-mirrorlist"),
+                        borea_backend::cachyos::V3_MIRRORLIST,
                     ))?;
                     let keys = root.join("usr/share/pacman/keyrings");
                     io(fs::create_dir_all(&keys))?;
@@ -1278,7 +1295,7 @@ impl Session {
                 io(fs::write(
                     root.join("etc/pacman.conf"),
                     format!(
-                        "[options]\nArchitecture = auto\nSigLevel = Required DatabaseOptional\n{overlay}[core]\nInclude = /etc/pacman.d/mirrorlist\n[extra]\nInclude = /etc/pacman.d/mirrorlist\n{multilib}"
+                        "[options]\nArchitecture = {architecture}\nSigLevel = Required DatabaseOptional\n{overlay}[core]\nInclude = /etc/pacman.d/mirrorlist\n[extra]\nInclude = /etc/pacman.d/mirrorlist\n{multilib}"
                     ),
                 ))?;
                 self.command(Root::Tools, "/usr/bin/pacman-key", vec!["--init".into()], emit)?;

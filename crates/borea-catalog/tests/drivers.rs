@@ -249,3 +249,16 @@ fn probe_report_is_json_the_installer_can_read() {
         assert!(j.contains(k), "missing {k} in {j}");
     }
 }
+
+#[test]
+fn cpu_flags_give_the_x86_64_level() {
+    use borea_catalog::hardware::x86_level;
+    let v2 = "flags\t\t: fpu cx16 lahf_lm popcnt sse4_1 sse4_2 ssse3";
+    let v3 = format!("{v2} avx avx2 bmi1 bmi2 f16c fma abm movbe xsave");
+    let v4 = format!("{v3} avx512f avx512bw avx512cd avx512dq avx512vl");
+    assert_eq!(x86_level("flags\t\t: fpu sse sse2\n"), 1);
+    assert_eq!(x86_level(v2), 2);
+    assert_eq!(x86_level(&v3), 3);
+    assert_eq!(x86_level(&v4), 4);
+    assert_eq!(x86_level(""), 1);
+}
