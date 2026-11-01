@@ -235,7 +235,7 @@ impl LiveInstaller {
         if !(self.picked_edition
             && self.picked_compositor
             && self.picked_shell
-            && matches!(self.distro().id.as_str(), "arch" | "cachyos")
+            && matches!(self.distro().id.as_str(), "arch" | "cachyos" | "tumbleweed")
             && c.mode == DesktopMode::Compose
             && c.shell == Some(ShellPick::Shell("noctalia".into())))
         {
@@ -345,7 +345,8 @@ impl LiveInstaller {
                 .map(|n| n.ssid.clone())
                 .map(|ssid| borea_core::NetChoice::Wifi { ssid })
                 .unwrap_or(borea_core::NetChoice::Ethernet);
-            self.native.target(self.distro().id.as_str() == "cachyos");
+            let id = self.distro().id.to_string();
+            self.native.target(&id);
             if let Some(desktop) = self.native_desktop() {
                 self.native.composition(desktop);
             }
@@ -488,7 +489,7 @@ impl LiveInstaller {
                 }
             }
             Action::Family(f) => {
-                if f != Family::Arch {
+                if !crate::model::family_ready(f) {
                     return;
                 }
                 if self.picked_family != Some(f) {
@@ -594,7 +595,8 @@ impl LiveInstaller {
             self.selection.ensure_defaults(&self.catalog, family);
         }
         if self.native_target() {
-            self.native.target(self.distro().id.as_str() == "cachyos");
+            let id = self.distro().id.to_string();
+            self.native.target(&id);
             if let Some(desktop) = self.native_desktop() {
                 self.native.composition(desktop);
             }

@@ -1133,6 +1133,14 @@ pub fn compile(
             ));
         }
         Distro::OpenSuse => {
+            // Chrooted into the target, dracut would record the installer's own
+            // device-mapper name as root and wait for it forever at boot. The
+            // kernel command line names root and its unlock instead.
+            boot.push(write(
+                "/etc/dracut.conf.d/90-borea.conf",
+                "hostonly_cmdline=\"no\"\n".into(),
+                0o644,
+            ));
             boot.push(target("/usr/bin/dracut", ["--regenerate-all", "--force"]));
             boot.push(write(
                 "/etc/sysconfig/bootloader",

@@ -391,12 +391,13 @@ impl Plan {
         }
 
         if !self.extras.is_empty()
-            && (self.distro != Distro::Arch || !self.desktop.is_some_and(Desktop::is_noctalia))
+            && (!catalog::noctalia::supported(self.distro)
+                || !self.desktop.is_some_and(Desktop::is_noctalia))
         {
-            return Err(hint("extras", "These extras require an Arch-family Noctalia pathway."));
+            return Err(hint("extras", "These extras require a native Noctalia pathway."));
         }
         for id in &self.extras {
-            if catalog::groups::arch_extra(id).is_none() {
+            if catalog::groups::extra_packages(self.distro, id).is_none() {
                 return Err(hint("extras", format!("Unknown extra: {id}.")));
             }
         }
@@ -491,8 +492,13 @@ impl From<&Plan> for SystemChoice {
 }
 impl SystemChoice {
     pub fn validate(&self) -> Result<(), Hint> {
-        if self.desktop.is_some_and(Desktop::is_noctalia) && self.distro != Distro::Arch {
-            return Err(hint("desktop", "Native Noctalia recipes require the Arch source family."));
+        if self.desktop.is_some_and(Desktop::is_noctalia)
+            && !catalog::noctalia::supported(self.distro)
+        {
+            return Err(hint(
+                "desktop",
+                "Native Noctalia recipes require the Arch or openSUSE Tumbleweed families.",
+            ));
         }
         let env = catalog::group(&self.env)
             .filter(|g| g.kind == catalog::Kind::Environment)
@@ -594,10 +600,33 @@ pub fn review(plan: &Plan, hw: &catalog::Hardware) -> Result<Review, Hint> {
     sources
         .require(&driver.sources)
         .map_err(|e| hint("drivers", format!("Cannot enable driver sources: {e:?}")))?;
-    if plan.extras.contains("gaming") {
-        sources
-            .require(&[Source::Repo("arch.multilib")])
-            .map_err(|_| hint("sources", "Gaming needs Arch multilib."))?;
+    // Extras and the compositor may need a repository beyond the defaults: Arch
+    // multilib for gaming, Packman for codecs, MangoWC's OBS project on Tumbleweed.
+    let mut needed = Vec::new();
+    for id in &plan.extras {
+        for (repo, _) in catalog::groups::extra_packages(plan.distro, id).unwrap_or_default() {
+            needed.push(repo);
+        }
+    }
+    if let Some((repo, _)) = plan
+        .desktop
+        .and_then(Desktop::noctalia)
+        .and_then(|recipe| recipe.compositor_package(plan.distro))
+    {
+        needed.push(repo);
+    }
+    for repo in needed {
+        if catalog::source::repo(repo).is_some_and(|r| !r.base) {
+            sources.require(&[Source::Repo(repo)]).map_err(|_| {
+                hint(
+                    "sources",
+                    format!(
+                        "This choice needs {}.",
+                        catalog::source::repo(repo).map_or(repo, |r| r.label)
+                    ),
+                )
+            })?;
+        }
     }
     let mut picks = catalog::Picks::default();
     for p in &plan.picks {
@@ -636,27 +665,27 @@ pub fn review(plan: &Plan, hw: &catalog::Hardware) -> Result<Review, Hint> {
         };
         packages.insert((source.to_owned(), pkg.to_owned()));
     }
+    let recipe = plan.desktop.and_then(Desktop::noctalia);
     if let Some((desktop, manager)) = groups.desktop {
-        packages.insert((base.id.into(), desktop.into()));
+        // The compositor comes from wherever its recipe says on this family.
+        let source = recipe
+            .and_then(|r| r.compositor_package(plan.distro))
+            .map_or(base.id, |(repo, _)| repo);
+        packages.insert((source.into(), desktop.into()));
         packages.insert((base.id.into(), manager.into()));
     }
-    if plan.desktop.is_some_and(Desktop::is_noctalia) {
-        if let Some(recipe) = plan.desktop.and_then(Desktop::noctalia) {
-            for name in recipe.packages {
-                packages.insert((base.id.into(), (*name).into()));
-            }
+    if let Some(recipe) = recipe {
+        for name in recipe.packages {
+            packages.insert((base.id.into(), (*name).into()));
         }
-        for name in catalog::groups::ARCH_NOCTALIA_PACKAGES {
+        for name in catalog::noctalia::base_packages(plan.distro) {
             packages.insert((base.id.into(), (*name).into()));
         }
         for id in &plan.extras {
-            for name in catalog::groups::arch_extra(id).unwrap_or_default() {
-                let source = if name.starts_with("lib32-") || *name == "steam" {
-                    "arch.multilib"
-                } else {
-                    base.id
-                };
-                packages.insert((source.into(), (*name).into()));
+            for (source, name) in
+                catalog::groups::extra_packages(plan.distro, id).unwrap_or_default()
+            {
+                packages.insert((source.into(), name.into()));
             }
         }
     }

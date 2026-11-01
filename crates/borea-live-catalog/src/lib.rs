@@ -417,7 +417,7 @@ mod tests {
         assert_eq!(available("cachyos"), ["hyprland", "niri", "mango"]);
         assert_eq!(available("fedora"), ["hyprland", "niri", "mango"]);
         assert_eq!(available("debian"), ["hyprland", "mango"]);
-        assert_eq!(available("tumbleweed"), ["hyprland", "niri"]);
+        assert_eq!(available("tumbleweed"), ["hyprland", "niri", "mango"]);
 
         let shells = |distro: &str, compositor: &str| -> Vec<String> {
             let distro = id(distro);

@@ -176,6 +176,9 @@ chroot /run/borea/target '/usr/bin/firewall-offline-cmd' '--add-service=cockpit'
 # write target:/etc/kernel/cmdline mode 644
 # rd.luks.name=${LUKS_UUID}=borea-root root=/dev/mapper/borea-root rootflags=subvol=@
 #
+# write target:/etc/dracut.conf.d/90-borea.conf mode 644
+# hostonly_cmdline="no"
+#
 chroot /run/borea/target '/usr/bin/dracut' '--regenerate-all' '--force'
 # write target:/etc/sysconfig/bootloader mode 644
 # LOADER_TYPE="systemd-boot"

@@ -503,6 +503,50 @@ pub fn arch_extra(id: &str) -> Option<&'static [&'static str]> {
     }
 }
 
+/// An extra's packages on a Noctalia family, each with the repository it comes
+/// from. Tumbleweed's names follow borea-live-catalog's extras, checked in CI.
+pub fn extra_packages(distro: Distro, id: &str) -> Option<Vec<(&'static str, &'static str)>> {
+    match distro {
+        Arch => Some(
+            arch_extra(id)?
+                .iter()
+                .map(|name| {
+                    let multilib = name.starts_with("lib32-") || *name == "steam";
+                    (if multilib { "arch.multilib" } else { "arch.core-extra" }, *name)
+                })
+                .collect(),
+        ),
+        OpenSuse => {
+            let (source, names): (&[(&str, &str)], &[&str]) = match id {
+                "gaming" => (
+                    &[("steam", "opensuse.non-oss")],
+                    &["lutris", "gamemode", "mangohud", "gamescope"],
+                ),
+                "codecs" => (
+                    &[
+                        ("ffmpeg", "opensuse.packman"),
+                        ("gstreamer-plugins-libav", "opensuse.packman"),
+                        ("gstreamer-plugins-ugly", "opensuse.packman"),
+                        ("gstreamer-plugins-bad-codecs", "opensuse.packman"),
+                    ],
+                    &[],
+                ),
+                "flatpak" => (&[], &["flatpak"]),
+                "printing" => (&[], &["cups", "system-config-printer"]),
+                _ => return None,
+            };
+            Some(
+                source
+                    .iter()
+                    .map(|(name, repo)| (*repo, *name))
+                    .chain(names.iter().map(|name| ("opensuse.oss", *name)))
+                    .collect(),
+            )
+        }
+        _ => None,
+    }
+}
+
 /// Verified upstream omissions: no vendor repository is substituted silently.
 pub const UNAVAILABLE_DESKTOPS: &[(Distro, &str, &str)] = &[(
     Debian,
@@ -510,8 +554,10 @@ pub const UNAVAILABLE_DESKTOPS: &[(Distro, &str, &str)] = &[(
     "COSMIC is not packaged in Debian 13's official repositories; choose another desktop.",
 )];
 pub fn desktop_unavailable(distro: Distro, desktop: &str) -> Option<&'static str> {
-    if crate::noctalia::recipe(desktop).is_some() && distro != Distro::Arch {
-        return Some("Noctalia v5 desktops currently require Arch or CachyOS Minimal.");
+    if crate::noctalia::recipe(desktop).is_some() && !crate::noctalia::supported(distro) {
+        return Some(
+            "Noctalia v5 desktops currently require Arch, CachyOS or openSUSE Tumbleweed Minimal.",
+        );
     }
     UNAVAILABLE_DESKTOPS
         .iter()
@@ -648,7 +694,10 @@ pub fn plan_groups_with(
             return Err(GroupError::UnavailableDesktop(reason));
         }
         if let Some(recipe) = crate::noctalia::recipe(desktop) {
-            Some((recipe.package, "greetd"))
+            let (_, package) = recipe
+                .compositor_package(d)
+                .ok_or_else(|| GroupError::UnknownDesktop(desktop.into()))?;
+            Some((package, "greetd"))
         } else {
             let (_, per) = DESKTOPS
                 .iter()

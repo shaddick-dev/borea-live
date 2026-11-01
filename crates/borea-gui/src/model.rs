@@ -436,6 +436,12 @@ pub fn family_colour(family: Family) -> [u8; 3] {
     }
 }
 
+/// Families Borea can install natively today: Arch (with CachyOS) and openSUSE
+/// (Tumbleweed). Fedora and Debian are coming.
+pub fn family_ready(family: Family) -> bool {
+    matches!(family, Family::Arch | Family::Opensuse)
+}
+
 /// A distribution's own colour: its brand colour where it has one, its family's
 /// where none has been reviewed yet, and `None` where its mark is monochrome (the
 /// card then wears Borea's neutral grey).

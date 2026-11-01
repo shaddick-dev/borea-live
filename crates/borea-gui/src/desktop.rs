@@ -78,7 +78,7 @@ impl Bridge {
         let action = match bits[0] {
             "family" => index(1)
                 .and_then(|i| Family::ALL.get(i).copied())
-                .filter(|f| *f == Family::Arch)
+                .filter(|f| crate::model::family_ready(*f))
                 .and_then(|f| {
                     if self.app.still {
                         Some(Action::Family(f))
@@ -353,7 +353,7 @@ impl Bridge {
                         self.picked() == Some(f),
                     );
                     t.logo = family_id(f).into();
-                    t.enabled = f == Family::Arch;
+                    t.enabled = crate::model::family_ready(f);
                     t.meta = match f {
                         Family::Arch => "Rolling release",
                         Family::Fedora => "Regular releases",
@@ -372,7 +372,7 @@ impl Bridge {
                 for (i, d) in a.catalog.family(f).enumerate() {
                     let status = if d.id.as_str() == "omarchy" {
                         "Official installer".into()
-                    } else if matches!(d.id.as_str(), "arch" | "cachyos") {
+                    } else if matches!(d.id.as_str(), "arch" | "cachyos" | "tumbleweed") {
                         "Noctalia v5".into()
                     } else {
                         format!("{} integration", crate::model::capitalize(&d.status.to_string()))
@@ -1159,7 +1159,7 @@ impl App {
         let mut rail = column![
             text("Borea").size(32).color(p.ice),
             text("Follow the wind.").size(13).color(p.muted),
-            text("Only some Arch installs work (including Omarchy).").size(11).color(p.muted),
+            text("Arch, CachyOS, Tumbleweed and Omarchy installs work.").size(11).color(p.muted),
             space().height(28)
         ]
         .spacing(9);
@@ -2313,7 +2313,7 @@ impl App {
         } else {
             body = body.push(
                 text(
-                    "Only some Arch installs work (including Omarchy). This combination is not connected yet.",
+                    "Arch, CachyOS and Tumbleweed install with Noctalia v5; Omarchy uses its own installer. This combination is not connected yet.",
                 )
                 .color(p.muted),
             );
@@ -3322,17 +3322,21 @@ mod iced_tests {
         a.bridge.next();
     }
     #[test]
-    fn only_arch_is_available_and_disabled_families_cannot_change_selection() {
+    fn arch_and_opensuse_are_available_and_disabled_families_cannot_change_selection() {
         let mut a = app();
         a.bridge.app.go(Step::System);
         a.bridge.next();
         assert_eq!(a.bridge.app.step, Step::System);
         let (heroes, _) = a.bridge.tiles();
-        assert!(heroes[0].enabled);
-        assert!(heroes[1..].iter().all(|t| !t.enabled && t.meta == "Not available yet"));
-        for i in 1..4 {
+        for (tile, family) in heroes.iter().zip(Family::ALL) {
+            let ready = matches!(family, Family::Arch | Family::Opensuse);
+            assert_eq!(tile.enabled, ready, "{family}");
+            assert_eq!(tile.meta == "Not available yet", !ready, "{family}");
+        }
+        for family in [Family::Fedora, Family::Debian] {
+            let i = Family::ALL.iter().position(|f| *f == family).unwrap();
             a.bridge.command(&format!("family/{i}"));
-            a.bridge.app.apply(Action::Family(Family::ALL[i]));
+            a.bridge.app.apply(Action::Family(family));
             assert_eq!(a.bridge.app.step, Step::System);
             assert!(a.bridge.app.picked_family.is_none());
             assert!(a.bridge.pending_family.is_none());
@@ -3340,6 +3344,44 @@ mod iced_tests {
         a.bridge.command("family/0");
         assert_eq!(a.bridge.app.step, Step::Distribution);
         assert_eq!(a.bridge.app.picked_family, Some(Family::Arch));
+    }
+    #[test]
+    fn tumbleweed_minimal_installs_each_compositor_with_noctalia_natively() {
+        for compositor in ["hyprland", "niri", "mango"] {
+            let mut a = app();
+            a.bridge.app.go(Step::System);
+            let i = Family::ALL.iter().position(|f| *f == Family::Opensuse).unwrap();
+            a.bridge.command(&format!("family/{i}"));
+            assert_eq!(a.bridge.app.step, Step::Distribution);
+            a.bridge.command("distro/0");
+            assert_eq!(a.bridge.app.distro().id.as_str(), "tumbleweed");
+            let minimal = a.bridge.app.distro().editions.iter().position(|e| e.composable).unwrap();
+            a.bridge.command(&format!("edition/{minimal}"));
+            a.bridge.next();
+            a.bridge.command("mode/compose");
+            a.bridge.command(&format!("compositor/{compositor}"));
+            a.bridge.command("shell/noctalia");
+            a.bridge.next();
+            assert!(a.bridge.native(), "{compositor}: Tumbleweed installs natively");
+            let _ = a.update(Message::Tick(Instant::now()));
+            let n = &a.bridge.app.native;
+            assert_eq!(n.distro_for_test(), borea_core::Distribution::OpenSuse);
+            assert_eq!(n.derivative_for_test(), None);
+            a.bridge.app.native.disks = showcase_disks();
+            a.bridge.command("whole/0");
+            a.bridge.next();
+            showcase_account(&mut a);
+            let plan = a.bridge.app.native.plan().unwrap();
+            assert_eq!(plan.distro, borea_core::Distribution::OpenSuse);
+            assert_eq!(plan.release, "tumbleweed");
+            assert_eq!(plan.prefer, borea_core::SourcePreference::Native);
+            assert_eq!(
+                plan.desktop.and_then(|d| d.noctalia()).map(|r| r.compositor),
+                Some(compositor)
+            );
+            let (_, hw) = borea_catalog::hardware::samples().remove(0);
+            assert!(borea_core::review(&plan, &hw).is_ok(), "{compositor}");
+        }
     }
 
     #[test]

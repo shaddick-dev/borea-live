@@ -184,6 +184,20 @@ pub const REPOS: &[Repo] = &[
         on_demand: false,
         note: "full multimedia codecs",
     },
+    // MangoWC isn't packaged in Tumbleweed's own repositories. This OBS project
+    // of a long-standing openSUSE packager builds the same release Arch ships
+    // (0.18.4, checked 2026-11-01). Its key is pinned at review like Packman's.
+    // Only appears when MangoWC + Noctalia is chosen.
+    Repo {
+        id: "opensuse.mangowc",
+        distro: Distro::OpenSuse,
+        label: "MangoWC (home:darix:playground)",
+        trust: Trust::Community,
+        base: false,
+        default_on: false,
+        on_demand: true,
+        note: "MangoWC for Noctalia",
+    },
     // NVIDIA's own repo, but configured by openSUSE itself (package openSUSE-repos-NVIDIA): the
     // distro's sanctioned way to get NVIDIA userspace. Only appears on machines with an NVIDIA GPU.
     Repo {
