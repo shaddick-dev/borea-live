@@ -19,7 +19,7 @@ jobs:
     name: fmt, clippy, test (whole workspace, stable)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -56,7 +56,7 @@ jobs:
     steps:
       - name: Native compositor packages
         run: pacman -Syu --noconfirm --needed rust gcc git pkgconf hyprland niri mangowm noctalia
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: Swatinem/rust-cache@v2
       - name: Generate the reviewed compositor configurations
         env:
@@ -97,7 +97,7 @@ jobs:
           rpm -ql mangowc | grep -E '/bin/|wayland-sessions'
           for p in plymouth-theme-spinner plymouth-branding-openSUSE; do zypper -n info "$p" | grep -E '^(Name|Version|Repository)'; done
           rpm -qa 'gpg-pubkey*' --qf '%{SUMMARY} %{VERSION}-%{RELEASE}\n' | grep -i darix
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Generate the reviewed compositor configurations
         env:
           BOREA_COMPOSITOR_CONFIGS: ${{ runner.temp }}/noctalia-configs
@@ -126,7 +126,7 @@ jobs:
     steps:
       - name: Tools
         run: pacman -Syu --noconfirm --needed rust gcc git pkgconf
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: cargo build --locked -p borea-bootstrap
       # The real thing on a real Arch system: add an extra, see it recorded,
       # remove exactly what was added, and refuse what Borea never added.
@@ -148,7 +148,7 @@ jobs:
     name: backend on Rust 1.85
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.85.0
         with:
           components: clippy
@@ -167,7 +167,7 @@ jobs:
     name: borea-rataTUI static build (what releases ship)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
@@ -184,7 +184,7 @@ jobs:
     name: advisories and sources (cargo-deny)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check advisories sources

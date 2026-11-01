@@ -23,7 +23,7 @@ jobs:
     name: borea-rataTUI (static x86-64)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
       - uses: dtolnay/rust-toolchain@stable
@@ -57,7 +57,7 @@ jobs:
                --jq '.assets[].name' | grep -qx borea-live-x86_64.iso; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: steps.existing.outputs.skip != 'true'
         with:
           ref: ${{ env.TAG }}
@@ -76,7 +76,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential patch perl python3 \
             rsync cpio unzip bc wget file tar xz-utils bzip2 curl bison flex
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         if: steps.existing.outputs.skip != 'true'
         with:
           # Downloads and ccache make later release builds much shorter.

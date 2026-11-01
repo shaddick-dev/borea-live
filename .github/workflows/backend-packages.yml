@@ -14,10 +14,10 @@ jobs:
   inventory:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --locked --release -p borea-backend --bin borea-verify
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: borea-verify
           path: target/release/borea-verify
@@ -29,8 +29,8 @@ jobs:
       matrix:
         distro: ${{ fromJSON(inputs.distro == 'arch' && '["arch"]' || inputs.distro == 'debian' && '["debian"]' || inputs.distro == 'fedora' && '["fedora"]' || inputs.distro == 'opensuse' && '["opensuse"]' || '["arch","debian","fedora","opensuse"]') }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: borea-verify
           path: verify-bin
@@ -63,7 +63,7 @@ jobs:
               echo "::error::$failures"
             fi
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: native-audit-${{ matrix.distro }}
@@ -72,7 +72,7 @@ jobs:
     needs: inventory
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: borea-verify
           path: verify-bin
@@ -81,7 +81,7 @@ jobs:
         run: |
           set -euo pipefail
           ./verify-bin/borea-verify arch --check-external 2>&1 | tee external-audit.log
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: external-audit

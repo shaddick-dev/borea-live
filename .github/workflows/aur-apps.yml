@@ -20,7 +20,7 @@ jobs:
     steps:
       - name: Native build tools
         run: pacman -Syu --needed --noconfirm rust gcc git pkgconf base-devel
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: Swatinem/rust-cache@v2
