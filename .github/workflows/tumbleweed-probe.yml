@@ -1,0 +1,17 @@
+name: Tumbleweed Noctalia probe
+# What Tumbleweed's repositories offer for Noctalia v5 and its compositors.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: [tests/probe/tumbleweed-noctalia.sh, .github/workflows/tumbleweed-probe.yml]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container: opensuse/tumbleweed
+    steps:
+      - run: zypper -n install --no-recommends tar gzip git-core >/dev/null
+      - uses: actions/checkout@v4
+      - run: bash tests/probe/tumbleweed-noctalia.sh
