@@ -7,7 +7,7 @@ cp backend/../crates/borea-backend/data/cachyos/cachyos.gpg "$keys/"
 cp crates/borea-backend/data/cachyos/cachyos-trusted crates/borea-backend/data/cachyos/cachyos-revoked "$keys/"
 pacman-key --init >/dev/null; pacman-key --populate archlinux cachyos >/dev/null
 printf 'Server = https://cdn77.cachyos.org/repo/$arch/$repo\n' > /etc/pacman.d/cachyos-mirrorlist
-printf 'Server = https://cdn77.cachyos.org/repo/$arch_v3/$repo\n' > /etc/pacman.d/cachyos-v3-mirrorlist
+printf 'Server = https://cdn77.cachyos.org/repo/x86_64_v3/$repo\n' > /etc/pacman.d/cachyos-v3-mirrorlist
 cat > /etc/pacman.conf <<'CONF'
 [options]
 Architecture = x86_64 x86_64_v3
