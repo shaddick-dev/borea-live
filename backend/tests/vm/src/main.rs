@@ -71,8 +71,8 @@ fn run() -> Result<(), Hint> {
             "noctalia-mango" => Some(borea_core::Desktop::MangoNoctalia),
             _ => return Err(hint("vm", "Unknown desktop scenario.")),
         };
-    if desktop.is_some() && distro != Distribution::Arch {
-        return Err(hint("vm", "The Noctalia scenario requires Arch or CachyOS."));
+    if desktop.is_some() && !borea_catalog::noctalia::supported(distro) {
+        return Err(hint("vm", "The Noctalia scenario requires Arch, CachyOS or Tumbleweed."));
     }
     let plan = Plan {
         extras: BTreeSet::new(),

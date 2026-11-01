@@ -111,6 +111,10 @@ pub fn boot_packages(d: Distro) -> &'static [&'static str] {
         ],
     }
 }
+/// MangoWC for Tumbleweed: a community OBS project, pinned by its key's digest at
+/// review like Packman. See borea-catalog's "opensuse.mangowc" repository.
+pub const MANGOWC_REPOSITORY: &str =
+    "https://download.opensuse.org/repositories/home:/darix:/playground/openSUSE_Tumbleweed/";
 pub fn install(d: Distro, pkgs: &[String]) -> (String, Vec<String>) {
     let (tool, args): (&str, &[&str]) = match d {
         Distro::Arch => ("/usr/bin/pacman", &["-S", "--needed", "--noconfirm"]),

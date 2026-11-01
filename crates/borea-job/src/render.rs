@@ -308,6 +308,21 @@ pub(crate) fn helper(job: &Job, action: &Action, out: &mut String) {
                             ]),
                         );
                     }
+                    if job.review.packages.iter().any(|p| p.source == "opensuse.mangowc") {
+                        command(
+                            out,
+                            job,
+                            Root::Tools,
+                            "/usr/bin/zypper",
+                            args(&[
+                                "--non-interactive",
+                                "addrepo",
+                                "--refresh",
+                                borea_backend::MANGOWC_REPOSITORY,
+                                "mangowc",
+                            ]),
+                        );
+                    }
                     command(
                         out,
                         job,

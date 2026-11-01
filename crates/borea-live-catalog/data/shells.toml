@@ -61,7 +61,9 @@ on.fedora = { via = "third-party", packages = ["mangowm"], repository = "Terra" 
 # JustAGuy Linux's signed butterrepo carries the 0.14 series, the last for trixie,
 # with wlroots 0.19 and scenefx installed beside Debian's own libraries.
 on.debian = { via = "third-party", packages = ["mangowc"], repository = "butterrepo (apt.justaguy.dev)" }
-# Not packaged for Tumbleweed.
+# Not in Tumbleweed's own repositories: a community OBS project builds 0.18.4,
+# the release Arch ships. Borea pins its key at review (checked 2026-11-01).
+on.tumbleweed = { via = "third-party", packages = ["mangowc"], repository = "OBS home:darix:playground" }
 
 # ── Shells ───────────────────────────────────────────────────────────────────
 

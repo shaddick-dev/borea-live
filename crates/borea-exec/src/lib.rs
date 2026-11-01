@@ -1381,12 +1381,47 @@ impl Session {
                         emit,
                     )?;
                 }
+                if sources.contains("opensuse.mangowc") {
+                    self.command(
+                        Root::Tools,
+                        "/usr/bin/zypper",
+                        [
+                            "--non-interactive",
+                            "addrepo",
+                            "--refresh",
+                            borea_backend::MANGOWC_REPOSITORY,
+                            "mangowc",
+                        ]
+                        .map(String::from)
+                        .to_vec(),
+                        emit,
+                    )?;
+                }
                 self.command(
                     Root::Tools,
                     "/usr/bin/zypper",
                     vec!["--non-interactive".into(), "refresh".into()],
                     emit,
                 )?;
+                if self.job.plan.desktop.is_some_and(borea_core::Desktop::is_noctalia) {
+                    let approved = self.job.external.noctalia.clone().ok_or_else(|| {
+                        err("Review the stable Noctalia v5 package requirement before installing.")
+                    })?;
+                    let info = self.command(
+                        Root::Tools,
+                        "/usr/bin/zypper",
+                        vec![
+                            "--non-interactive".into(),
+                            "--no-refresh".into(),
+                            "info".into(),
+                            "noctalia".into(),
+                        ],
+                        emit,
+                    )?;
+                    let version = zypper_version(&info)
+                        .ok_or_else(|| err("Cannot read the native Noctalia package version."))?;
+                    borea_backend::noctalia::check_version(version, &approved)?;
+                }
             }
             D::Debian => return Ok(()),
         }
@@ -2126,11 +2161,26 @@ pub fn download(url: &str, path: &Path, expected: Option<&str>) -> Result<(), Hi
     }
     Ok(())
 }
+/// The version zypper's `info` reports for a package, e.g. "5.4.1-1.1".
+fn zypper_version(info: &str) -> Option<&str> {
+    info.lines().find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        (key.trim() == "Version").then(|| value.trim()).filter(|v| !v.is_empty())
+    })
+}
 pub mod postinstall;
 
 #[cfg(test)]
 mod mount_tests {
     use super::*;
+    #[test]
+    fn zypper_info_gives_the_noctalia_version() {
+        let info = "Information for package noctalia:\n----\nRepository     : openSUSE-Tumbleweed-Oss\nName           : noctalia\nVersion        : 5.4.1-1.1\nArch           : x86_64\n";
+        assert_eq!(zypper_version(info), Some("5.4.1-1.1"));
+        assert!(borea_backend::noctalia::check_version("5.4.1-1.1", "5").is_ok());
+        assert!(borea_backend::noctalia::check_version("5.3.2-1.1", "5").is_err());
+        assert_eq!(zypper_version("package 'noctalia' not found."), None);
+    }
     #[test]
     fn vfs_flags_never_reach_btrfs_option_parser() {
         let (flags, data) = mount_options("subvol=@,compress=zstd:1,noatime,nosuid,nodev");

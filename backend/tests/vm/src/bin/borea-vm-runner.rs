@@ -85,9 +85,9 @@ fn run() -> Result<(), String> {
     let distro = std::env::var("BOREA_TEST_DISTRO").unwrap_or_else(|_| "debian".into());
     let desktop = std::env::var("BOREA_TEST_DESKTOP").unwrap_or_else(|_| "none".into());
     if !["none", "noctalia", "noctalia-niri", "noctalia-mango"].contains(&desktop.as_str())
-        || (desktop != "none" && !["arch", "cachyos"].contains(&distro.as_str()))
+        || (desktop != "none" && !["arch", "cachyos", "opensuse"].contains(&distro.as_str()))
     {
-        return Err("The Noctalia desktop scenario requires Arch or CachyOS.".into());
+        return Err("The Noctalia desktop scenario requires Arch, CachyOS or Tumbleweed.".into());
     }
     if !["arch", "cachyos", "debian", "fedora", "opensuse"].contains(&distro.as_str()) {
         return Err("Unknown VM test distro.".into());

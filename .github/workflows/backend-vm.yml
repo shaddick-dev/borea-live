@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       desktop:
-        description: 'Noctalia on Arch/CachyOS; requires signed stable v5 packages, 5.4.0 or newer'
+        description: 'Noctalia on Arch, CachyOS or Tumbleweed; requires signed stable v5 packages, 5.4.0 or newer'
         type: choice
         options: [none, noctalia, noctalia-niri, noctalia-mango, noctalia-all]
         default: none
@@ -71,7 +71,7 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix:
-        distro: ${{ fromJSON(startsWith(inputs.desktop, 'noctalia') && inputs.distro == 'all' && '["arch","cachyos"]' || startsWith(inputs.desktop, 'noctalia') && inputs.distro == 'cachyos' && '["cachyos"]' || startsWith(inputs.desktop, 'noctalia') && '["arch"]' || github.event_name == 'pull_request' && '["arch"]' || inputs.distro == 'cachyos' && '["cachyos"]' || inputs.distro == 'arch' && '["arch"]' || inputs.distro == 'debian' && '["debian"]' || inputs.distro == 'fedora' && '["fedora"]' || inputs.distro == 'opensuse' && '["opensuse"]' || inputs.distro == 'rpm' && '["fedora","opensuse"]' || '["arch","debian","fedora","opensuse"]') }}
+        distro: ${{ fromJSON(startsWith(inputs.desktop, 'noctalia') && inputs.distro == 'all' && '["arch","cachyos","opensuse"]' || startsWith(inputs.desktop, 'noctalia') && inputs.distro == 'cachyos' && '["cachyos"]' || startsWith(inputs.desktop, 'noctalia') && inputs.distro == 'opensuse' && '["opensuse"]' || startsWith(inputs.desktop, 'noctalia') && '["arch"]' || github.event_name == 'pull_request' && '["arch"]' || inputs.distro == 'cachyos' && '["cachyos"]' || inputs.distro == 'arch' && '["arch"]' || inputs.distro == 'debian' && '["debian"]' || inputs.distro == 'fedora' && '["fedora"]' || inputs.distro == 'opensuse' && '["opensuse"]' || inputs.distro == 'rpm' && '["fedora","opensuse"]' || '["arch","debian","fedora","opensuse"]') }}
         desktop: ${{ fromJSON(inputs.desktop == 'noctalia-all' && '["noctalia","noctalia-niri","noctalia-mango"]' || inputs.desktop == 'noctalia-niri' && '["noctalia-niri"]' || inputs.desktop == 'noctalia-mango' && '["noctalia-mango"]' || inputs.desktop == 'noctalia' && '["noctalia"]' || '["none"]') }}
         layout: ${{ fromJSON(inputs.layout == 'both' && '["whole","alongside"]' || inputs.layout == 'alongside' && '["alongside"]' || '["whole"]') }}
         secure_boot: ${{ fromJSON(inputs.secure_boot == 'both' && '["0","1"]' || inputs.secure_boot == '1' && '["1"]' || '["0"]') }}

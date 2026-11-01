@@ -23,6 +23,7 @@ pub fn repository_key(source: &str, _release: &str) -> Result<Option<RepositoryK
         "fedora.rpmfusion-free" => "https://download1.rpmfusion.org/free/fedora/RPM-GPG-KEY-rpmfusion-free-fedora-2020".into(),
         "fedora.rpmfusion-nonfree" => "https://download1.rpmfusion.org/nonfree/fedora/RPM-GPG-KEY-rpmfusion-nonfree-fedora-2020".into(),
         "opensuse.packman" => "https://ftp.gwdg.de/pub/linux/misc/packman/suse/openSUSE_Tumbleweed/repodata/repomd.xml.key".into(),
+        "opensuse.mangowc" => "https://download.opensuse.org/repositories/home:/darix:/playground/openSUSE_Tumbleweed/repodata/repomd.xml.key".into(),
         "opensuse.nvidia" => "https://download.nvidia.com/opensuse/tumbleweed/repodata/repomd.xml.key".into(),
         _ => return Ok(None),
     };

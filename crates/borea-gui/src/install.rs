@@ -40,6 +40,8 @@ struct Message {
 pub struct NativeInstall {
     pub page: Page,
     derivative: Option<borea_core::ArchDerivative>,
+    /// The family being installed: Arch (and CachyOS) or openSUSE Tumbleweed.
+    distro: borea_core::Distribution,
     desktop: Desktop,
     pub disks: Vec<Disk>,
     pub pick: Option<Where>,
@@ -90,12 +92,25 @@ impl NativeInstall {
             self.desktop = desktop;
         }
     }
-    pub(crate) fn target(&mut self, cachyos: bool) {
-        let derivative = cachyos.then_some(borea_core::ArchDerivative::Cachyos);
-        if self.derivative != derivative && !self.busy() {
+    /// The distribution being installed, by its catalog id: "arch", "cachyos" or
+    /// "tumbleweed". Switching starts storage again.
+    pub(crate) fn target(&mut self, id: &str) {
+        let (distro, derivative) = match id {
+            "cachyos" => {
+                (borea_core::Distribution::Arch, Some(borea_core::ArchDerivative::Cachyos))
+            }
+            "tumbleweed" => (borea_core::Distribution::OpenSuse, None),
+            _ => (borea_core::Distribution::Arch, None),
+        };
+        if (self.distro, self.derivative) != (distro, derivative) && !self.busy() {
             self.reset_storage();
+            self.distro = distro;
             self.derivative = derivative;
         }
+    }
+    #[cfg(test)]
+    pub(crate) fn distro_for_test(&self) -> borea_core::Distribution {
+        self.distro
     }
     pub(crate) fn reset_storage(&mut self) {
         if self.busy() || self.page == Page::Finished {
@@ -286,6 +301,7 @@ impl NativeInstall {
         Self {
             page: Page::Storage,
             derivative: None,
+            distro: borea_core::Distribution::Arch,
             desktop: Desktop::HyprlandNoctalia,
             disks: vec![],
             pick: None,
@@ -413,14 +429,18 @@ impl NativeInstall {
                     linux_size: *size,
                 }
             }
-            None => return Err("Choose where Arch will be installed.".into()),
+            None => return Err("Choose where to install.".into()),
         };
         let plan = Plan {
             version: borea_core::PLAN_VERSION,
             encrypt: self.encrypt,
-            distro: borea_core::Distribution::Arch,
+            distro: self.distro,
             derivative: self.derivative,
-            release: "rolling".into(),
+            release: match self.distro {
+                borea_core::Distribution::OpenSuse => "tumbleweed",
+                _ => "rolling",
+            }
+            .into(),
             desktop: Some(self.desktop),
             env: "composed".into(),
             secure_boot: Some(self.secure_boot),
@@ -433,7 +453,12 @@ impl NativeInstall {
             apps: self.apps.clone(),
             addons: BTreeSet::new(),
             picks: vec![],
-            prefer: SourcePreference::Aur,
+            // The AUR first on Arch; Tumbleweed's own repositories, then Flathub.
+            prefer: if self.distro == borea_core::Distribution::Arch {
+                SourcePreference::Aur
+            } else {
+                SourcePreference::Native
+            },
             sources: Default::default(),
         };
         plan.validate_intent()

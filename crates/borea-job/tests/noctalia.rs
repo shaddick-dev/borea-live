@@ -535,3 +535,134 @@ fn aur_apps_are_reviewed_and_queued_after_login_on_all_six_desktops_and_both_lay
         }
     }
 }
+
+fn tumbleweed(desktop: Desktop, alongside: bool) -> Job {
+    let mut plan = common::plan(Distribution::OpenSuse, true);
+    plan.desktop = Some(desktop);
+    plan.env = "composed".into();
+    plan.secure_boot = Some(false);
+    plan.extras = ["gaming", "printing", "codecs", "flatpak"].map(str::to_owned).into();
+    plan.apps.insert("firefox".into());
+    let reference = scenario_desktop(alongside, plan.locale.clone(), false, desktop);
+    plan.disk = reference.plan.disk.clone();
+    let disk = Disk {
+        id: plan.disk.disk().clone(),
+        readonly: false,
+        in_use: false,
+        live: false,
+        removable: false,
+        transport: "virtio".into(),
+        parts: if alongside {
+            vec![
+                Partition {
+                    path: "/dev/vda1".into(),
+                    number: 1,
+                    uuid: "EFI".into(),
+                    start: GIB,
+                    size: GIB,
+                    fs: "vfat".into(),
+                    efi: true,
+                    free: Some(GIB / 2),
+                    bitlocker: false,
+                    ntfs_checked: false,
+                    ntfs_hibernated: false,
+                    ntfs_dirty: false,
+                    ntfs_min_size: None,
+                },
+                Partition {
+                    path: "/dev/vda3".into(),
+                    number: 3,
+                    uuid: "WINDOWS".into(),
+                    start: 3 * GIB,
+                    size: 90 * GIB,
+                    fs: "ntfs".into(),
+                    efi: false,
+                    free: None,
+                    bitlocker: false,
+                    ntfs_checked: true,
+                    ntfs_hibernated: false,
+                    ntfs_dirty: false,
+                    ntfs_min_size: Some(10 * GIB),
+                },
+            ]
+        } else {
+            vec![]
+        },
+    };
+    let bootstrap = borea_backend::Bootstrap {
+        distro: Distribution::OpenSuse,
+        release: "tumbleweed".into(),
+        artifact: Some(borea_backend::Artifact {
+            url: "https://example.org/tumbleweed.tar.xz".into(),
+            sha256: "a".repeat(64),
+            signature_url: "https://example.org/tumbleweed.sig".into(),
+            keyring: "/usr/share/keyrings/borea/opensuse.gpg".into(),
+            checksum: None,
+        }),
+    };
+    let mut hw = borea_catalog::hardware::samples().remove(0).1;
+    hw.secure_boot = false;
+    hw.gpus =
+        vec![borea_catalog::hardware::Gpu::new("0000:03:00.0", 0x8086, 0x56a0, "Intel Arc A770")];
+    compile(&plan, &hw, &DiskFacts { uefi: true, disks: vec![disk] }, &bootstrap).unwrap()
+}
+
+#[test]
+fn tumbleweed_installs_every_noctalia_compositor_from_its_own_packages_for_both_layouts() {
+    for desktop in [Desktop::HyprlandNoctalia, Desktop::NiriNoctalia, Desktop::MangoNoctalia] {
+        let recipe = desktop.noctalia().unwrap();
+        for alongside in [false, true] {
+            let job = tumbleweed(desktop, alongside);
+            let has = |source: &str, name: &str| {
+                job.review.packages.iter().any(|p| p.source == source && p.name == name)
+            };
+            let (source, package) = recipe.compositor_package(Distribution::OpenSuse).unwrap();
+            assert!(has(source, package), "{package} from {source}");
+            for other in borea_catalog::noctalia::RECIPES {
+                if other.compositor != recipe.compositor {
+                    let (_, name) = other.compositor_package(Distribution::OpenSuse).unwrap();
+                    assert!(!job.review.packages.iter().any(|p| p.name == name));
+                }
+            }
+            for name in borea_catalog::noctalia::base_packages(Distribution::OpenSuse) {
+                assert!(has("opensuse.oss", name), "{name}");
+            }
+            for name in recipe.packages {
+                assert!(has("opensuse.oss", name), "{name}");
+            }
+            // Arch's names never leak into a Tumbleweed install.
+            for name in ["pipewire-pulse", "ttf-dejavu", "mangowm", "lib32-gamemode"] {
+                assert!(!job.review.packages.iter().any(|p| p.name == name), "{name}");
+            }
+            assert!(has("opensuse.non-oss", "steam"));
+            assert!(has("opensuse.packman", "gstreamer-plugins-bad-codecs"));
+            assert!(has("opensuse.oss", "cups"));
+            let mango = job.review.packages.iter().any(|p| p.source == "opensuse.mangowc");
+            assert_eq!(mango, desktop == Desktop::MangoNoctalia);
+            assert!(
+                job.stages
+                    .iter()
+                    .all(|s| s.actions.iter().all(|a| !matches!(a, Action::DeferAur { .. })))
+            );
+            assert!(written(&job, "/etc/greetd/config.toml").contains("noctalia-greeter-session"));
+            let session = written(
+                &job,
+                &format!("/usr/share/wayland-sessions/borea-{}.desktop", recipe.compositor),
+            );
+            assert!(session.contains(recipe.session));
+            assert!(
+                written(&job, "/etc/dracut.conf.d/90-borea.conf")
+                    .contains("hostonly_cmdline=\"no\"")
+            );
+            assert!(
+                written(&job, "/etc/kernel/cmdline")
+                    .contains("rd.luks.name=${LUKS_UUID}=borea-root")
+            );
+            assert!(written(&job, "/etc/kernel/cmdline").contains("splash"));
+            let approved = borea_backend::external::resolve(&job.review).unwrap();
+            assert_eq!(approved.noctalia.as_deref(), Some("5"));
+            let script = job.render_script();
+            assert_eq!(script.contains(borea_backend::MANGOWC_REPOSITORY), mango);
+        }
+    }
+}

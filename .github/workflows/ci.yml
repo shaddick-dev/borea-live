@@ -79,6 +79,46 @@ jobs:
           runuser -u nobody -- env HOME="$runtime" mango -p -c "$configs/mango.conf"
           runuser -u nobody -- env HOME="$runtime" noctalia config validate "$configs/noctalia.toml"
 
+  noctalia-parsers-tumbleweed:
+    name: Noctalia compositor config parsers (Tumbleweed)
+    runs-on: ubuntu-24.04
+    container: opensuse/tumbleweed
+    steps:
+      - name: Native compositor packages
+        # MangoWC comes from the community OBS project Borea pins for Tumbleweed.
+        run: |
+          zypper -n install --no-recommends tar gzip git-core gcc rust cargo pkgconf \
+            hyprland niri noctalia
+          zypper -n addrepo --refresh \
+            https://download.opensuse.org/repositories/home:/darix:/playground/openSUSE_Tumbleweed/ mangowc
+          zypper -n --gpg-auto-import-keys refresh mangowc
+          zypper -n install --no-recommends mangowc
+          rpm -q hyprland niri noctalia mangowc
+          rpm -ql mangowc | grep -E '/bin/|wayland-sessions'
+          for p in plymouth-theme-spinner plymouth-branding-openSUSE; do zypper -n info "$p" | grep -E '^(Name|Version|Repository)'; done
+          rpm -qa 'gpg-pubkey*' --qf '%{SUMMARY} %{VERSION}-%{RELEASE}\n' | grep -i darix
+      - uses: actions/checkout@v4
+      - name: Generate the reviewed compositor configurations
+        env:
+          BOREA_COMPOSITOR_CONFIGS: ${{ runner.temp }}/noctalia-configs
+        run: cargo test --locked -p borea-job --test noctalia
+      - name: Parse as an unprivileged user with upstream binaries
+        run: |
+          set -eu
+          configs="$RUNNER_TEMP/noctalia-configs"
+          runtime="$RUNNER_TEMP/noctalia-runtime"
+          mkdir -p "$runtime"
+          chmod 755 "$configs"
+          chmod 644 "$configs"/*
+          chown nobody:nobody "$runtime"
+          chmod 700 "$runtime"
+          cd "$runtime"
+          export XDG_RUNTIME_DIR="$runtime"
+          runuser -u nobody -- env HOME="$runtime" niri validate -c "$configs/niri.kdl"
+          runuser -u nobody -- env HOME="$runtime" Hyprland --verify-config -c "$configs/hyprland.lua"
+          runuser -u nobody -- env HOME="$runtime" mango -p -c "$configs/mango.conf"
+          runuser -u nobody -- env HOME="$runtime" noctalia config validate "$configs/noctalia.toml"
+
   borea-command-arch:
     name: borea install on Arch
     runs-on: ubuntu-24.04
