@@ -2008,9 +2008,16 @@ impl Session {
                 borea_core::Distribution::Arch | borea_core::Distribution::Fedora => {
                     ("/usr/bin/update-ca-trust", vec!["extract".into()])
                 }
-                borea_core::Distribution::Debian | borea_core::Distribution::OpenSuse => {
-                    ("/usr/sbin/update-ca-certificates", vec![])
-                }
+                // Tumbleweed has merged sbin into bin; Debian keeps sbin.
+                borea_core::Distribution::Debian | borea_core::Distribution::OpenSuse => (
+                    ["/usr/sbin/update-ca-certificates", "/usr/bin/update-ca-certificates"]
+                        .into_iter()
+                        .find(|program| {
+                            Path::new(TARGET).join(program.trim_start_matches('/')).exists()
+                        })
+                        .unwrap_or("/usr/sbin/update-ca-certificates"),
+                    vec![],
+                ),
             };
             self.command(Root::Target, program, args, emit)?;
         }
