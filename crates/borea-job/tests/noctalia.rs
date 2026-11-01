@@ -237,35 +237,75 @@ fn region_choices_reach_shell_greeter_disk_unlock_and_system_for_both_layouts() 
 }
 
 #[test]
-fn noctalia_uses_upstream_shortcuts_without_borea_remaps() {
-    let job = scenario(false);
-    let config = written(&job, "/etc/skel/.config/hypr/hyprland.lua");
-    for (key, command) in [
-        ("SUPER + SPACE", "panel-toggle launcher"),
-        ("SUPER + S", "panel-toggle control-center"),
-        ("SUPER + comma", "settings-toggle"),
-        ("ALT + Tab", "window-switcher hold"),
-        ("XF86AudioRaiseVolume", "volume-up"),
-        ("XF86AudioLowerVolume", "volume-down"),
-        ("XF86AudioMute", "volume-mute"),
-        ("XF86MonBrightnessUp", "brightness-up"),
-        ("XF86MonBrightnessDown", "brightness-down"),
+fn every_compositor_follows_noctalias_guide_with_the_same_window_keys() {
+    let locale = common::plan(Distribution::Arch, true).locale;
+    let config = |desktop| {
+        let job = scenario_desktop(false, locale.clone(), false, desktop);
+        let path = match desktop {
+            Desktop::HyprlandNoctalia => "/etc/skel/.config/hypr/hyprland.lua",
+            Desktop::NiriNoctalia => "/etc/skel/.config/niri/config.kdl",
+            _ => "/etc/skel/.config/mango/config.conf",
+        };
+        (
+            written(&job, path).to_owned(),
+            written(&job, "/etc/skel/.config/noctalia/config.toml").to_owned(),
+        )
+    };
+    let (hyprland, hyprland_shell) = config(Desktop::HyprlandNoctalia);
+    let (niri, _) = config(Desktop::NiriNoctalia);
+    let (mango, mango_shell) = config(Desktop::MangoNoctalia);
+    // Noctalia's own sections: autostart, appearance, rules, blur, its keys.
+    for part in [
+        "hl.exec_cmd(\"noctalia\")",
+        "rounding = 20",
+        "persistent = true",
+        "dev.noctalia.Noctalia",
+        "blur_popups = true",
+        "\"panel-toggle launcher\"",
+        "\"window-switcher hold\"",
     ] {
-        assert!(
-            config.contains(&format!(
-                "hl.bind(\"{key}\", hl.dsp.exec_cmd(\"noctalia msg {command}\"))"
-            ))
-        );
+        assert!(hyprland.contains(part), "hyprland: {part}");
     }
-    for old in [
-        "SUPER + RETURN",
-        "SUPER + SHIFT + Q",
-        "SUPER + SHIFT + E",
-        "SUPER + SHIFT + S",
-        "SUPER + L",
+    for part in [
+        "spawn-at-startup \"noctalia\"",
+        "geometry-corner-radius 20",
+        "dev.noctalia.Noctalia",
+        "honor-xdg-activation-with-invalid-serial",
+        "^noctalia-wallpaper",
+        "background-effect",
+        "noctalia msg panel-toggle launcher",
+        "noctalia msg window-switcher hold",
     ] {
-        assert!(!config.contains(old), "unexpected Borea shortcut: {old}");
+        assert!(niri.contains(part), "niri: {part}");
     }
+    for part in [
+        "exec_once=noctalia",
+        "blur=1",
+        "layer_shadows=1",
+        "bind=SUPER,space,spawn,noctalia msg panel-toggle launcher",
+    ] {
+        assert!(mango.contains(part), "mango: {part}");
+    }
+    // Mango draws the shadows, so Noctalia's are off there only.
+    assert!(mango_shell.contains("[shell.panel]\nshadow = false"));
+    assert!(!hyprland_shell.contains("shadow = false"));
+    // The same small set of window keys everywhere, with the installed terminal.
+    for (config, terminal, close) in [
+        (
+            &hyprland,
+            "\"SUPER + T\", hl.dsp.exec_cmd(\"foot\")",
+            "\"SUPER + Q\", hl.dsp.window.close()",
+        ),
+        (&niri, "Mod+T { spawn \"foot\"; }", "Mod+Q repeat=false { close-window; }"),
+        (&mango, "bind=SUPER,t,spawn,foot", "bind=SUPER,q,killclient,"),
+    ] {
+        assert!(config.contains(terminal), "{terminal}");
+        assert!(config.contains(close), "{close}");
+    }
+    // None of the compositors' own example configurations.
+    assert!(!niri.contains("org.wezfurlong.wezterm"));
+    assert!(!mango.contains("rofi"));
+    assert!(!hyprland.contains("togglesplit"));
 }
 
 #[test]
@@ -327,6 +367,13 @@ fn cachyos_both_layouts_use_signed_upstream_packages_and_the_correct_kernel() {
         assert!(job.stages.iter().flat_map(|s|&s.actions).any(|a|matches!(a,Action::Run(c)if c.program=="/usr/share/libalpm/scripts/cachyos-branding" && c.args==["os-release"])));
         assert!(names.contains(&"mesa"));
         assert!(names.contains(&"vulkan-intel"));
+    }
+}
+#[test]
+fn cachyos_is_named_as_itself_while_installing() {
+    for (cachyos, name) in [(false, "Installing Arch Linux."), (true, "Installing CachyOS.")] {
+        let job = scenario_target(false, common::plan(Distribution::Arch, true).locale, cachyos);
+        assert!(job.stages.iter().any(|s| s.title == name), "{name}");
     }
 }
 #[test]

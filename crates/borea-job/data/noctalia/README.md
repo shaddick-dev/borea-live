@@ -1,10 +1,16 @@
 # Noctalia compositor templates
 
-- `niri.kdl`: [niri v26.04 default configuration](https://github.com/niri-wm/niri/blob/v26.04/resources/default-config.kdl), GPL-3.0-or-later.
-- `mango.conf`: [Mango 0.18.4 configuration](https://github.com/mangowm/mango/blob/76fd7ea207e287db504e28dd5cc44d690b417711/assets/config.conf), GPL-3.0.
+Each template follows Noctalia v5.4.1's guide for its compositor, all of it:
+autostart, appearance, window and layer rules, blur and shortcuts
+([guides](https://github.com/noctalia-dev/noctalia/tree/v5.4.1/docs/user/compositor-settings)).
+The compositors' own example configurations are not used.
 
-Borea applies the chosen keyboard layout/variant, uses the installed terminal,
-replaces uninstalled launchers/lockers, and adds the shortcuts documented by
-[Noctalia v5.4.1](https://github.com/noctalia-dev/noctalia/tree/v5.4.1/docs/user/compositor-settings).
-Other window/workspace defaults remain upstream. Optional blur and wallpaper
-customisations are not enabled by the installer.
+Noctalia defines no window-management keys, so Borea adds one small set shared
+by Hyprland, niri and MangoWC: Super+T terminal, Super+Q close, Super+1–9 and
+Super+Shift+1–9 workspaces, Super+arrows focus, Super+Shift+arrows move,
+Super+V float, Super+Shift+E log out. Borea also applies the chosen keyboard
+layout and variant.
+
+niri uses Noctalia's stationary-wallpaper option, which matches Noctalia's
+default of its backdrop section being off. Hyprland's template is in
+`crates/borea-job/src/noctalia.rs`.
