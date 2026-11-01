@@ -722,8 +722,15 @@ fn cachyos_uses_its_own_v3_repositories_ahead_of_arch_on_a_v3_cpu() {
     assert!(!queue.contains(borea_backend::cachyos::V3));
     let actions = job.stages.iter().flat_map(|s| &s.actions).collect::<Vec<_>>();
     let copy = actions.iter().position(|a| matches!(a, Action::CopyArchRepositories)).unwrap();
-    assert!(matches!(actions[copy + 1], Action::Run(c)
-        if c.program == "/usr/bin/pacman" && c.args == ["-Syu", "--noconfirm"]));
+    let network = actions.iter().position(|a| matches!(a, Action::CopyNetwork)).unwrap();
+    let upgrade = actions
+        .iter()
+        .position(|a| {
+            matches!(a, Action::Run(c)
+            if c.program == "/usr/bin/pacman" && c.args == ["-Syu", "--noconfirm"])
+        })
+        .unwrap();
+    assert!(copy < network && network < upgrade, "the upgrade needs repositories and DNS");
     // The bootstrap installs CachyOS's v3 mirror list with the system.
     let pacstrap = actions
         .iter()

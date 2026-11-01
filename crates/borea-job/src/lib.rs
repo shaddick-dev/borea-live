@@ -680,11 +680,14 @@ pub fn compile(
     }
     if cachyos {
         bootstrap_actions.push(Action::CopyArchRepositories);
-        // CachyOS replaces some Arch packages under new names (zlib with
-        // zlib-ng-compat); a full upgrade applies them, as on CachyOS itself.
-        bootstrap_actions.push(target("/usr/bin/pacman", ["-Syu", "--noconfirm"]));
     }
     bootstrap_actions.push(Action::CopyNetwork);
+    if cachyos {
+        // CachyOS replaces some Arch packages under new names (zlib with
+        // zlib-ng-compat); a full upgrade applies them, as on CachyOS itself.
+        // It needs the network copied in first.
+        bootstrap_actions.push(target("/usr/bin/pacman", ["-Syu", "--noconfirm"]));
+    }
     stages.push(Stage {
         title: format!("Installing {}.", plan.distro.name()),
         weight: 35,
