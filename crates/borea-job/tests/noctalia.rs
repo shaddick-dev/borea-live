@@ -729,3 +729,72 @@ fn tumbleweed_installs_every_noctalia_compositor_from_its_own_packages_for_both_
         }
     }
 }
+
+fn cachyos_on(x86_level: u8) -> Job {
+    let reference = scenario_target(false, common::plan(Distribution::Arch, true).locale, true);
+    let mut hw = borea_catalog::hardware::samples().remove(0).1;
+    hw.secure_boot = false;
+    hw.x86_level = x86_level;
+    let disk = Disk {
+        id: reference.plan.disk.disk().clone(),
+        readonly: false,
+        in_use: false,
+        live: false,
+        removable: false,
+        transport: "virtio".into(),
+        parts: vec![],
+    };
+    compile(
+        &reference.plan,
+        &hw,
+        &DiskFacts { uefi: true, disks: vec![disk] },
+        &reference.bootstrap,
+    )
+    .unwrap()
+}
+
+#[test]
+fn cachyos_uses_its_own_v3_repositories_ahead_of_arch_on_a_v3_cpu() {
+    let job = cachyos_on(3);
+    assert!(borea_backend::cachyos::optimised(&job.review.packages));
+    let conf = written(&job, "/etc/pacman.conf");
+    assert!(conf.contains("Architecture = x86_64 x86_64_v3\n"));
+    let at = |repo: &str| conf.find(&format!("[{repo}]")).unwrap();
+    assert!(at("cachyos-v3") < at("cachyos-core-v3"));
+    assert!(at("cachyos-core-v3") < at("cachyos-extra-v3"));
+    assert!(at("cachyos-extra-v3") < at("cachyos"));
+    assert!(at("cachyos") < at("core"));
+    // The mirror list and full upgrade happen before the first login, not after it.
+    let queue = written(&job, "/var/lib/borea/firstboot.json");
+    assert!(!queue.contains(borea_backend::cachyos::V3));
+    let actions = job.stages.iter().flat_map(|s| &s.actions).collect::<Vec<_>>();
+    let copy = actions.iter().position(|a| matches!(a, Action::CopyArchRepositories)).unwrap();
+    let network = actions.iter().position(|a| matches!(a, Action::CopyNetwork)).unwrap();
+    let upgrade = actions
+        .iter()
+        .position(|a| {
+            matches!(a, Action::Run(c)
+            if c.program == "/usr/bin/pacman" && c.args == ["-Syu", "--noconfirm"])
+        })
+        .unwrap();
+    assert!(copy < network && network < upgrade, "the upgrade needs repositories and DNS");
+    // The bootstrap installs CachyOS's v3 mirror list with the system.
+    let pacstrap = actions
+        .iter()
+        .find_map(|a| match a {
+            Action::Run(c) if c.program == "/usr/bin/pacstrap" => Some(c.args.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert!(pacstrap.iter().any(|p| p == borea_backend::cachyos::V3));
+}
+
+#[test]
+fn cachyos_keeps_its_generic_repository_on_an_older_cpu() {
+    let job = cachyos_on(2);
+    assert!(!borea_backend::cachyos::optimised(&job.review.packages));
+    let conf = written(&job, "/etc/pacman.conf");
+    assert!(conf.contains("Architecture = auto\n"));
+    assert!(!conf.contains("-v3]"));
+    assert!(conf.find("[cachyos]").unwrap() < conf.find("[core]").unwrap());
+}

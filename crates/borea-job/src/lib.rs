@@ -219,7 +219,10 @@ pub fn compile(
                 package.source = "arch.cachyos".into();
             }
         }
-        for name in borea_backend::cachyos::PACKAGES {
+        // An x86-64-v3 CPU takes CachyOS's optimised repositories, as CachyOS's
+        // own installer sets them up.
+        let v3 = (hw.x86_level >= 3).then_some(borea_backend::cachyos::V3);
+        for name in borea_backend::cachyos::PACKAGES.iter().chain(v3.iter()) {
             if !review.packages.iter().any(|p| p.name == *name) {
                 review.packages.push(borea_core::Package {
                     source: "arch.cachyos".into(),
@@ -227,7 +230,11 @@ pub fn compile(
                 });
             }
         }
-        review.warnings.push("CachyOS minimal: signed generic x86_64 CachyOS packages take priority over Arch repositories. CachyOS kernel, hooks and settings are required before reboot.".into());
+        review.warnings.push(if v3.is_some() {
+            "CachyOS minimal: CachyOS's signed x86-64-v3 repositories, then its generic repository, take priority over Arch's, as on CachyOS itself. Its kernel, hooks and settings are required before reboot.".into()
+        } else {
+            "CachyOS minimal: CachyOS's signed generic repository takes priority over Arch's; this CPU predates x86-64-v3. Its kernel, hooks and settings are required before reboot.".into()
+        });
     }
     if secure_boot && plan.distro == Distro::Arch {
         for name in ["sbctl", "sbsigntools", "systemd-ukify"] {
@@ -299,6 +306,7 @@ pub fn compile(
         mandatory.insert("flatpak".into());
         if cachyos {
             mandatory.extend(borea_backend::cachyos::PACKAGES.iter().map(|s| (*s).to_owned()));
+            mandatory.insert(borea_backend::cachyos::V3.into());
             // Kernel-matched NVIDIA modules must exist before the first login.
             mandatory.insert("linux-cachyos-nvidia-open".into());
         }
@@ -674,6 +682,12 @@ pub fn compile(
         bootstrap_actions.push(Action::CopyArchRepositories);
     }
     bootstrap_actions.push(Action::CopyNetwork);
+    if cachyos {
+        // CachyOS replaces some Arch packages under new names (zlib with
+        // zlib-ng-compat); a full upgrade applies them, as on CachyOS itself.
+        // It needs the network copied in first.
+        bootstrap_actions.push(target("/usr/bin/pacman", ["-Syu", "--noconfirm"]));
+    }
     stages.push(Stage {
         // CachyOS is in the Arch family, but it is CachyOS being installed.
         title: format!(
@@ -692,10 +706,13 @@ pub fn compile(
     let mut repos = vec![Action::ImportRepositoryKeys];
     match plan.distro {
         Distro::Arch => {
-            let overlay = if cachyos { borea_backend::cachyos::repositories() } else { "" };
+            let v3 = borea_backend::cachyos::optimised(&review.packages);
+            let overlay =
+                if cachyos { borea_backend::cachyos::repositories(v3) } else { String::new() };
+            let architecture = borea_backend::cachyos::architecture(cachyos && v3);
             let multilib = sources.contains_key("arch.multilib")
                 || plan.sources.get("arch.multilib") == Some(&true);
-            repos.push(write("/etc/pacman.conf",format!("[options]\nArchitecture = auto\nCheckSpace\nSigLevel = Required DatabaseOptional\nLocalFileSigLevel = Optional\n{overlay}[core]\nInclude = /etc/pacman.d/mirrorlist\n[extra]\nInclude = /etc/pacman.d/mirrorlist\n{}",if multilib{"[multilib]\nInclude = /etc/pacman.d/mirrorlist\n"}else{""}),0o644));
+            repos.push(write("/etc/pacman.conf",format!("[options]\nArchitecture = {architecture}\nCheckSpace\nSigLevel = Required DatabaseOptional\nLocalFileSigLevel = Optional\n{overlay}[core]\nInclude = /etc/pacman.d/mirrorlist\n[extra]\nInclude = /etc/pacman.d/mirrorlist\n{}",if multilib{"[multilib]\nInclude = /etc/pacman.d/mirrorlist\n"}else{""}),0o644));
         }
         Distro::Debian => {
             let mut components = vec!["main"];
