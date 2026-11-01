@@ -47,10 +47,40 @@ pub(crate) fn set_mode(path: &Path, mode: u32) -> Result<(), Hint> {
     }
     Ok(())
 }
+/// The system root's certificate directory, as the system itself sees it.
+/// Symlinks resolve inside `root`, as they would chrooted: Tumbleweed links
+/// /etc/ssl/certs to /var/lib/ca-certificates/pem, which a fresh target may not
+/// have filled yet, so it is created for the session's bind mount.
 pub(crate) fn certificate_directory(root: &Path) -> Result<std::path::PathBuf, Hint> {
     let root = std::fs::canonicalize(root).map_err(|e| hint("tls", e.to_string()))?;
-    let path = std::fs::canonicalize(root.join("etc/ssl/certs"))
-        .map_err(|e| hint("tls", e.to_string()))?;
+    let mut path = root.join("etc/ssl/certs");
+    let mut hops = 0;
+    while let Ok(link) = std::fs::read_link(&path) {
+        hops += 1;
+        if hops > 8 {
+            return Err(hint("tls", "The native certificate directory links in a loop."));
+        }
+        path = match link.strip_prefix("/") {
+            Ok(inside) => root.join(inside),
+            Err(_) => path.parent().map_or_else(|| root.clone(), Path::to_path_buf).join(link),
+        };
+    }
+    // Check the destination stays inside the root before creating anything.
+    let mut lexical = std::path::PathBuf::new();
+    for part in path.components() {
+        match part {
+            std::path::Component::ParentDir => {
+                lexical.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => lexical.push(other),
+        }
+    }
+    if !lexical.starts_with(&root) {
+        return Err(hint("tls", "The native certificate directory escapes its system root."));
+    }
+    std::fs::create_dir_all(&lexical).map_err(|e| hint("tls", e.to_string()))?;
+    let path = std::fs::canonicalize(&lexical).map_err(|e| hint("tls", e.to_string()))?;
     if !path.starts_with(&root) || !path.is_dir() {
         return Err(hint("tls", "The native certificate directory escapes its system root."));
     }
@@ -163,9 +193,15 @@ mod tests {
         let link = root.join("etc/ssl/certs");
         std::os::unix::fs::symlink("../../var/lib/ca-certificates/pem", &link)?;
         assert_eq!(certificate_directory(&root)?, root.join("var/lib/ca-certificates/pem"));
+        // Tumbleweed's absolute link resolves inside the root, and a fresh
+        // target's empty destination is created rather than failing.
+        std::fs::remove_dir_all(root.join("var"))?;
         std::fs::remove_file(&link)?;
-        std::os::unix::fs::symlink("/tmp", &link)?;
-        assert!(certificate_directory(&root).is_err());
+        std::os::unix::fs::symlink("/var/lib/ca-certificates/pem", &link)?;
+        assert_eq!(certificate_directory(&root)?, root.join("var/lib/ca-certificates/pem"));
+        std::fs::remove_file(&link)?;
+        std::os::unix::fs::symlink("../../../../../../../../tmp", &link)?;
+        assert!(certificate_directory(&root).is_err(), "relative links cannot climb out");
         std::fs::remove_file(&link)?;
         std::os::unix::fs::symlink("certs", &link)?;
         assert!(certificate_directory(&root).is_err());
