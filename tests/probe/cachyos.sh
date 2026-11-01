@@ -29,6 +29,15 @@ Include = /etc/pacman.d/mirrorlist
 Include = /etc/pacman.d/mirrorlist
 CONF
 pacman -Sy >/dev/null || { echo "SYNC FAILED"; pacman -Sy; }
+# CachyOS's own mirror lists, from its signed packages. $arch_v3 needs CachyOS's
+# pacman, so spell it out for stock pacman here.
+mkdir -p /tmp/ml && pacman -Sw --noconfirm --cachedir /tmp/ml cachyos-mirrorlist cachyos-v3-mirrorlist >/dev/null
+for f in /tmp/ml/cachyos-mirrorlist-*.pkg.tar.zst /tmp/ml/cachyos-v3-mirrorlist-*.pkg.tar.zst; do tar -xf "$f" -C / etc/pacman.d; done
+sed -i 's/\$arch_v3/x86_64_v3/g' /etc/pacman.d/cachyos-v3-mirrorlist
+echo "mirrors: $(grep -c '^Server' /etc/pacman.d/cachyos-mirrorlist) generic, $(grep -c '^Server' /etc/pacman.d/cachyos-v3-mirrorlist) v3"
+grep -m3 '^Server' /etc/pacman.d/cachyos-v3-mirrorlist
+pacman -Sy >/dev/null
+for p in pacman pacman-mirrorlist; do printf '%s: ' "$p"; pacman -Si "$p" 2>/dev/null | awk -F': ' '/^Repository/&&!r{r=$2}/^Version/&&!v{v=$2}END{print r" "v}'; done
 echo "== Where each package comes from"
 for p in base zlib zlib-ng-compat systemd glibc mangowm scenefx scenefx0.5 hyprland niri noctalia noctalia-greeter greetd linux-cachyos cachyos-settings cachyos-hooks cachyos-keyring cachyos-mirrorlist cachyos-v3-mirrorlist xdg-desktop-portal-wlr foot plymouth; do
   printf '%s: ' "$p"; pacman -Si "$p" 2>/dev/null | awk -F': ' '/^Repository/&&!r{r=$2}/^Version/&&!v{v=$2}END{print (r?r" "v:"NOT FOUND")}'
@@ -43,4 +52,4 @@ pacman -r "$root" -Sy --noconfirm --noscriptlet --hookdir /tmp/nohooks \
 pacman -r "$root" -Q zlib zlib-ng-compat scenefx scenefx0.5 mangowm glibc systemd 2>&1
 for p in glibc systemd mangowm; do printf '%s from: ' "$p"; grep -m1 -E "downloading $p-[0-9]" /tmp/install.log || echo "?"; done
 pacman -r "$root" -Syu --noconfirm --noscriptlet --hookdir /tmp/nohooks >/tmp/upgrade.log 2>&1 \
-  && echo "-Syu OK: $(grep -cE '^ *\(' /tmp/upgrade.log) steps" || { echo "-Syu FAILED"; tail -15 /tmp/upgrade.log; }
+  && { echo "-Syu OK"; grep -iE "replace|upgrading|installing" /tmp/upgrade.log | head -20; } || { echo "-Syu FAILED"; tail -20 /tmp/upgrade.log; }
