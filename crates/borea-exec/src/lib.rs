@@ -2197,6 +2197,7 @@ fn zypper_version(info: &str) -> Option<&str> {
         (key.trim() == "Version").then(|| value.trim()).filter(|v| !v.is_empty())
     })
 }
+pub mod courtesy;
 pub mod postinstall;
 pub mod system;
 

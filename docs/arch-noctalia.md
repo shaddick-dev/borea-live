@@ -32,7 +32,7 @@ when MangoWC is chosen.
 | --- | --- | --- |
 | Packages | Signed Arch (and CachyOS) repositories; AUR first for apps | OSS, non-OSS for Steam, Packman for codecs, OBS for MangoWC; Flathub for apps |
 | Boot | systemd-boot, mkinitcpio | systemd-boot via `sdbootutil`, dracut |
-| Extra apps | Quietly after first login | During installation (Flatpak after first login) |
+| Extra apps | Quietly after first login | Quietly after first login |
 
 Hyprland is 0.56.2 on Tumbleweed and 0.57 on Arch; both read the same
 `hyprland.lua`, which CI checks against each.
@@ -42,6 +42,26 @@ Hyprland is 0.56.2 on Tumbleweed and 0.57 on Arch; both read the same
 - Secure Boot is optional. Graphical login requires a password; no TTY setup or autologin.
 - The desktop, drivers, audio, portals and greeter install before reboot.
 - Selected extra apps finish quietly after the account's first active Wayland login: AUR first, official packages next, Flatpak as fallback. Transactions are checkpointed and retried.
+
+## Apps after the first login
+
+The apps and extras chosen while installing finish quietly after the first
+graphical login, on every family, through the same worker `borea` uses. It
+gives way to whoever is using the system:
+
+- It never starts while pacman, an AUR helper, zypper or PackageKit is running;
+  it waits, holding no lock.
+- On Arch and CachyOS it downloads first through a private copy of pacman's
+  database, so the system's lock is free while it downloads; it holds the lock
+  only to install. AUR packages build as Borea's unprivileged account, with no
+  lock and no sudo.
+- On Tumbleweed its zypper waits for the lock instead of failing, and a
+  person's `sudo zypper` waits up to five minutes for Borea's instead of
+  failing (`ZYPP_LOCK_TIMEOUT`).
+- A pacman lock left by an interrupted transaction, with no package manager
+  running, is removed, as pacman advises.
+
+`borea st` shows where it is.
 
 ## The borea command
 

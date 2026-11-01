@@ -309,9 +309,9 @@ pub fn compile(
         Distro::OpenSuse => Some("glibc-locale".into()),
         _ => None,
     };
-    if let Some(name) = locale_package {
-        if !review.packages.iter().any(|p| p.name == name) {
-            review.packages.push(borea_core::Package { source: base.into(), name });
+    if let Some(name) = &locale_package {
+        if !review.packages.iter().any(|p| &p.name == name) {
+            review.packages.push(borea_core::Package { source: base.into(), name: name.clone() });
         }
     }
     review.packages.sort_by(|a, b| (&a.source, &a.name).cmp(&(&b.source, &b.name)));
@@ -340,6 +340,8 @@ pub fn compile(
             mandatory.extend(["sbctl", "sbsigntools", "systemd-ukify"].map(str::to_owned));
         }
         mandatory.insert("flatpak".into());
+        // The chosen language must be there at the first login.
+        mandatory.extend(locale_package.clone());
         if cachyos {
             mandatory.extend(borea_backend::cachyos::PACKAGES.iter().map(|s| (*s).to_owned()));
             mandatory.insert(borea_backend::cachyos::V3.into());
@@ -350,7 +352,10 @@ pub fn compile(
             review
                 .packages
                 .iter()
-                .filter(|p| p.source.starts_with("arch.") && !mandatory.contains(&p.name))
+                .filter(|p| {
+                    p.source.starts_with(&format!("{}.", plan.distro.key()))
+                        && !mandatory.contains(&p.name)
+                })
                 .map(|p| p.name.clone()),
         );
     }
@@ -936,6 +941,19 @@ pub fn compile(
         config.push(target("/usr/bin/postgresql-setup", ["--initdb", "--unit", "postgresql"]));
     }
     if plan.distro == Distro::OpenSuse {
+        // While Borea's worker installs, a person's `sudo zypper` waits for it
+        // rather than failing on the lock.
+        config.push(write(
+            "/etc/profile.d/borea-zypper.sh",
+            borea_backend::ZYPP_PROFILE.into(),
+            0o644,
+        ));
+        config.push(write(
+            "/etc/sudoers.d/20-borea-zypper",
+            borea_backend::ZYPP_SUDOERS.into(),
+            0o440,
+        ));
+        config.push(target("/usr/sbin/visudo", ["-cf", "/etc/sudoers.d/20-borea-zypper"]));
         config.push(write("/etc/snapper/configs/root", "SUBVOLUME=\"/\"\nFSTYPE=\"btrfs\"\nTIMELINE_CREATE=\"yes\"\nTIMELINE_CLEANUP=\"yes\"\nNUMBER_CLEANUP=\"yes\"\nNUMBER_LIMIT=\"50\"\n".into(),0o640));
         config.push(write("/etc/sysconfig/snapper", "SNAPPER_CONFIGS=\"root\"\n".into(), 0o644));
         config.push(target(
@@ -1019,8 +1037,15 @@ pub fn compile(
     if composed {
         let mut queue = Vec::new();
         if !deferred_native.is_empty() {
-            queue.push(serde_json::json!({"program":"/usr/bin/pacman", "args":
-                (["-Syu", "--needed", "--noconfirm", "--"].into_iter().map(str::to_owned)
+            let (program, flags): (&str, &[&str]) = match plan.distro {
+                Distro::OpenSuse => (
+                    "/usr/bin/zypper",
+                    &["--non-interactive", "install", "--auto-agree-with-licenses", "--"],
+                ),
+                _ => ("/usr/bin/pacman", &["-Syu", "--needed", "--noconfirm", "--"]),
+            };
+            queue.push(serde_json::json!({"program": program, "args":
+                (flags.iter().map(|s| (*s).to_owned())
                     .chain(deferred_native.iter().cloned()).collect::<Vec<_>>()) }));
         }
         if let Some(packages) = sources.get("aur") {

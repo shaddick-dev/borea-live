@@ -172,9 +172,13 @@ pub fn resolve_pinned(
 }
 
 fn run(program: &str, args: &[&str]) -> Result<(), Hint> {
+    if program != "/usr/bin/flatpak" {
+        crate::courtesy::wait_for_quiet();
+    }
     let status = Command::new(program)
         .args(args)
         .env("DEBIAN_FRONTEND", "noninteractive")
+        .env(crate::courtesy::ZYPP_WAIT, "-1")
         .status()
         .map_err(|e| err(format!("{program}: {e}")))?;
     status.success().then_some(()).ok_or_else(|| err(format!("{program} failed.")))

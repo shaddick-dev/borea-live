@@ -116,6 +116,10 @@ pub fn boot_packages(d: Distro) -> &'static [&'static str] {
         ],
     }
 }
+/// zypper waits up to five minutes for a lock instead of failing: a person's
+/// `sudo zypper` while Borea's worker installs.
+pub const ZYPP_PROFILE: &str = "# Borea: wait for a running package transaction instead of failing.\nexport ZYPP_LOCK_TIMEOUT=300\n";
+pub const ZYPP_SUDOERS: &str = "Defaults env_keep += \"ZYPP_LOCK_TIMEOUT\"\n";
 /// MangoWC for Tumbleweed: a community OBS project, pinned by its key's digest at
 /// review like Packman. See borea-catalog's "opensuse.mangowc" repository.
 pub const MANGOWC_REPOSITORY: &str =
