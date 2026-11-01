@@ -56,6 +56,19 @@ pub enum Origin {
     },
 }
 
+/// Which source an install may use: any (Borea chooses), or only one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Pin {
+    #[default]
+    Any,
+    /// `-n`: this system's own repositories.
+    Native,
+    /// `-a`: the AUR (Arch only).
+    Aur,
+    /// `-f`: Flathub.
+    Flatpak,
+}
+
 /// What a name means, in order: a Borea extra (gaming, codecs, printing,
 /// flatpak), an app from Borea's catalog by id or name, then any package the
 /// system's own repositories have, then the AUR on Arch, then a Flathub app id.
@@ -66,6 +79,56 @@ pub fn resolve(
     aur: &dyn Fn(&str) -> bool,
     flathub: &dyn Fn(&str) -> bool,
 ) -> Result<Origin, Hint> {
+    resolve_pinned(name, distro, Pin::Any, native, aur, flathub)
+}
+/// As `resolve`, keeping to one source when pinned. A catalog app pinned to a
+/// source uses that source's package or app id; any other name must exist there.
+pub fn resolve_pinned(
+    name: &str,
+    distro: Distro,
+    pin: Pin,
+    native: &dyn Fn(&str) -> bool,
+    aur: &dyn Fn(&str) -> bool,
+    flathub: &dyn Fn(&str) -> bool,
+) -> Result<Origin, Hint> {
+    if pin == Pin::Aur && distro != Distro::Arch {
+        return Err(err("The AUR is only for Arch and CachyOS."));
+    }
+    if pin != Pin::Any {
+        let wanted = name.to_ascii_lowercase();
+        if let Some(app) = borea_catalog::APPS
+            .iter()
+            .find(|a| a.id == wanted || a.name.to_ascii_lowercase() == wanted)
+        {
+            let found = borea_catalog::resolve::candidates(app, distro, Prefer::Native)
+                .into_iter()
+                .find(|(source, _)| match pin {
+                    Pin::Native => matches!(source, Source::Repo(_)),
+                    Pin::Aur => *source == Source::Aur,
+                    _ => *source == Source::Flathub,
+                });
+            return match found {
+                Some((Source::Repo(_), p)) => Ok(Origin::Native { packages: vec![p.into()] }),
+                Some((Source::Aur, p)) => Ok(Origin::Aur { package: p.into() }),
+                Some((_, id)) => Ok(Origin::Flathub { id: id.into() }),
+                None => Err(err(format!("{} isn't offered there for this system.", app.name))),
+            };
+        }
+        if !borea_backend::external::identifier(name) {
+            return Err(err(format!("{name} is not a package name.")));
+        }
+        return match pin {
+            Pin::Native if native(name) => Ok(Origin::Native { packages: vec![name.into()] }),
+            Pin::Aur if aur(name) => Ok(Origin::Aur { package: name.into() }),
+            Pin::Flatpak if name.contains('.') && flathub(name) => {
+                Ok(Origin::Flathub { id: name.into() })
+            }
+            Pin::Flatpak if !name.contains('.') => Err(err(format!(
+                "{name} isn't in Borea's catalog. Give its Flathub app id (try `borea s {name}`)."
+            ))),
+            _ => Err(err(format!("{name} isn't there."))),
+        };
+    }
     if let Some(packages) = borea_catalog::groups::extra_packages(distro, name) {
         return Ok(Origin::Native {
             packages: packages.into_iter().map(|(_, p)| p.to_owned()).collect(),
@@ -209,10 +272,21 @@ pub(crate) fn remember(name: &str, origin: Origin) -> Result<(), Hint> {
     persist(path, &serde_json::to_vec_pretty(&all).map_err(|e| err(e.to_string()))?, 0o644)
 }
 
-fn install_one(distro: Distro, name: &str) -> Result<Origin, Hint> {
-    let origin = resolve(
+fn lookup(distro: Distro, name: &str, pin: Pin) -> Result<Origin, Hint> {
+    resolve_pinned(
         name,
         distro,
+        pin,
+        &|n| in_repositories(distro, n),
+        &|n| borea_backend::external::verify_source("aur", n).is_ok(),
+        &|n| borea_backend::external::flathub(n).is_ok(),
+    )
+}
+fn install_one(distro: Distro, name: &str, pin: Pin) -> Result<Origin, Hint> {
+    let origin = resolve_pinned(
+        name,
+        distro,
+        pin,
         &|n| in_repositories(distro, n),
         &|n| borea_backend::external::verify_source("aur", n).is_ok(),
         &|n| borea_backend::external::flathub(n).is_ok(),
@@ -235,12 +309,12 @@ fn describe(origin: &Origin) -> String {
     }
 }
 
-/// `borea install NAME…`
-pub fn install(names: &[String]) -> Result<(), Hint> {
+/// `borea in [-n|-a|-f] NAME…`
+pub fn install(names: &[String], pin: Pin) -> Result<(), Hint> {
     let distro = this_system()?;
     let mut failed = Vec::new();
     for name in names {
-        match install_one(distro, name) {
+        match install_one(distro, name, pin) {
             Ok(origin) => println!("Installed {name} {}.", describe(&origin)),
             Err(e) => {
                 eprintln!("{name}: {}", e.message);
@@ -279,6 +353,114 @@ pub fn remove(names: &[String]) -> Result<(), Hint> {
     }
     Ok(())
 }
+/// `borea which NAME…`: where each would come from, installing nothing.
+pub fn which(names: &[String], pin: Pin) -> Result<(), Hint> {
+    let distro = this_system()?;
+    let added = record();
+    for name in names {
+        match lookup(distro, name, pin) {
+            Ok(origin) => println!(
+                "{name}: {}{}",
+                describe(&origin),
+                if added.contains_key(&name.to_ascii_lowercase()) {
+                    " — added by Borea"
+                } else {
+                    ""
+                }
+            ),
+            Err(e) => println!("{name}: {}", e.message),
+        }
+    }
+    Ok(())
+}
+/// `borea s TERM`: Borea's catalog, this system's repositories, the AUR on
+/// Arch, and Flathub when Flatpak is installed.
+pub fn search(term: &str) -> Result<(), Hint> {
+    let distro = this_system()?;
+    let wanted = term.to_ascii_lowercase();
+    let catalog = borea_catalog::APPS
+        .iter()
+        .filter(|a| {
+            a.id.contains(&wanted)
+                || a.name.to_ascii_lowercase().contains(&wanted)
+                || a.what.to_ascii_lowercase().contains(&wanted)
+        })
+        .collect::<Vec<_>>();
+    if !catalog.is_empty() {
+        println!("Borea's catalog (borea in NAME):");
+        for app in catalog {
+            println!("  {:22} {}", app.id, app.what);
+        }
+    }
+    let heading = |title: &str| println!("\n{title}:");
+    let show = |program: &str, args: &[&str]| {
+        let _ = Command::new(program).args(args).status();
+    };
+    heading("This system's repositories (borea in -n NAME)");
+    match distro {
+        Distro::Arch => show("/usr/bin/pacman", &["-Ss", "--", term]),
+        Distro::OpenSuse => {
+            show("/usr/bin/zypper", &["--non-interactive", "--no-refresh", "search", term])
+        }
+        Distro::Fedora => show("/usr/bin/dnf", &["-q", "search", term]),
+        Distro::Debian => show("/usr/bin/apt-cache", &["search", term]),
+    }
+    if distro == Distro::Arch && borea_backend::external::identifier(term) {
+        heading("The AUR (borea in -a NAME)");
+        for (name, what) in
+            borea_backend::external::aur_search(term).unwrap_or_default().into_iter().take(20)
+        {
+            println!("  {name:30} {what}");
+        }
+    }
+    if Path::new("/usr/bin/flatpak").is_file() {
+        heading("Flathub (borea in -f APP-ID)");
+        show("/usr/bin/flatpak", &["search", "--columns=application,name,description", term]);
+    }
+    Ok(())
+}
+/// `borea up`: the system, the AUR packages Borea added, and Flatpak apps.
+pub fn update() -> Result<(), Hint> {
+    let distro = this_system()?;
+    match distro {
+        Distro::Arch => run("/usr/bin/pacman", &["-Syu", "--noconfirm"])?,
+        Distro::OpenSuse => run(
+            "/usr/bin/zypper",
+            &["--non-interactive", "dist-upgrade", "--auto-agree-with-licenses"],
+        )?,
+        Distro::Fedora => run("/usr/bin/dnf", &["-y", "upgrade", "--refresh"])?,
+        Distro::Debian => {
+            run("/usr/bin/apt-get", &["update"])?;
+            run("/usr/bin/apt-get", &["-y", "full-upgrade"])?;
+        }
+    }
+    for (name, origin) in record() {
+        if let Origin::Aur { package } = origin {
+            if aur_outdated(&package) {
+                println!("Updating {name} from the AUR.");
+                aur_install(&package)?;
+            }
+        }
+    }
+    if Path::new("/usr/bin/flatpak").is_file() {
+        run("/usr/bin/flatpak", &["update", "--system", "--noninteractive", "-y"])?;
+    }
+    println!("Up to date.");
+    Ok(())
+}
+/// Whether the AUR has a different version than the one installed.
+fn aur_outdated(package: &str) -> bool {
+    let installed = Command::new("/usr/bin/pacman")
+        .args(["-Q", "--", package])
+        .output()
+        .ok()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout).split_whitespace().nth(1).unwrap_or("").to_owned()
+        })
+        .unwrap_or_default();
+    borea_backend::external::aur_version(package).is_ok_and(|v| v != installed)
+}
+
 /// `borea list`
 pub fn list() -> Result<(), Hint> {
     let all = record();
@@ -301,6 +483,33 @@ mod tests {
         let all: BTreeMap<String, Origin> = serde_json::from_str(written).unwrap();
         assert_eq!(all["vesktop"], Origin::Aur { package: "vesktop-bin".into() });
         assert_eq!(all["spotify"], Origin::Flathub { id: "com.spotify.Client".into() });
+    }
+    #[test]
+    fn pinned_sources_keep_to_their_source() {
+        let no = |_: &str| false;
+        let yes = |_: &str| true;
+        // A catalog app pinned to Flathub uses its Flathub id, by name.
+        assert_eq!(
+            resolve_pinned("Vesktop", Distro::Arch, Pin::Flatpak, &no, &no, &no).unwrap(),
+            Origin::Flathub { id: "dev.vencord.Vesktop".into() }
+        );
+        assert_eq!(
+            resolve_pinned("vesktop", Distro::Arch, Pin::Aur, &no, &no, &no).unwrap(),
+            Origin::Aur { package: "vesktop-bin".into() }
+        );
+        assert!(resolve_pinned("vesktop", Distro::OpenSuse, Pin::Aur, &no, &yes, &no).is_err());
+        // Any other name must exist in the pinned source.
+        assert_eq!(
+            resolve_pinned("htop", Distro::OpenSuse, Pin::Native, &yes, &no, &no).unwrap(),
+            Origin::Native { packages: vec!["htop".into()] }
+        );
+        assert!(resolve_pinned("htop", Distro::OpenSuse, Pin::Native, &no, &yes, &yes).is_err());
+        assert!(
+            resolve_pinned("org.example.App", Distro::Arch, Pin::Flatpak, &yes, &yes, &yes).is_ok()
+        );
+        let message =
+            resolve_pinned("someapp", Distro::Arch, Pin::Flatpak, &no, &no, &yes).unwrap_err();
+        assert!(message.message.contains("borea s someapp"));
     }
     #[test]
     fn os_release_names_the_family() {

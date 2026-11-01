@@ -45,24 +45,29 @@ Hyprland is 0.56.2 on Tumbleweed and 0.57 on Arch; both read the same
 
 ## The borea command
 
-Every system Borea installs has `borea`, for adding and removing software the
-same way on Arch, CachyOS and Tumbleweed:
+Every system Borea installs has `borea`, the same on Arch, CachyOS and
+Tumbleweed:
 
-```sh
-sudo borea install firefox vesktop     # Borea's catalog, by name or id
-sudo borea install gaming              # an extra: Gaming, codecs, printing, Flatpak
-sudo borea install htop                # any package: this system's repositories,
-sudo borea install yay-bin             #   then the AUR (Arch), then Flathub by app id
-sudo borea remove vesktop              # only what Borea added
-borea list                             # what Borea added, and where from
-borea status                           # the apps chosen while installing
-```
+| Command | Aliases | Does |
+| --- | --- | --- |
+| `borea in NAME…` | `install`, `i` | Install apps, extras or any package |
+| `borea in -f NAME` | `--flatpak` | Only from Flathub: a catalog app by name, or an app id |
+| `borea in -a NAME` | `--aur` | Only from the AUR (Arch, CachyOS) |
+| `borea in -n NAME` | `--native` | Only from this system's repositories |
+| `borea rm NAME…` | `remove`, `uninstall` | Remove what Borea added, nothing else |
+| `borea ls` | `list` | What Borea added, and where from |
+| `borea s TERM` | `search` | Borea's catalog, the repositories, the AUR and Flathub |
+| `borea up` | `update` | The system, Borea's AUR apps and Flatpaks |
+| `borea which NAME…` | `info` | Where each would come from, installing nothing |
+| `borea st` | `status` | The apps chosen while installing |
 
-Catalog apps come from the AUR first on Arch and CachyOS, and from the system's
-own repositories elsewhere, with Flathub as the fallback. AUR packages build as
-Borea's unprivileged build account, each archive pinned to the digest read
-before building. The apps and extras chosen while installing are recorded too,
-so `borea remove` works for them.
+Without a source option, `borea in` looks in Borea's catalog first (by name or
+id: the AUR first on Arch and CachyOS, the system's own repositories elsewhere,
+then Flathub), then this system's repositories, then the AUR on Arch, then a
+Flathub app id. AUR packages build as Borea's unprivileged build account, each
+archive pinned to the digest read before building. The apps and extras chosen
+while installing are recorded too, so `borea rm` works for them. Changing the
+system needs root: `sudo borea in firefox`.
 
 ## Shortcuts and region
 

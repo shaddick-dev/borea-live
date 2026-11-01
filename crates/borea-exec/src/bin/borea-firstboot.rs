@@ -18,29 +18,85 @@ fn report(result: Result<(), borea_core::Hint>) -> std::process::ExitCode {
 const USAGE: &str = "\
 borea — this system's apps, the Borea way.
 
-Usage: borea COMMAND
+Usage: borea COMMAND [OPTIONS] [NAME…]
 
-  install NAME…   Add apps, extras or any package: Borea's catalog first (by name
-                  or id), then this system's repositories, then the AUR on Arch,
-                  then Flathub by app id (as root)
-  remove NAME…    Remove what Borea added, nothing else (as root)
-  list            What Borea added, and where from
-  status          The apps chosen at installation: installed, waiting or retrying
+  in NAME…        Install apps, extras or any package (install, i)
+  rm NAME…        Remove what Borea added, nothing else (remove, uninstall)
+  ls              What Borea added, and where from (list)
+  s TERM          Search Borea's catalog, this system's repositories, the AUR
+                  and Flathub (search)
+  up              Update the system, Borea's AUR apps and Flatpaks (update)
+  which NAME…     Where each would come from, installing nothing (info)
+  st              The apps chosen while installing (status)
 
-Installed by Borea; the apps chosen while installing finish quietly after the
-first login (borea-firstboot.service).";
+Where `in` and `which` look, unless told:
+  Borea's catalog by name or id (the AUR first on Arch, the system's own
+  repositories elsewhere, then Flathub), then this system's repositories, then
+  the AUR on Arch, then a Flathub app id.
+
+  -n, --native    Only this system's repositories
+  -a, --aur       Only the AUR (Arch and CachyOS)
+  -f, --flatpak   Only Flathub: a catalog app by name, or a Flathub app id
+  -y, --yes       Accepted; Borea never asks
+
+Changing the system needs root: sudo borea in firefox";
+/// The source flags and names after a command.
+fn split(args: &[String]) -> Result<(borea_exec::system::Pin, Vec<String>), String> {
+    use borea_exec::system::Pin;
+    let mut pin = Pin::Any;
+    let mut names = Vec::new();
+    for arg in args {
+        let next = match arg.as_str() {
+            "-n" | "--native" => Pin::Native,
+            "-a" | "--aur" => Pin::Aur,
+            "-f" | "--flatpak" => Pin::Flatpak,
+            "-y" | "--yes" | "--noconfirm" => continue,
+            flag if flag.starts_with('-') => return Err(format!("Unknown option {flag}.")),
+            name => {
+                names.push(name.to_owned());
+                continue;
+            }
+        };
+        if pin != Pin::Any && pin != next {
+            return Err("Choose one source: -n, -a or -f.".into());
+        }
+        pin = next;
+    }
+    Ok((pin, names))
+}
 fn main() -> std::process::ExitCode {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
-    match args.first().map(String::as_str) {
+    let command = args.first().map(String::as_str);
+    let rest = args.get(1..).unwrap_or_default();
+    let (pin, names) = match split(rest) {
+        Ok(parsed) => parsed,
+        Err(message) => {
+            eprintln!("{message}\n\n{USAGE}");
+            return std::process::ExitCode::FAILURE;
+        }
+    };
+    match command {
         Some("--help" | "-h" | "help") | None
-            if args.len() <= 1 && !invoked_as("borea-firstboot") =>
+            if rest.is_empty() && !invoked_as("borea-firstboot") =>
         {
             println!("{USAGE}");
             return std::process::ExitCode::SUCCESS;
         }
-        Some("list") if args.len() == 1 => return report(borea_exec::system::list()),
-        Some("status") if args.len() == 1 => {
+        Some("ls" | "list") if rest.is_empty() => return report(borea_exec::system::list()),
+        Some("st" | "status") if rest.is_empty() => {
             return report(borea_exec::postinstall::show_status());
+        }
+        Some("which" | "info") if !names.is_empty() => {
+            return report(borea_exec::system::which(&names, pin));
+        }
+        Some("rm" | "remove" | "uninstall") if pin != borea_exec::system::Pin::Any => {
+            eprintln!(
+                "`borea rm` removes what Borea added, from wherever it came; it takes no -n, -a or -f."
+            );
+            return std::process::ExitCode::FAILURE;
+        }
+        Some("s" | "search") if names.len() == 1 && pin == borea_exec::system::Pin::Any => {
+            return report(borea_exec::system::search(&names[0]));
         }
         _ => {}
     }
@@ -64,11 +120,20 @@ fn main() -> std::process::ExitCode {
         return std::process::ExitCode::SUCCESS;
     }
     match args.as_slice() {
-        [command, names @ ..] if command == "install" && !names.is_empty() => {
-            report(borea_exec::system::install(names))
+        [command, ..]
+            if matches!(command.as_str(), "in" | "i" | "install") && !names.is_empty() =>
+        {
+            report(borea_exec::system::install(&names, pin))
         }
-        [command, names @ ..] if command == "remove" && !names.is_empty() => {
-            report(borea_exec::system::remove(names))
+        [command, ..]
+            if matches!(command.as_str(), "rm" | "remove" | "uninstall")
+                && !names.is_empty()
+                && pin == borea_exec::system::Pin::Any =>
+        {
+            report(borea_exec::system::remove(&names))
+        }
+        [command] if matches!(command.as_str(), "up" | "update") => {
+            report(borea_exec::system::update())
         }
         [] => report(borea_exec::postinstall::firstboot()),
         [command] if command == "apps" => report(borea_exec::postinstall::firstboot()),
@@ -84,5 +149,22 @@ fn main() -> std::process::ExitCode {
             eprintln!("Unknown command.\n\n{USAGE}");
             std::process::ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use borea_exec::system::Pin;
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| (*s).to_owned()).collect()
+    }
+    #[test]
+    fn source_flags_and_names_split_in_any_order() {
+        assert_eq!(split(&args(&["-f", "firefox"])), Ok((Pin::Flatpak, args(&["firefox"]))));
+        assert_eq!(split(&args(&["htop", "--native", "-y"])), Ok((Pin::Native, args(&["htop"]))));
+        assert_eq!(split(&args(&["-a", "yay-bin", "-a"])), Ok((Pin::Aur, args(&["yay-bin"]))));
+        assert!(split(&args(&["-a", "-f", "x"])).is_err(), "one source at a time");
+        assert!(split(&args(&["--bogus"])).is_err());
     }
 }
