@@ -3016,6 +3016,21 @@ fn showcase(dir: &std::path::Path, animate: bool) -> Result<(), Box<dyn std::err
     capture(&app, &dir.join("storage.png"), 1120, 753)?;
     app.bridge.command("whole/0");
     app.bridge.next();
+    // Tumbleweed Minimal composes Noctalia v5 with any of the three compositors.
+    let mut tumbleweed = make(false);
+    tumbleweed.bridge.app.go(Step::System);
+    let opensuse = Family::ALL.iter().position(|f| *f == Family::Opensuse).unwrap_or(3);
+    tumbleweed.bridge.command(&format!("family/{opensuse}"));
+    tumbleweed.bridge.command("distro/0");
+    let minimal =
+        tumbleweed.bridge.app.distro().editions.iter().position(|e| e.composable).unwrap_or(0);
+    tumbleweed.bridge.command(&format!("edition/{minimal}"));
+    capture(&tumbleweed, &dir.join("tumbleweed-distribution.png"), 1120, 753)?;
+    tumbleweed.bridge.next();
+    tumbleweed.bridge.command("mode/compose");
+    tumbleweed.bridge.command("compositor/mango");
+    tumbleweed.bridge.command("shell/noctalia");
+    capture(&tumbleweed, &dir.join("tumbleweed-desktop.png"), 1120, 753)?;
     // The Account page, empty, filled, with a separate sudo password, and with its
     // apps open, in both themes; then encryption offered, on firmware in Setup Mode.
     let both = |app: &mut App, name: &str| -> Result<(), Box<dyn std::error::Error>> {

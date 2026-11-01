@@ -19,4 +19,4 @@ Windpad and Borea Live share the [Iced interface](iced-ui.md).
 - Extra applications remain optional and finish quietly after graphical login.
 - Firmware setup is available from the footer with a restart confirmation.
 
-[Design rules](design.md) · [Native Arch/CachyOS path](arch-noctalia.md) · [Architecture](architecture.md)
+[Design rules](design.md) · [Native Arch/CachyOS/Tumbleweed path](arch-noctalia.md) · [Architecture](architecture.md)

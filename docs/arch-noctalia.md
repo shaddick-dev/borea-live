@@ -1,6 +1,6 @@
-# Arch and CachyOS + Noctalia v5
+# Arch, CachyOS and Tumbleweed + Noctalia v5
 
-Choose **Arch or CachyOS → Minimal → Compose a desktop → Hyprland, niri or MangoWC → Noctalia v5**.
+Choose **Arch, CachyOS or openSUSE Tumbleweed → Minimal → Compose a desktop → Hyprland, niri or MangoWC → Noctalia v5**.
 
 ```text
 Borea → disk → account and region → review → install
@@ -17,6 +17,25 @@ Reboot → graphical disk unlock → Noctalia Greeter → chosen compositor + No
 All three use signed upstream packages. CachyOS adds its signed repository,
 `linux-cachyos`, settings and branding; Arch uses its stock kernel.
 CachyOS's separate themed Noctalia presets remain previews.
+
+### Tumbleweed
+
+Tumbleweed installs the same recipes from its own packages: Noctalia, Noctalia
+Greeter, Hyprland and niri come from the official OSS repository. MangoWC is not
+packaged by openSUSE, so it comes from the community OBS project
+[`home:darix:playground`](https://build.opensuse.org/project/show/home:darix:playground),
+which builds the same 0.18.4 Arch ships. Like Packman, its signing key's SHA-256
+is recorded at review and checked before import; the repository appears only
+when MangoWC is chosen.
+
+| | Arch / CachyOS | Tumbleweed |
+| --- | --- | --- |
+| Packages | Signed Arch (and CachyOS) repositories; AUR first for apps | OSS, non-OSS for Steam, Packman for codecs, OBS for MangoWC; Flathub for apps |
+| Boot | systemd-boot, mkinitcpio | systemd-boot via `sdbootutil`, dracut |
+| Extra apps | Quietly after first login | During installation (Flatpak after first login) |
+
+Hyprland is 0.56.2 on Tumbleweed and 0.57 on Arch; both read the same
+`hyprland.lua`, which CI checks against each.
 
 - Erase-disk and alongside-Windows use the same reviewed storage engine.
 - Linux storage uses LUKS2 and Btrfs. Alongside keeps Windows and its EFI files.
@@ -68,7 +87,7 @@ lookup is needed. Previously approved exact-version jobs retain their exact chec
 - Full graphical login, lock/unlock, suspend/resume and physical Arc A770 testing remain outstanding. A MangoWC headless attempt stopped because its renderer requires a DRM device.
 
 The disposable VM workflow accepts `desktop: noctalia`, `noctalia-niri` or
-`noctalia-mango`, with Arch or CachyOS and either disk layout. Its serial checks
+`noctalia-mango`, with Arch, CachyOS or Tumbleweed and either disk layout. Its serial checks
 verify installed services and config files; they do not certify graphical login.
 
 ```sh
