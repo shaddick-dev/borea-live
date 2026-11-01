@@ -107,6 +107,10 @@
     {
       "source": "opensuse.oss",
       "name": "zram-generator"
+    },
+    {
+      "source": "opensuse.oss",
+      "name": "zypper"
     }
   ],
   "apps": [],

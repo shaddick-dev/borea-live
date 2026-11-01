@@ -96,6 +96,9 @@ pub fn boot_packages(d: Distro) -> &'static [&'static str] {
             "kbd",
         ],
         Distro::OpenSuse => &[
+            // minimal_base has no package manager; the installed system needs it
+            // to update, and Borea uses it inside the target for extra repositories.
+            "zypper",
             "shadow",
             "util-linux-systemd",
             "kernel-default",
