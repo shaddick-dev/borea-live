@@ -175,6 +175,42 @@ fn capture(root: Root, program: &str, args: &[&str], name: &str) -> Action {
     }
     a
 }
+/// What Borea adds, for `borea list` and `borea remove` on the installed system:
+/// each chosen app and extra, and where it comes from.
+fn added_by_borea(plan: &Plan, review: &borea_core::Review) -> Result<String, Hint> {
+    use borea_catalog::{Resolution, Source};
+    let mut sources = borea_catalog::Sources::defaults(plan.distro);
+    for (key, on) in &plan.sources {
+        if let Ok(source) = borea_core::source(key, plan.distro) {
+            let _ = sources.set(source, *on);
+        }
+    }
+    let mut added = serde_json::Map::new();
+    for id in &review.apps {
+        let Some(app) = borea_catalog::app(id) else { continue };
+        let (Resolution::From { source, package } | Resolution::NeedsSource { source, package }) =
+            borea_catalog::resolve(app, &sources, plan.prefer)
+        else {
+            continue;
+        };
+        let origin = match source {
+            Source::Aur => serde_json::json!({"from": "aur", "package": package}),
+            Source::Flathub => serde_json::json!({"from": "flathub", "id": package}),
+            Source::Repo(_) => serde_json::json!({"from": "native", "packages": [package]}),
+            Source::AppImage => continue,
+        };
+        added.insert(id.clone(), origin);
+    }
+    for id in &plan.extras {
+        let packages = borea_catalog::groups::extra_packages(plan.distro, id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(_, name)| name)
+            .collect::<Vec<_>>();
+        added.insert(id.clone(), serde_json::json!({"from": "native", "packages": packages}));
+    }
+    serde_json::to_string_pretty(&added).map_err(|e| hint("apps", e.to_string()))
+}
 fn install(d: Distro, pkgs: Vec<String>) -> Action {
     let (p, a) = borea_backend::install(d, &pkgs);
     target(&p, a)
@@ -958,7 +994,7 @@ pub fn compile(
         weight: 20,
         actions: config,
     });
-    let mut apps = Vec::new();
+    let mut apps = vec![write("/var/lib/borea/apps.json", added_by_borea(plan, &review)?, 0o644)];
     if composed {
         let mut queue = Vec::new();
         if !deferred_native.is_empty() {

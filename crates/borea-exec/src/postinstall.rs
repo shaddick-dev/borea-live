@@ -222,7 +222,7 @@ pub fn aur_apps() -> Result<(), Hint> {
         },
     )
 }
-fn aur_command(program: &str, args: Vec<String>) -> Result<String, Hint> {
+pub(crate) fn aur_command(program: &str, args: Vec<String>) -> Result<String, Hint> {
     if program == "/usr/bin/pacman"
         && args.first().is_some_and(|v| v == "-S" || v == "-U")
         && Path::new("/var/lib/pacman/db.lck").exists()

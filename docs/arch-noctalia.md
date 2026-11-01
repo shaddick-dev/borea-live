@@ -43,6 +43,27 @@ Hyprland is 0.56.2 on Tumbleweed and 0.57 on Arch; both read the same
 - The desktop, drivers, audio, portals and greeter install before reboot.
 - Selected extra apps finish quietly after the account's first active Wayland login: AUR first, official packages next, Flatpak as fallback. Transactions are checkpointed and retried.
 
+## The borea command
+
+Every system Borea installs has `borea`, for adding and removing software the
+same way on Arch, CachyOS and Tumbleweed:
+
+```sh
+sudo borea install firefox vesktop     # Borea's catalog, by name or id
+sudo borea install gaming              # an extra: Gaming, codecs, printing, Flatpak
+sudo borea install htop                # any package: this system's repositories,
+sudo borea install yay-bin             #   then the AUR (Arch), then Flathub by app id
+sudo borea remove vesktop              # only what Borea added
+borea list                             # what Borea added, and where from
+borea status                           # the apps chosen while installing
+```
+
+Catalog apps come from the AUR first on Arch and CachyOS, and from the system's
+own repositories elsewhere, with Flathub as the fallback. AUR packages build as
+Borea's unprivileged build account, each archive pinned to the digest read
+before building. The apps and extras chosen while installing are recorded too,
+so `borea remove` works for them.
+
 ## Shortcuts and region
 
 Shortcuts follow [Noctalia's v5 compositor guides](https://github.com/noctalia-dev/noctalia/tree/v5.4.1/docs/user/compositor-settings).
