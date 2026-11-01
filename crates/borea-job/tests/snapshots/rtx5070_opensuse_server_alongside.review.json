@@ -26,6 +26,10 @@
     },
     {
       "source": "opensuse.oss",
+      "name": "ca-certificates-mozilla"
+    },
+    {
+      "source": "opensuse.oss",
       "name": "chrony"
     },
     {

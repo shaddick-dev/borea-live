@@ -99,6 +99,8 @@ pub fn boot_packages(d: Distro) -> &'static [&'static str] {
             // minimal_base has no package manager; the installed system needs it
             // to update, and Borea uses it inside the target for extra repositories.
             "zypper",
+            // Trusted roots for HTTPS repositories; minimal_base has none.
+            "ca-certificates-mozilla",
             "shadow",
             "util-linux-systemd",
             "kernel-default",
