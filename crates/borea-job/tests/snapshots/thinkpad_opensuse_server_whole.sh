@@ -18,7 +18,7 @@ set -euo pipefail
 # Check live utilities and the static x86-64 target helper before disk changes.
 chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--gpg-auto-import-keys' '--non-interactive' 'refresh'
 chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--non-interactive' 'refresh'
-chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--non-interactive' 'install' '--dry-run' '--auto-agree-with-licenses' 'Mesa-dri' 'NetworkManager' 'btrfsprogs' 'chrony' 'cockpit' 'cryptsetup' 'dracut' 'fail2ban' 'firewalld' 'fprintd' 'fprintd-pam' 'glibc-locale' 'intel-media-driver' 'kbd' 'kernel-default' 'kernel-firmware-all' 'libvulkan_intel' 'nano' 'openssh-server' 'power-profiles-daemon' 'rsync' 'sdbootutil' 'shadow' 'shim' 'snapper' 'sof-firmware' 'sudo' 'systemd' 'systemd-boot' 'tmux' 'ucode-intel' 'util-linux-systemd' 'zram-generator' 'zypper'
+chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--non-interactive' 'install' '--dry-run' '--auto-agree-with-licenses' 'Mesa-dri' 'NetworkManager' 'btrfsprogs' 'ca-certificates-mozilla' 'chrony' 'cockpit' 'cryptsetup' 'dracut' 'fail2ban' 'firewalld' 'fprintd' 'fprintd-pam' 'glibc-locale' 'intel-media-driver' 'kbd' 'kernel-default' 'kernel-firmware-all' 'libvulkan_intel' 'nano' 'openssh-server' 'power-profiles-daemon' 'rsync' 'sdbootutil' 'shadow' 'shim' 'snapper' 'sof-firmware' 'sudo' 'systemd' 'systemd-boot' 'tmux' 'ucode-intel' 'util-linux-systemd' 'zram-generator' 'zypper'
 
 # Clearing the drive.
 '/usr/sbin/sgdisk' '--zap-all' '/dev/vda'
@@ -87,7 +87,7 @@ chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--non-interactive' 'instal
 #
 # Copy native openSUSE repository definitions from the authenticated tool root into the target.
 chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--root' '/mnt' '--gpg-auto-import-keys' '--non-interactive' 'install' '--auto-agree-with-licenses' '--type' 'pattern' 'minimal_base'
-chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--root' '/mnt' '--non-interactive' 'install' '--auto-agree-with-licenses' 'Mesa-dri' 'NetworkManager' 'btrfsprogs' 'chrony' 'cockpit' 'cryptsetup' 'dracut' 'fail2ban' 'firewalld' 'fprintd' 'fprintd-pam' 'glibc-locale' 'intel-media-driver' 'kbd' 'kernel-default' 'kernel-firmware-all' 'libvulkan_intel' 'nano' 'openssh-server' 'power-profiles-daemon' 'rsync' 'sdbootutil' 'shadow' 'shim' 'snapper' 'sof-firmware' 'sudo' 'systemd' 'systemd-boot' 'tmux' 'ucode-intel' 'util-linux-systemd' 'zram-generator' 'zypper'
+chroot '/run/borea/tools/opensuse' '/usr/bin/zypper' '--root' '/mnt' '--non-interactive' 'install' '--auto-agree-with-licenses' 'Mesa-dri' 'NetworkManager' 'btrfsprogs' 'ca-certificates-mozilla' 'chrony' 'cockpit' 'cryptsetup' 'dracut' 'fail2ban' 'firewalld' 'fprintd' 'fprintd-pam' 'glibc-locale' 'intel-media-driver' 'kbd' 'kernel-default' 'kernel-firmware-all' 'libvulkan_intel' 'nano' 'openssh-server' 'power-profiles-daemon' 'rsync' 'sdbootutil' 'shadow' 'shim' 'snapper' 'sof-firmware' 'sudo' 'systemd' 'systemd-boot' 'tmux' 'ucode-intel' 'util-linux-systemd' 'zram-generator' 'zypper'
 'mount' '-t' 'proc' '-o' 'nosuid,nodev,noexec' 'proc' '/run/borea/target/proc'
 'mount' '-o' 'rbind,ro' '/sys' '/run/borea/target/sys'
 'mount' '-o' 'rbind' '/dev' '/run/borea/target/dev'
