@@ -38,10 +38,10 @@ jobs:
     env:
       CARGO_BUILD_JOBS: '4'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: target/live/compose
           key: compose-rust-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}
@@ -53,7 +53,7 @@ jobs:
           cargo run --locked --profile app -p borea-build -- compose 2>&1 | tee compose.log \
             || { sed 's/\x1b\[[0-9;]*m//g' compose.log | grep -v '^\s*$' | tail -10 \
                    | sed 's/^/::error::/'; exit 1; }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: borea-live-handoff-test
           path: target/live/out/borea-live-compose.iso
@@ -85,7 +85,7 @@ jobs:
             runs: |
               install whole --install --extras printing,flatpak --timeout 1200
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Make room and enable KVM
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
@@ -98,7 +98,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends qemu-system-x86 ovmf ntfs-3g dosfstools e2fsprogs gpgv btrfs-progs openssl
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: borea-live-handoff-test
           path: /mnt/handoff/borea
@@ -130,7 +130,7 @@ jobs:
             echo "::endgroup::"
           done <<< "$RUNS"
           exit "$status"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: handoff-${{ matrix.key }}-logs
