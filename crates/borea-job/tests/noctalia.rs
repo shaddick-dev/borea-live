@@ -330,6 +330,13 @@ fn cachyos_both_layouts_use_signed_upstream_packages_and_the_correct_kernel() {
     }
 }
 #[test]
+fn cachyos_is_named_as_itself_while_installing() {
+    for (cachyos, name) in [(false, "Installing Arch Linux."), (true, "Installing CachyOS.")] {
+        let job = scenario_target(false, common::plan(Distribution::Arch, true).locale, cachyos);
+        assert!(job.stages.iter().any(|s| s.title == name), "{name}");
+    }
+}
+#[test]
 fn cachyos_secure_boot_uses_its_kernel_preset_for_both_layouts() {
     for alongside in [false, true] {
         let prior = scenario_target(alongside, common::plan(Distribution::Arch, true).locale, true);
