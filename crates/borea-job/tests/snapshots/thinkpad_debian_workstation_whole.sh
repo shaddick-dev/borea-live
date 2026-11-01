@@ -143,6 +143,8 @@ chroot /run/borea/target '/usr/bin/systemctl' 'enable' 'fstrim.timer'
 chroot /run/borea/target '/usr/bin/systemctl' 'set-default' 'graphical.target'
 
 # Adding your apps.
+# write target:/var/lib/borea/apps.json mode 644
+# {}
 
 # Finishing up.
 # write target:/etc/kernel/cmdline mode 644

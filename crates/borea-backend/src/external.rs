@@ -142,6 +142,13 @@ pub fn verify_source(source: &str, name: &str) -> Result<(), Hint> {
         _ => Err(hint("sources", "Choose a supported external package source and identifier.")),
     }
 }
+/// The AUR recipes one package needs, its AUR dependencies included, each
+/// pinned to the archive digest read now.
+pub fn aur_recipes(name: &str) -> Result<Vec<AurRecipe>, Hint> {
+    let mut out = Vec::new();
+    aur(name, &mut BTreeMap::new(), &mut BTreeSet::new(), &mut out)?;
+    Ok(out)
+}
 fn aur(
     name: &str,
     done: &mut BTreeMap<String, String>,

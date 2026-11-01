@@ -730,6 +730,29 @@ fn tumbleweed_installs_every_noctalia_compositor_from_its_own_packages_for_both_
     }
 }
 
+#[test]
+fn borea_records_the_chosen_apps_and_extras_for_borea_remove() {
+    // Arch: Vesktop from the AUR, Firefox from the repositories, the extras' packages.
+    let job = scenario_apps(
+        false,
+        common::plan(Distribution::Arch, true).locale,
+        false,
+        Desktop::NiriNoctalia,
+        true,
+    );
+    let added: serde_json::Value =
+        serde_json::from_str(written(&job, "/var/lib/borea/apps.json")).unwrap();
+    assert_eq!(added["vesktop"], serde_json::json!({"from": "aur", "package": "vesktop-bin"}));
+    assert_eq!(added["firefox"]["from"], "native");
+    assert_eq!(added["printing"]["packages"], serde_json::json!(["cups", "system-config-printer"]));
+    // Tumbleweed: the same apps from its own repositories.
+    let job = tumbleweed(Desktop::NiriNoctalia, false);
+    let added: serde_json::Value =
+        serde_json::from_str(written(&job, "/var/lib/borea/apps.json")).unwrap();
+    assert_eq!(added["firefox"]["from"], "native");
+    assert!(added["codecs"]["packages"].as_array().unwrap().contains(&"ffmpeg".into()));
+}
+
 fn cachyos_on(x86_level: u8) -> Job {
     let reference = scenario_target(false, common::plan(Distribution::Arch, true).locale, true);
     let mut hw = borea_catalog::hardware::samples().remove(0).1;

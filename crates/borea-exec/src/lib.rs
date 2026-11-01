@@ -1889,9 +1889,14 @@ impl Session {
         Ok(())
     }
     fn install_helpers(&self) -> Result<(), Hint> {
-        let destination = self.target_path("/usr/bin/borea-firstboot")?;
-        io(fs::copy("/usr/bin/borea-firstboot", &destination))?;
-        io(fs::set_permissions(destination, fs::Permissions::from_mode(0o755)))?;
+        // One static program: `borea` for people, `borea-firstboot` for the
+        // service that finishes the chosen apps. Copies, not links, since a
+        // link reports its target's name.
+        for name in ["/usr/bin/borea-firstboot", "/usr/bin/borea"] {
+            let destination = self.target_path(name)?;
+            io(fs::copy("/usr/bin/borea-firstboot", &destination))?;
+            io(fs::set_permissions(destination, fs::Permissions::from_mode(0o755)))?;
+        }
         self.write("/var/lib/borea/firstboot.json", "[]", 0o600)?;
         self.write(
             "/etc/systemd/system/borea-firstboot.service",
@@ -2193,6 +2198,7 @@ fn zypper_version(info: &str) -> Option<&str> {
     })
 }
 pub mod postinstall;
+pub mod system;
 
 #[cfg(test)]
 mod mount_tests {

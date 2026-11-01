@@ -153,6 +153,8 @@ chroot /run/borea/target '/usr/bin/firewall-offline-cmd' '--add-service=ssh'
 chroot /run/borea/target '/usr/bin/firewall-offline-cmd' '--add-service=cockpit'
 
 # Adding your apps.
+# write target:/var/lib/borea/apps.json mode 644
+# {}
 
 # Finishing up.
 # write target:/etc/kernel/cmdline mode 644

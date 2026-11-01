@@ -244,7 +244,7 @@ fn pacman_busy_in(lock: &Path, proc: &Path) -> bool {
     eprintln!("Removing a stale pacman lock: no package transaction is running.");
     fs::remove_file(lock).is_err() && lock.exists()
 }
-fn aur_command(program: &str, args: Vec<String>) -> Result<String, Hint> {
+pub(crate) fn aur_command(program: &str, args: Vec<String>) -> Result<String, Hint> {
     if program == "/usr/bin/pacman"
         && args.first().is_some_and(|v| v == "-S" || v == "-U")
         && pacman_busy()
