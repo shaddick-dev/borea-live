@@ -751,6 +751,7 @@ fn borea_records_the_chosen_apps_and_extras_for_borea_remove() {
         serde_json::from_str(written(&job, "/var/lib/borea/apps.json")).unwrap();
     assert_eq!(added["firefox"]["from"], "native");
     assert!(added["codecs"]["packages"].as_array().unwrap().contains(&"ffmpeg".into()));
+}
 
 fn cachyos_on(x86_level: u8) -> Job {
     let reference = scenario_target(false, common::plan(Distribution::Arch, true).locale, true);
