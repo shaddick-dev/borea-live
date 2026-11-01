@@ -218,6 +218,8 @@ pub struct Hardware {
     pub chassis: Chassis,
     pub battery: bool,
     pub cpu: Cpu,
+    /// The x86-64 microarchitecture level, 1 to 4, from the CPU's flags.
+    pub x86_level: u8,
     pub gpus: Vec<Gpu>,
     pub mux: Option<Mux>,
     pub secure_boot: bool,
@@ -319,6 +321,22 @@ fn dirs(p: PathBuf) -> Vec<PathBuf> {
     v
 }
 
+/// The x86-64 level (1 to 4) the first CPU's flags meet, as psABI defines them.
+pub fn x86_level(cpuinfo: &str) -> u8 {
+    let flags = cpuinfo
+        .lines()
+        .find_map(|l| l.strip_prefix("flags").and_then(|r| r.split_once(':')).map(|(_, f)| f))
+        .unwrap_or_default()
+        .split_whitespace()
+        .collect::<std::collections::BTreeSet<_>>();
+    let levels: [&[&str]; 3] = [
+        &["cx16", "lahf_lm", "popcnt", "sse4_1", "sse4_2", "ssse3"],
+        &["avx", "avx2", "bmi1", "bmi2", "f16c", "fma", "abm", "movbe", "xsave"],
+        &["avx512f", "avx512bw", "avx512cd", "avx512dq", "avx512vl"],
+    ];
+    1 + levels.iter().take_while(|needed| needed.iter().all(|f| flags.contains(f))).count() as u8
+}
+
 /// Read the machine from `root` (`/` on the live ISO). `names` looks up PCI names (pci.ids).
 pub fn scan(root: &Path, names: &dyn Fn(u16, u16) -> Option<String>) -> io::Result<Hardware> {
     let dmi = |f: &str| read(root, &format!("sys/class/dmi/id/{f}")).unwrap_or_default();
@@ -335,6 +353,7 @@ pub fn scan(root: &Path, names: &dyn Fn(u16, u16) -> Option<String>) -> io::Resu
         Cpu::Other
     };
 
+    let x86_level = x86_level(&cpuinfo);
     let mut gpus = Vec::new();
     let mut broadcom_wl = false;
     let mut sof_audio = false;
@@ -401,6 +420,7 @@ pub fn scan(root: &Path, names: &dyn Fn(u16, u16) -> Option<String>) -> io::Resu
         chassis,
         battery,
         cpu,
+        x86_level,
         gpus,
         mux: None,
         secure_boot: false,
@@ -508,6 +528,7 @@ pub fn samples() -> Vec<(&'static str, Hardware)> {
         chassis,
         battery: chassis == Chassis::Laptop,
         cpu,
+        x86_level: 3,
         gpus: vec![],
         mux: None,
         secure_boot: false,
