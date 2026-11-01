@@ -31,16 +31,16 @@ CONF
 pacman -Sy >/dev/null || { echo "SYNC FAILED"; pacman -Sy; }
 echo "== Where each package comes from"
 for p in base zlib zlib-ng-compat systemd glibc mangowm scenefx scenefx0.5 hyprland niri noctalia noctalia-greeter greetd linux-cachyos cachyos-settings cachyos-hooks cachyos-keyring cachyos-mirrorlist cachyos-v3-mirrorlist xdg-desktop-portal-wlr foot plymouth; do
-  printf '%s: ' "$p"; pacman -Si "$p" 2>/dev/null | awk -F': ' '/^Repository/{r=$2}/^Version/{v=$2}/^Depends On/{d=$2}END{print (r?r" "v:"NOT FOUND")}'
+  printf '%s: ' "$p"; pacman -Si "$p" 2>/dev/null | awk -F': ' '/^Repository/&&!r{r=$2}/^Version/&&!v{v=$2}END{print (r?r" "v:"NOT FOUND")}'
 done
 pacman -Si mangowm | grep -E "^(Repository|Depends On)"
 echo "== Install a Noctalia + MangoWC root, then -Syu as a user would"
-root=/tmp/root; mkdir -p "$root/var/lib/pacman"
-pacman -r "$root" -Sy --noconfirm --noscriptlet --hookdir /nonexistent \
+root=/tmp/root; mkdir -p "$root/var/lib/pacman" /tmp/nohooks
+pacman -r "$root" -Sy --noconfirm --noscriptlet --hookdir /tmp/nohooks \
   base linux-cachyos cachyos-settings cachyos-hooks cachyos-keyring cachyos-mirrorlist cachyos-v3-mirrorlist \
   mangowm xdg-desktop-portal-wlr noctalia noctalia-greeter greetd foot >/tmp/install.log 2>&1 \
   && echo "install OK" || { echo "install FAILED"; tail -20 /tmp/install.log; }
 pacman -r "$root" -Q zlib zlib-ng-compat scenefx scenefx0.5 mangowm glibc systemd 2>&1
 for p in glibc systemd mangowm; do printf '%s from: ' "$p"; grep -m1 -E "downloading $p-[0-9]" /tmp/install.log || echo "?"; done
-pacman -r "$root" -Syu --noconfirm --noscriptlet --hookdir /nonexistent >/tmp/upgrade.log 2>&1 \
+pacman -r "$root" -Syu --noconfirm --noscriptlet --hookdir /tmp/nohooks >/tmp/upgrade.log 2>&1 \
   && echo "-Syu OK: $(grep -cE '^ *\(' /tmp/upgrade.log) steps" || { echo "-Syu FAILED"; tail -15 /tmp/upgrade.log; }
