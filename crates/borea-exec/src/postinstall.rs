@@ -84,6 +84,14 @@ fn allowed(action: &Deferred) -> bool {
             "--".into(),
         ]) && packages(&action.args[4..]);
     }
+    if action.program == "/usr/bin/zypper" {
+        return action.args.starts_with(&[
+            "--non-interactive".into(),
+            "install".into(),
+            "--auto-agree-with-licenses".into(),
+            "--".into(),
+        ]) && packages(&action.args[4..]);
+    }
     if action.program == "/usr/bin/systemctl" {
         return action.args == ["enable", "--now", "cups.service"];
     }
@@ -245,11 +253,11 @@ fn pacman_busy_in(lock: &Path, proc: &Path) -> bool {
     fs::remove_file(lock).is_err() && lock.exists()
 }
 pub(crate) fn aur_command(program: &str, args: Vec<String>) -> Result<String, Hint> {
-    if program == "/usr/bin/pacman"
-        && args.first().is_some_and(|v| v == "-S" || v == "-U")
-        && pacman_busy()
-    {
-        return Err(err("Another package transaction is running; Borea will retry later."));
+    if program == "/usr/bin/pacman" && args.first().is_some_and(|v| v == "-S" || v == "-U") {
+        crate::courtesy::wait_for_quiet();
+        if pacman_busy() {
+            return Err(err("Another package transaction is running; Borea will retry later."));
+        }
     }
     if (program == "/usr/bin/pacman" && args.first().is_some_and(|v| v == "-Qp"))
         || (program == "/usr/sbin/runuser" && args.last().is_some_and(|v| v == "--printsrcinfo"))
@@ -269,14 +277,63 @@ pub(crate) fn aur_command(program: &str, args: Vec<String>) -> Result<String, Hi
     }
 }
 
+/// Install with pacman, holding its lock only for the install: everything is
+/// downloaded first through a private copy of the package database, so the
+/// system's own lock is free while it downloads, and a person's pacman runs.
+fn courteous_pacman(args: &[String]) -> Result<(), Hint> {
+    crate::courtesy::wait_for_quiet();
+    if pacman_busy() {
+        return Err(err("Another package transaction is running; Borea will retry later."));
+    }
+    let private = Path::new("/var/lib/borea/pacman-db");
+    let _ = fs::remove_dir_all(private);
+    fs::create_dir_all(private).map_err(|e| err(e.to_string()))?;
+    for part in ["local", "sync"] {
+        command(
+            "/usr/bin/cp",
+            &[
+                "-a".into(),
+                format!("/var/lib/pacman/{part}"),
+                private.join(part).display().to_string(),
+            ],
+        )?;
+    }
+    let mut download = vec![
+        "-Syuw".into(),
+        "--noconfirm".into(),
+        "--dbpath".into(),
+        private.display().to_string(),
+        "--logfile".into(),
+        "/dev/null".into(),
+    ];
+    download.extend(args.iter().skip_while(|a| *a != "--").cloned());
+    let downloaded = command("/usr/bin/pacman", &download);
+    let _ = fs::remove_dir_all(private);
+    downloaded?;
+    crate::courtesy::wait_for_quiet();
+    if pacman_busy() {
+        return Err(err("Another package transaction is running; Borea will retry later."));
+    }
+    command("/usr/bin/pacman", args)
+}
+/// Install with zypper once no one else is, waiting for its lock rather than
+/// failing if PackageKit or a person takes it first.
+fn courteous_zypper(args: &[String]) -> Result<(), Hint> {
+    crate::courtesy::wait_for_quiet();
+    let status = Command::new("/usr/bin/zypper")
+        .args(args)
+        .env(crate::courtesy::ZYPP_WAIT, "-1")
+        .status()
+        .map_err(|e| err(e.to_string()))?;
+    status.success().then_some(()).ok_or_else(|| err("/usr/bin/zypper failed."))
+}
 pub fn firstboot() -> Result<(), Hint> {
     let path = Path::new("/var/lib/borea/firstboot.json");
     trusted(path)?;
-    run_queue(path, |action| {
-        if action.program == "/usr/bin/pacman" && pacman_busy() {
-            return Err(err("Another package transaction is running; Borea will retry later."));
-        }
-        command(&action.program, &action.args)
+    run_queue(path, |action| match action.program.as_str() {
+        "/usr/bin/pacman" => courteous_pacman(&action.args),
+        "/usr/bin/zypper" => courteous_zypper(&action.args),
+        _ => command(&action.program, &action.args),
     })?;
     // Keep manifests until the whole queue is checkpointed, so a reboot between
     // a successful AUR install and its queue checkpoint remains safe to retry.
@@ -465,6 +522,21 @@ fn update_one(config: &Path) -> Result<(), Hint> {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+    #[test]
+    fn the_worker_accepts_zypper_installs_and_nothing_looser() {
+        let step = |program: &str, args: &[&str]| Deferred {
+            program: program.into(),
+            args: args.iter().map(|a| (*a).to_owned()).collect(),
+        };
+        let flags = ["--non-interactive", "install", "--auto-agree-with-licenses", "--"];
+        assert!(allowed(&step(
+            "/usr/bin/zypper",
+            &[&flags[..], &["MozillaFirefox", "steam"]].concat()
+        )));
+        assert!(!allowed(&step("/usr/bin/zypper", &flags)), "something to install");
+        assert!(!allowed(&step("/usr/bin/zypper", &["--non-interactive", "remove", "--", "x"])));
+        assert!(!allowed(&step("/usr/bin/zypper", &[&flags[..], &["--from", "x"]].concat())));
+    }
     #[test]
     fn a_stale_pacman_lock_is_cleared_and_a_live_one_waits() {
         let dir = std::env::temp_dir().join(format!("borea-lock-{}", std::process::id()));

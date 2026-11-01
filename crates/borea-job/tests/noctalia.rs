@@ -821,3 +821,22 @@ fn cachyos_keeps_its_generic_repository_on_an_older_cpu() {
     assert!(!conf.contains("-v3]"));
     assert!(conf.find("[cachyos]").unwrap() < conf.find("[core]").unwrap());
 }
+
+#[test]
+fn tumbleweed_apps_finish_after_login_and_zypper_waits_for_its_lock() {
+    let job = tumbleweed(Desktop::NiriNoctalia, false);
+    let queue: Vec<serde_json::Value> =
+        serde_json::from_str(written(&job, "/var/lib/borea/firstboot.json")).unwrap();
+    let zypper = queue.iter().find(|q| q["program"] == "/usr/bin/zypper").unwrap();
+    let args = zypper["args"].as_array().unwrap();
+    assert_eq!(args[..4], ["--non-interactive", "install", "--auto-agree-with-licenses", "--"]);
+    for app in ["MozillaFirefox", "steam", "cups"] {
+        assert!(args.contains(&app.into()), "{app} waits for the first login");
+    }
+    // Nothing the first login itself needs is deferred.
+    for needed in ["noctalia", "greetd", "niri", "kernel-default", "zypper", "glibc-locale"] {
+        assert!(!args.contains(&needed.into()), "{needed} installs before reboot");
+    }
+    assert!(written(&job, "/etc/profile.d/borea-zypper.sh").contains("ZYPP_LOCK_TIMEOUT=300"));
+    assert!(written(&job, "/etc/sudoers.d/20-borea-zypper").contains("ZYPP_LOCK_TIMEOUT"));
+}

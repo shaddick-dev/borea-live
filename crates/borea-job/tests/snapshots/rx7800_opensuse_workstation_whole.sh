@@ -129,6 +129,14 @@ chroot /run/borea/target '/usr/bin/ln' '-sf' '/usr/share/zoneinfo/Europe/London'
 #
 '/usr/sbin/blkid' '-s' 'UUID' '-o' 'value' '/dev/vda1'
 # Write fstab (and crypttab when encrypting) from discovered filesystem and LUKS UUIDs and the reviewed btrfs layout.
+# write target:/etc/profile.d/borea-zypper.sh mode 644
+# # Borea: wait for a running package transaction instead of failing.
+# export ZYPP_LOCK_TIMEOUT=300
+#
+# write target:/etc/sudoers.d/20-borea-zypper mode 440
+# Defaults env_keep += "ZYPP_LOCK_TIMEOUT"
+#
+chroot /run/borea/target '/usr/sbin/visudo' '-cf' '/etc/sudoers.d/20-borea-zypper'
 # write target:/etc/snapper/configs/root mode 640
 # SUBVOLUME="/"
 # FSTYPE="btrfs"
