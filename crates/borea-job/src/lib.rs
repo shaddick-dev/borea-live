@@ -1150,17 +1150,28 @@ pub fn compile(
                 ),
                 0o644,
             ));
-            let mut install =
+            // sdbootutil names an encrypted root by its device-mapper path, which
+            // here is still the installer's own name. Name the one rd.luks.name
+            // opens at boot instead; later kernel updates then see it mounted.
+            let mut common =
                 vec!["--esp-path".into(), layout.esp_mount.clone(), "--arch".into(), "x64".into()];
+            if plan.encrypt {
+                common.extend([
+                    "--rootfs".into(),
+                    "device".into(),
+                    "--rootfs-data".into(),
+                    "/dev/mapper/borea-root".into(),
+                ]);
+            }
+            let mut install = common.clone();
             if secure_boot {
                 install.push("--secure-boot".into());
             }
             install.push("install".into());
             boot.push(target("/usr/bin/sdbootutil", install));
-            boot.push(target(
-                "/usr/bin/sdbootutil",
-                ["--esp-path", layout.esp_mount.as_str(), "--arch", "x64", "add-all-kernels"],
-            ));
+            let mut kernels = common;
+            kernels.push("add-all-kernels".into());
+            boot.push(target("/usr/bin/sdbootutil", kernels));
         }
     }
     if secure_boot && plan.distro == Distro::Arch {

@@ -659,6 +659,22 @@ fn tumbleweed_installs_every_noctalia_compositor_from_its_own_packages_for_both_
                     .contains("rd.luks.name=${LUKS_UUID}=borea-root")
             );
             assert!(written(&job, "/etc/kernel/cmdline").contains("splash"));
+            let sdbootutil = job
+                .stages
+                .iter()
+                .flat_map(|s| &s.actions)
+                .filter_map(|a| match a {
+                    Action::Run(c) if c.program == "/usr/bin/sdbootutil" => Some(c.args.join(" ")),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(sdbootutil.len(), 2);
+            for args in &sdbootutil {
+                assert!(
+                    args.contains("--rootfs device --rootfs-data /dev/mapper/borea-root"),
+                    "{args}"
+                );
+            }
             let approved = borea_backend::external::resolve(&job.review).unwrap();
             assert_eq!(approved.noctalia.as_deref(), Some("5"));
             let script = job.render_script();
