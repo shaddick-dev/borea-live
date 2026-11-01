@@ -142,6 +142,38 @@ pub fn verify_source(source: &str, name: &str) -> Result<(), Hint> {
         _ => Err(hint("sources", "Choose a supported external package source and identifier.")),
     }
 }
+/// AUR packages matching a term, by name and description: (name, description).
+pub fn aur_search(term: &str) -> Result<Vec<(String, String)>, Hint> {
+    if !identifier(term) {
+        return Err(hint("aur", "Search for a plain word."));
+    }
+    let found = json(&format!("https://aur.archlinux.org/rpc/v5/search/{term}?by=name-desc"))?;
+    let mut out = found["results"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|r| {
+            Some((
+                r["Name"].as_str()?.to_owned(),
+                r["Description"].as_str().unwrap_or_default().to_owned(),
+                r["NumVotes"].as_u64().unwrap_or(0),
+            ))
+        })
+        .collect::<Vec<_>>();
+    out.sort_by_key(|r| std::cmp::Reverse(r.2));
+    Ok(out.into_iter().map(|(n, d, _)| (n, d)).collect())
+}
+/// The AUR's current version of a package.
+pub fn aur_version(name: &str) -> Result<String, Hint> {
+    if !identifier(name) {
+        return Err(hint("aur", "An AUR package name is invalid."));
+    }
+    let info = json(&format!("https://aur.archlinux.org/rpc/v5/info?arg[]={name}"))?;
+    info["results"][0]["Version"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| hint("aur", format!("The AUR package {name} is no longer available.")))
+}
 /// The AUR recipes one package needs, its AUR dependencies included, each
 /// pinned to the archive digest read now.
 pub fn aur_recipes(name: &str) -> Result<Vec<AurRecipe>, Hint> {
